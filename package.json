@@ -1,0 +1,40 @@
+{
+  "name": "mentoria",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.cjs"
+  },
+  "dependencies": {
+    "@google/genai": "^1.31.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "axios": "^1.13.2",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "framer-motion": "^12.23.25",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.15.3",
+    "nodemailer": "^7.0.11",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "sqlite3": "^5.1.7",
+    "uuid": "^13.0.0",
+    "vite": "^7.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  },
+  "description": "Este é um sistema de diagnóstico interativo desenvolvido para o **Prosperus Club**. O objetivo da aplicação é guiar mentores e especialistas através de uma jornada estruturada para \"empacotar\" seu conhecimento em uma oferta de mentoria de alto valor (High-Ticket).",
+  "main": "server.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

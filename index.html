@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prosperus Club - Diagnóstico de Mentoria</title>
+  <base href="/prosperus-mentor-diagnosis/" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Manrope:wght@300;400;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg" />
+  <!-- Bootstrap Icons CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            prosperus: {
+              gold: {
+                light: '#FFE39B',
+                DEFAULT: '#FFDA71',
+                dark: '#CA9A43',
+              },
+              navy: {
+                light: '#123F5B',
+                DEFAULT: '#031A2B',
+                dark: '#020f19',
+              },
+              neutral: {
+                white: '#FCF7F0',
+                grey: '#EDF4F7',
+                black: '#080808',
+              }
+            }
+          },
+          fontFamily: {
+            serif: ['"EB Garamond"', 'serif'],
+            sans: ['"Manrope"', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #031A2B;
+      color: #FCF7F0;
+    }
+
+    .text-gold-gradient {
+      background: linear-gradient(135deg, #FFE39B 0%, #CA9A43 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .bg-gold-gradient {
+      background: linear-gradient(135deg, #FFE39B 0%, #CA9A43 100%);
+    }
+
+    .border-gold-gradient {
+      border-image: linear-gradient(to right, #FFE39B, #CA9A43) 1;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "framer-motion": "https://aistudiocdn.com/framer-motion@^12.23.25",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.7",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2"
+  }
+}
+</script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="./index.tsx"></script>
+</body>
+
+</html>
