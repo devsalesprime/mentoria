@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
-    name: 'prosperus',
-    script: './server/index.js',
+    name: 'prosperus-mentor',
+    script: './server.cjs',
     cwd: '/var/www/prosperus-mentor-diagnosis',
     instances: 1,
     autorestart: true,
@@ -9,13 +9,10 @@ module.exports = {
     max_memory_restart: '500M',
     env: {
       NODE_ENV: 'production',
-      PORT: 3000,
-      SECRET_KEY: 'prosperus-production-secret-key-' + Math.random().toString(36).substring(2),
-      ADMIN_USERNAME: 'admin',
-      ADMIN_PASSWORD: 'admin123'
+      PORT: 3005
     },
-    error_file: '/var/log/prosperus-error.log',
-    out_file: '/var/log/prosperus-out.log',
+    error_file: '/var/log/prosperus-mentor-error.log',
+    out_file: '/var/log/prosperus-mentor-out.log',
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
     time: true
   }]
