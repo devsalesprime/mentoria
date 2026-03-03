@@ -1,0 +1,22 @@
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'alexandrebig111@gmail.com';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'constanzo@constanzo.com.br';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'crsoares@vivametodologia.com';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'danilo@emibra.com.br';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'fabio.torres@outlook.com.br';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'joao.alarcon.jr@gmail.com';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'juliane.lara@larafy.com.br';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'katherine@elevatemedperformance.com';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'marcio@comercialmargutti.com.br';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'monicacereser@gmail.com';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'naualelima@gmail.com';
+UPDATE user_progress SET progress_percentage = 100, status = 'completed' WHERE email = 'stefaniebcassis@gmail.com';
+UPDATE user_progress SET progress_percentage = 75, status = 'in_progress' WHERE email = 'renan@dalceroconsultoria.com.br';
+UPDATE user_progress SET progress_percentage = 50 WHERE email = 'Ariene@helloenglishlovers.com.br';
+UPDATE user_progress SET progress_percentage = 50 WHERE email = 'cintia.pellizzaro@bellavidars.com.br';
+UPDATE user_progress SET progress_percentage = 50 WHERE email = 'ligiapimenta1@gmail.com';
+UPDATE user_progress SET progress_percentage = 48 WHERE email = 'rzawitoski@gmail.com.br';
+UPDATE user_progress SET progress_percentage = 25 WHERE email = 'Danilo@emibra.com.br';
+UPDATE user_progress SET progress_percentage = 25 WHERE email = 'marciopedrosa@piccolibambini.com.br';
+UPDATE user_progress SET progress_percentage = 89 WHERE email = 'graziellariosmenezes@gmail.com';
+
+SELECT email, name, progress_percentage, status FROM user_progress ORDER BY progress_percentage DESC;
