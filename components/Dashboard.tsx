@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { Logo } from './ui/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,41 +6,32 @@ import { MethodModule, MethodData, INITIAL_METHOD_DATA } from './modules/MethodM
 import { MenteeModule, MenteeData, INITIAL_MENTEE_DATA } from './modules/MenteeModule';
 import { DeliveryModule, DeliveryData, INITIAL_DELIVERY_DATA } from './modules/DeliveryModule';
 import { Modal } from './ui/Modal';
+import { useUserPersistence } from '../hooks/useUserPersistence';
+
+interface UserDataShape {
+  name?: string;
+  email?: string;
+  description?: string;
+}
 
 interface DashboardProps {
-  userEmail: string;
-  userName: string;
-  userDescription: string;
-  onUpdateProfile: (data: { name: string; description: string }) => void;
+  userData?: UserDataShape;
+  userName?: string;
+  userEmail?: string;
+  userDescription?: string;
+  token?: string;
   onLogout: () => void;
+  onUpdateProfile?: (data: { name: string; description: string }) => void;
   initialModule?: string;
 }
 
-// Tipos para Menu e Estrutura
-type MenuItem = {
-  id: string;
-  label: string;
-};
+type MenuItem = { id: string; label: string };
+type MenuSection = { id: string; title: string; items: MenuItem[] };
 
-type MenuSection = {
-  id: string;
-  title: string;
-  items: MenuItem[];
-};
-
-// Estrutura do Menu
 const menuStructure: MenuSection[] = [
+  { id: 'geral', title: 'PRINCIPAL', items: [{ id: 'overview', label: 'Dashboard - Visão Geral' }] },
   {
-      id: 'geral',
-      title: 'PRINCIPAL',
-      items: [
-          { id: 'overview', label: 'Dashboard - Visão Geral' }
-      ]
-  },
-  {
-    id: 'fundacao',
-    title: 'FUNDAÇÃO',
-    items: [
+    id: 'fundacao', title: 'FUNDAÇÃO', items: [
       { id: 'mentor', label: 'O Mentor' },
       { id: 'mentorado', label: 'O Mentorado' },
       { id: 'metodo', label: 'O Método' },
@@ -50,718 +39,661 @@ const menuStructure: MenuSection[] = [
     ]
   },
   {
-    id: 'preparacao',
-    title: 'PREPARAÇÃO',
-    items: [
+    id: 'preparacao', title: 'PREPARAÇÃO', items: [
       { id: 'marketing', label: 'Marketing' },
       { id: 'vendas', label: 'Vendas' },
       { id: 'entrega_preparacao', label: 'Entrega' },
     ]
   },
-  {
-    id: 'acao',
-    title: 'AÇÃO',
-    items: [
-      { id: 'plano_acao', label: 'Plano de Execução' }
-    ]
-  }
+  { id: 'acao', title: 'AÇÃO', items: [{ id: 'plano_acao', label: 'Plano de Execução' }] }
 ];
 
-// Tipos de Status do Módulo
-type ModuleStatus = 'todo' | 'completed' | 'under_review';
+type ModuleStatus = 'todo' | 'in_progress' | 'completed' | 'under_review';
 
-export const Dashboard: React.FC<DashboardProps> = ({ 
-    userEmail, 
-    userName, 
-    userDescription, 
-    onUpdateProfile, 
-    onLogout, 
-    initialModule = 'overview' 
-}) => {
-  const [activeItem, setActiveItem] = useState(initialModule);
+export const Dashboard: React.FC<DashboardProps> = (props) => {
+  const resolvedName = props.userData?.name ?? props.userName ?? 'Membro';
+  const resolvedEmail = props.userData?.email ?? props.userEmail ?? '';
+  const resolvedDescription = props.userData?.description ?? props.userDescription ?? '';
+
+  const [activeItem, setActiveItem] = useState(props.initialModule || 'overview');
   const [openSections, setOpenSections] = useState<string[]>(['geral', 'fundacao']);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
-  // Profile Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [editName, setEditName] = useState(userName);
-  const [editDescription, setEditDescription] = useState(userDescription);
+  const [editName, setEditName] = useState(resolvedName);
+  const [editDescription, setEditDescription] = useState(resolvedDescription);
 
-  // --- STATE LIFTING: DADOS DOS MÓDULOS ---
-  const [mentorData, setMentorData] = useState<MentorData>(INITIAL_MENTOR_DATA);
-  const [mentorStatus, setMentorStatus] = useState<ModuleStatus>('todo');
+  const token = props.token ?? '';
 
-  const [menteeData, setMenteeData] = useState<MenteeData>(INITIAL_MENTEE_DATA);
-  const [menteeStatus, setMenteeStatus] = useState<ModuleStatus>('todo');
+  // Integração do Hook de Persistência
+  const { formData, saveProgress, saveImmediately, isSaving, lastSaveError, saveModuleStep, getModuleStep, markModuleCompleted } = useUserPersistence(token);
 
-  const [methodData, setMethodData] = useState<MethodData>(INITIAL_METHOD_DATA);
-  const [methodStatus, setMethodStatus] = useState<ModuleStatus>('todo');
+  // Derivando dados dos módulos com fallback para estado inicial
+  const mentorData = (Object.keys(formData.mentor).length > 0 ? formData.mentor : INITIAL_MENTOR_DATA) as MentorData;
+  const menteeData = (Object.keys(formData.mentee).length > 0 ? formData.mentee : INITIAL_MENTEE_DATA) as MenteeData;
+  const methodData = (Object.keys(formData.method).length > 0 ? formData.method : INITIAL_METHOD_DATA) as MethodData;
+  const deliveryData = (Object.keys(formData.delivery).length > 0 ? formData.delivery : INITIAL_DELIVERY_DATA) as DeliveryData;
 
-  const [deliveryData, setDeliveryData] = useState<DeliveryData>(INITIAL_DELIVERY_DATA);
-  const [deliveryStatus, setDeliveryStatus] = useState<ModuleStatus>('todo');
+  useEffect(() => setEditName(resolvedName), [resolvedName]);
+  useEffect(() => setEditDescription(resolvedDescription), [resolvedDescription]);
 
-  // --- BACKEND INTEGRATION ---
-  // Usa caminho relativo para funcionar tanto local quanto em produção
-  const API_BASE_URL = '/api';
+  // Handlers de atualização usando o hook
+  const handleUpdateMentor = (newData: MentorData) => saveProgress({ mentor: newData });
+  const handleUpdateMentee = (newData: MenteeData) => saveProgress({ mentee: newData });
+  const handleUpdateMethod = (newData: MethodData) => saveProgress({ method: newData });
+  const handleUpdateDelivery = (newData: DeliveryData) => saveProgress({ delivery: newData });
 
-  const saveToBackend = async (module: string, data: any) => {
-      try {
-          // Fire and forget (não bloqueia UI)
-          fetch(`${API_BASE_URL}/submit`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                  email: userEmail,
-                  name: userName,
-                  module: module,
-                  data: data
-              })
-          }).catch(err => console.error("Erro ao salvar no backend:", err));
-      } catch (e) {
-          console.error(e);
-      }
+  const handleSaveProfile = () => {
+    if (props.onUpdateProfile) {
+      props.onUpdateProfile({ name: editName, description: editDescription });
+    }
+    setIsProfileModalOpen(false);
   };
 
-  const handleUpdateMentor = (newData: MentorData) => {
-      setMentorData(newData);
-      // Debounce simples na UI, ou salvar no 'onSaveAndExit'
+  const handleLogout = async () => {
+    // Forçar salvamento antes de sair
+    console.log('🚪 Logout: Salvando dados antes de sair...');
+    try {
+      await saveImmediately();
+      // Pequeno delay para garantir que o salvamento foi concluído
+      await new Promise(resolve => setTimeout(resolve, 300));
+      console.log('✅ Logout: Dados salvos, saindo...');
+    } catch (error) {
+      console.error('❌ Erro ao salvar antes de logout:', error);
+    }
+    props.onLogout();
   };
-  // Salvar efetivamente ao sair/completar
-  useEffect(() => {
-      if (mentorData !== INITIAL_MENTOR_DATA) saveToBackend('mentor', mentorData);
-  }, [mentorData]); // Note: Na prática, use debounce, aqui simplificado
 
-  useEffect(() => {
-      if (menteeData !== INITIAL_MENTEE_DATA) saveToBackend('mentee', menteeData);
-  }, [menteeData]);
+  const handleSaveAndExit = (module: string) => {
+    console.log(`✅ Módulo ${module} salvo!`);
+    setActiveItem('overview');
+  };
 
-  useEffect(() => {
-      if (methodData !== INITIAL_METHOD_DATA) saveToBackend('method', methodData);
-  }, [methodData]);
+  const handleSendToEvaluation = (module: string) => {
+    // Map module ID to persistence key
+    const moduleKeyMap: Record<string, 'mentor' | 'mentee' | 'method' | 'delivery'> = {
+      'mentor': 'mentor',
+      'mentorado': 'mentee',
+      'metodo': 'method',
+      'entrega_fundacao': 'delivery'
+    };
 
-  useEffect(() => {
-      if (deliveryData !== INITIAL_DELIVERY_DATA) saveToBackend('delivery', deliveryData);
-  }, [deliveryData]);
-
-
-  useEffect(() => {
-    // Lógica de Redirecionamento ao Carregar
-    if (initialModule && initialModule !== 'overview') {
-        
-        // Verifica se o módulo solicitado JÁ FOI INICIADO
-        let isTargetStarted = false;
-
-        if (initialModule === 'mentor') {
-             // O Mentor é considerado iniciado se tiver status diferente de todo ou algum dado preenchido
-             isTargetStarted = mentorStatus !== 'todo' || mentorData.step1.field4 !== '';
-        } else if (initialModule === 'mentorado') {
-             isTargetStarted = menteeStatus !== 'todo' || menteeData.hasClients !== null;
-        } else if (initialModule === 'metodo') {
-             isTargetStarted = methodStatus !== 'todo' || methodData.stage !== null;
-        } else if (initialModule === 'entrega_fundacao') {
-             isTargetStarted = deliveryStatus !== 'todo' || deliveryData.groupName !== '';
-        }
-
-        if (isTargetStarted) {
-            // Se já começou, vai direto para o módulo
-            const parentSection = menuStructure.find(section => 
-                section.items.some(item => item.id === initialModule)
-            );
-            if (parentSection) {
-                setOpenSections(prev => [...new Set([...prev, parentSection.id])]);
-            }
-            setActiveItem(initialModule);
-        } else {
-            // Se NÃO começou, vai para o Dashboard (Overview) para forçar o início pelo card correto
-            setActiveItem('overview');
-        }
-    } else {
-        setActiveItem('overview');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialModule]); 
-
-  // Sync state when props change
-  useEffect(() => {
-    setEditName(userName);
-    setEditDescription(userDescription);
-  }, [userName, userDescription]);
-
-  // Fecha o menu mobile ao clicar em um item
-  const handleMenuItemClick = (itemId: string) => {
-    if (itemId === 'overview') {
-        setActiveItem('overview');
-        setIsMobileMenuOpen(false);
-        return;
+    const key = moduleKeyMap[module];
+    if (key) {
+      console.log(`✅ Marcando módulo ${module} (${key}) como concluído!`);
+      markModuleCompleted(key);
     }
 
-    const isMentorStarted = mentorStatus !== 'todo' || mentorData.step1.field4 !== '';
-    if (itemId !== 'mentor' && !isMentorStarted) {
-        alert("Por favor, inicie o módulo 'O Mentor' antes de avançar para as próximas etapas.");
-        return;
-    }
-
-    setActiveItem(itemId);
-    setIsMobileMenuOpen(false);
+    setActiveItem('overview');
   };
 
   const toggleSection = (sectionId: string) => {
-    setOpenSections(prev => 
-      prev.includes(sectionId) 
-        ? prev.filter(id => id !== sectionId) 
-        : [...prev, sectionId]
-    );
+    setOpenSections(prev => prev.includes(sectionId) ? prev.filter(id => id !== sectionId) : [...prev, sectionId]);
   };
 
   const getActiveLabel = () => {
     for (const section of menuStructure) {
-      const found = section.items.find(i => i.id === activeItem);
-      if (found) return found.label;
+      const item = section.items.find(i => i.id === activeItem);
+      if (item) return item.label;
     }
-    return 'Dashboard';
+    return 'Módulo';
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-      e.preventDefault();
-      onUpdateProfile({ name: editName, description: editDescription });
-      setIsProfileModalOpen(false);
+  // ---------- UTILIDADES DE COMPLETION ----------
+  const isPrimitive = (v: any) => (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean');
+
+  const countTotalLeaves = (obj: any): number => {
+    if (obj === null || obj === undefined) return 0;
+    if (Array.isArray(obj)) {
+      if (obj.length === 0) return 1;
+      if (obj.every(isPrimitive)) return 1;
+      return obj.reduce((acc, it) => acc + countTotalLeaves(it), 0);
+    }
+    if (isPrimitive(obj)) return 1;
+    return Object.keys(obj).reduce((acc, k) => acc + countTotalLeaves(obj[k]), 0);
   };
 
-  // Funções de Ação
-  const handleSaveAndExit = () => {
-      setActiveItem('overview');
+  const countFilledLeaves = (data: any, initial: any): number => {
+    if ((data === null || data === undefined) && (initial === null || initial === undefined)) return 0;
+
+    if (Array.isArray(initial)) {
+      if (!Array.isArray(data)) {
+        return 0;
+      }
+      if (data.length === 0) return 0;
+      if (initial.length === 0 || initial.every(isPrimitive)) {
+        return 1;
+      }
+      const maxLen = Math.max(initial.length, data.length);
+      let sum = 0;
+      for (let i = 0; i < maxLen; i++) {
+        sum += countFilledLeaves(data[i], initial[i]);
+      }
+      return sum;
+    }
+
+    if (isPrimitive(initial)) {
+      if (data === undefined || data === null) return 0;
+      if (typeof data === 'string') {
+        if (data.trim().length === 0) return 0;
+        if (typeof initial === 'string' && initial.trim() === data.trim()) return 0;
+        return 1;
+      }
+      if (typeof data === 'number') {
+        if (data === 0 && initial === 0) return 0;
+        if (data === initial) return 0;
+        return 1;
+      }
+      if (typeof data === 'boolean') {
+        if (data === initial) return 0;
+        return data ? 1 : 0;
+      }
+      return 0;
+    }
+
+    if (typeof initial === 'object') {
+      if (typeof data !== 'object' || data === null) {
+        return 0;
+      }
+      let sum = 0;
+      const keys = new Set([...Object.keys(initial || {}), ...Object.keys(data || {})]);
+      keys.forEach(k => {
+        sum += countFilledLeaves(data[k], initial[k]);
+      });
+      return sum;
+    }
+
+    return 0;
   };
 
-  const handleSendToEvaluation = () => {
-      setMentorStatus('under_review');
-      saveToBackend('mentor', mentorData); // Ensure save
-      setActiveItem('overview');
+  const computeModulePercent = (data: any, initial: any) => {
+    const total = countTotalLeaves(initial);
+    if (total === 0) {
+      const fallback = data && typeof data === 'object' ? (Object.keys(data).length > 0 ? 100 : 0) : 0;
+      return Math.min(100, fallback);
+    }
+    const filled = countFilledLeaves(data, initial);
+    return Math.min(100, Math.round((filled / total) * 100)); // Capped at 100
   };
 
-  const handleMenteeSendToEvaluation = () => {
-      setMenteeStatus('under_review');
-      saveToBackend('mentee', menteeData);
-      setActiveItem('overview');
-  };
+  // ---------- FIM UTILIDADES ----------
 
-  const handleMethodSendToEvaluation = () => {
-      setMethodStatus('under_review');
-      saveToBackend('method', methodData);
-      setActiveItem('overview');
-  }
-
-  const handleDeliverySendToEvaluation = () => {
-      setDeliveryStatus('under_review');
-      saveToBackend('delivery', deliveryData);
-      setActiveItem('overview');
-  }
-
-  // Helper para verificar se começou
-  const isStarted = (status: ModuleStatus, check: boolean) => status !== 'todo' || check;
-
-  const isMentorStarted = isStarted(mentorStatus, mentorData.step1.field4 !== '');
-  const isMenteeStarted = isStarted(menteeStatus, menteeData.hasClients !== null);
-  const isMethodStarted = isStarted(methodStatus, methodData.stage !== null);
-  const isDeliveryStarted = isStarted(deliveryStatus, deliveryData.groupName !== '');
-
-  const hasStartedAny = React.useMemo(() => {
-    return isMentorStarted || isMenteeStarted || isMethodStarted || isDeliveryStarted;
-  }, [isMentorStarted, isMenteeStarted, isMethodStarted, isDeliveryStarted]);
-
-
-  // Renderização do Grid da Visão Geral (Transformado em função para evitar recriação de componente)
-  const renderModulesGrid = () => (
-      <div className="max-w-6xl mx-auto">
-          {/* Welcome Text Section */}
-          <div className="text-center mb-16 space-y-8 animate-fadeIn">
-             <h2 className="font-serif text-4xl md:text-5xl text-white">Bem-vindo ao Diagnóstico de Mentoria</h2>
-             <div className="max-w-3xl mx-auto text-gray-400 space-y-4 font-sans text-base md:text-lg leading-relaxed">
-                 <p>Muitos especialistas possuem o conhecimento, mas travam na hora de empacotá-lo.</p>
-                 <p>Este sistema foi desenhado para extrair a sua verdade e transformá-la em uma Oferta de Mentoria com Alto Valor.</p>
-                 <p>Aqui, deixamos a subjetividade de lado. Vamos guiá-lo por um processo estruturado para transformar sua experiência de campo em um modelo de negócios escalável e lucrativo.</p>
-                 {!hasStartedAny && (
-                    <div className="pt-6">
-                        <p className="text-[#CA9A43] font-bold text-xl">O próximo nível do seu negócio começa com clareza. Clique no cartão "O Mentor" para iniciar.</p>
-                    </div>
-                 )}
-             </div>
-          </div>
-
-          {!hasStartedAny ? (
-              // Estado Inicial: Mostra apenas o botão de iniciar jornada
-              <div className="flex justify-center mt-8 animate-fadeIn delay-200">
-                   <button 
-                        onClick={() => setActiveItem('mentor')}
-                        className="group relative bg-[#081e30] border border-[#CA9A43] p-10 rounded-2xl hover:bg-[#0a253a] transition-all shadow-[0_0_30px_rgba(202,154,67,0.1)] hover:shadow-[0_0_50px_rgba(202,154,67,0.3)] text-center max-w-sm w-full"
-                   >
-                        <div className="w-20 h-20 bg-[#CA9A43]/10 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform border border-[#CA9A43]/30">
-                            <span className="font-serif text-4xl text-[#CA9A43] font-bold">1</span>
-                        </div>
-                        <h3 className="font-serif text-3xl text-white mb-2">O Mentor</h3>
-                        <p className="text-gray-400 text-sm mb-8 leading-relaxed">Comece sua jornada definindo sua autoridade e posicionamento único.</p>
-                        
-                        <div className="inline-flex items-center gap-2 bg-[#CA9A43] text-[#031A2B] px-6 py-3 rounded-full font-bold uppercase tracking-widest text-xs group-hover:bg-[#FFE39B] transition-colors">
-                            Iniciar Diagnóstico <i className="bi bi-arrow-right"></i>
-                        </div>
-                   </button>
-              </div>
-          ) : (
-              // Estado Ativo: Mostra o Grid completo
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fadeIn">
-                  {/* Card: O Mentor */}
-                  <div className="bg-[#081e30] border border-white/5 rounded-lg p-6 hover:border-[#CA9A43]/30 transition-all group relative overflow-hidden flex flex-col">
-                      <div className="flex justify-between items-start mb-4">
-                          <div className="w-10 h-10 rounded bg-[#CA9A43]/10 flex items-center justify-center text-[#CA9A43] font-serif font-bold text-xl">
-                              1
-                          </div>
-                          {mentorStatus === 'todo' && !isMentorStarted && <span className="text-xs font-bold text-gray-500 uppercase bg-white/5 px-2 py-1 rounded">A Fazer</span>}
-                          {mentorStatus === 'todo' && isMentorStarted && <span className="text-xs font-bold text-[#CA9A43] uppercase bg-[#CA9A43]/10 px-2 py-1 rounded border border-[#CA9A43]/20">Iniciado</span>}
-                          {mentorStatus === 'completed' && <span className="text-xs font-bold text-green-500 uppercase bg-green-500/10 px-2 py-1 rounded border border-green-500/20">Concluído</span>}
-                          {mentorStatus === 'under_review' && <span className="text-xs font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20">Em Análise</span>}
-                      </div>
-                      
-                      <h3 className="font-serif text-2xl text-white mb-2 group-hover:text-[#CA9A43] transition-colors">O Mentor</h3>
-                      <p className="text-sm text-gray-400 mb-6 line-clamp-2">Definição de autoridade, história e pilares de cultura.</p>
-                      
-                      <div className="mt-auto">
-                          <div className="flex gap-2">
-                            {mentorStatus === 'under_review' ? (
-                                <button 
-                                    onClick={() => setActiveItem('mentor')}
-                                    className="w-full py-2 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold uppercase tracking-widest rounded hover:bg-blue-500/20 transition-colors"
-                                >
-                                    <i className="bi bi-eye"></i> Ver Respostas
-                                </button>
-                            ) : (
-                                <button 
-                                    onClick={() => setActiveItem('mentor')}
-                                    className="flex-1 py-2 bg-[#CA9A43] text-[#031A2B] text-xs font-bold uppercase tracking-widest rounded hover:bg-[#FFE39B] transition-colors"
-                                >
-                                    {isMentorStarted ? 'Editar' : 'Iniciar'}
-                                </button>
-                            )}
-                          </div>
-                      </div>
-                  </div>
-
-                  {/* Card: O Mentorado */}
-                  <div className="bg-[#081e30] border border-white/5 rounded-lg p-6 hover:border-[#CA9A43]/30 transition-all group relative overflow-hidden flex flex-col">
-                       <div className="flex justify-between items-start mb-4">
-                          <div className="w-10 h-10 rounded bg-[#CA9A43]/10 flex items-center justify-center text-[#CA9A43] font-serif font-bold text-xl">2</div>
-                          {menteeStatus === 'todo' && !isMenteeStarted && <span className="text-xs font-bold text-gray-500 uppercase bg-white/5 px-2 py-1 rounded">A Fazer</span>}
-                          {menteeStatus === 'todo' && isMenteeStarted && <span className="text-xs font-bold text-[#CA9A43] uppercase bg-[#CA9A43]/10 px-2 py-1 rounded border border-[#CA9A43]/20">Iniciado</span>}
-                          {menteeStatus === 'completed' && <span className="text-xs font-bold text-green-500 uppercase bg-green-500/10 px-2 py-1 rounded border border-green-500/20">Concluído</span>}
-                          {menteeStatus === 'under_review' && <span className="text-xs font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20">Em Análise</span>}
-                      </div>
-                      <h3 className="font-serif text-2xl text-white mb-2 group-hover:text-[#CA9A43] transition-colors">O Mentorado</h3>
-                      <p className="text-sm text-gray-400 mb-6 line-clamp-2">Definição de ICP e validação de público alvo.</p>
-                      <div className="mt-auto">
-                           <div className="flex gap-2">
-                               {menteeStatus === 'under_review' ? (
-                                   <button 
-                                      onClick={() => setActiveItem('mentorado')}
-                                      className="w-full py-2 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold uppercase tracking-widest rounded hover:bg-blue-500/20 transition-colors"
-                                  >
-                                      <i className="bi bi-eye"></i> Ver Respostas
-                                  </button>
-                               ) : (
-                                    <button 
-                                        onClick={() => setActiveItem('mentorado')}
-                                        className="flex-1 py-2 bg-[#CA9A43] text-[#031A2B] text-xs font-bold uppercase tracking-widest rounded hover:bg-[#FFE39B] transition-colors"
-                                    >
-                                        {isMenteeStarted ? 'Editar' : 'Iniciar'}
-                                    </button>
-                               )}
-                           </div>
-                      </div>
-                  </div>
-
-                  {/* Card: O Método */}
-                  <div className="bg-[#081e30] border border-white/5 rounded-lg p-6 hover:border-[#CA9A43]/30 transition-all group relative overflow-hidden flex flex-col">
-                       <div className="flex justify-between items-start mb-4">
-                          <div className="w-10 h-10 rounded bg-[#CA9A43]/10 flex items-center justify-center text-[#CA9A43] font-serif font-bold text-xl">3</div>
-                          {methodStatus === 'todo' && !isMethodStarted && <span className="text-xs font-bold text-gray-500 uppercase bg-white/5 px-2 py-1 rounded">A Fazer</span>}
-                          {methodStatus === 'todo' && isMethodStarted && <span className="text-xs font-bold text-[#CA9A43] uppercase bg-[#CA9A43]/10 px-2 py-1 rounded border border-[#CA9A43]/20">Iniciado</span>}
-                          {methodStatus === 'completed' && <span className="text-xs font-bold text-green-500 uppercase bg-green-500/10 px-2 py-1 rounded border border-green-500/20">Concluído</span>}
-                          {methodStatus === 'under_review' && <span className="text-xs font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20">Em Análise</span>}
-                      </div>
-                      <h3 className="font-serif text-2xl text-white mb-2 group-hover:text-[#CA9A43] transition-colors">O Método</h3>
-                      <p className="text-sm text-gray-400 mb-6 line-clamp-2">Estruturação do processo de entrega e transformação.</p>
-                      
-                      <div className="mt-auto">
-                           <div className="flex gap-2">
-                               {methodStatus === 'under_review' ? (
-                                   <button 
-                                      onClick={() => setActiveItem('metodo')}
-                                      className="w-full py-2 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold uppercase tracking-widest rounded hover:bg-blue-500/20 transition-colors"
-                                  >
-                                      <i className="bi bi-eye"></i> Ver Respostas
-                                  </button>
-                               ) : (
-                                    <button 
-                                        onClick={() => setActiveItem('metodo')}
-                                        className="flex-1 py-2 bg-[#CA9A43] text-[#031A2B] text-xs font-bold uppercase tracking-widest rounded hover:bg-[#FFE39B] transition-colors"
-                                    >
-                                        {isMethodStarted ? 'Editar' : 'Iniciar'}
-                                    </button>
-                               )}
-                           </div>
-                      </div>
-                  </div>
-
-                  {/* Card: A Oferta */}
-                  <div className="bg-[#081e30] border border-white/5 rounded-lg p-6 hover:border-[#CA9A43]/30 transition-all group relative overflow-hidden flex flex-col">
-                       <div className="flex justify-between items-start mb-4">
-                          <div className="w-10 h-10 rounded bg-[#CA9A43]/10 flex items-center justify-center text-[#CA9A43] font-serif font-bold text-xl">4</div>
-                          {deliveryStatus === 'todo' && !isDeliveryStarted && <span className="text-xs font-bold text-gray-500 uppercase bg-white/5 px-2 py-1 rounded">A Fazer</span>}
-                          {deliveryStatus === 'todo' && isDeliveryStarted && <span className="text-xs font-bold text-[#CA9A43] uppercase bg-[#CA9A43]/10 px-2 py-1 rounded border border-[#CA9A43]/20">Iniciado</span>}
-                          {deliveryStatus === 'completed' && <span className="text-xs font-bold text-green-500 uppercase bg-green-500/10 px-2 py-1 rounded border border-green-500/20">Concluído</span>}
-                          {deliveryStatus === 'under_review' && <span className="text-xs font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20">Em Análise</span>}
-                      </div>
-                      <h3 className="font-serif text-2xl text-white mb-2 group-hover:text-[#CA9A43] transition-colors">A Oferta</h3>
-                      <p className="text-sm text-gray-400 mb-6 line-clamp-2">Formatação do produto, entregáveis e overdelivery.</p>
-                      
-                      <div className="mt-auto">
-                           <div className="flex gap-2">
-                               {deliveryStatus === 'under_review' ? (
-                                   <button 
-                                      onClick={() => setActiveItem('entrega_fundacao')}
-                                      className="w-full py-2 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold uppercase tracking-widest rounded hover:bg-blue-500/20 transition-colors"
-                                  >
-                                      <i className="bi bi-eye"></i> Ver Respostas
-                                  </button>
-                               ) : (
-                                    <button 
-                                        onClick={() => setActiveItem('entrega_fundacao')}
-                                        className="flex-1 py-2 bg-[#CA9A43] text-[#031A2B] text-xs font-bold uppercase tracking-widest rounded hover:bg-[#FFE39B] transition-colors"
-                                    >
-                                        {isDeliveryStarted ? 'Editar' : 'Iniciar'}
-                                    </button>
-                               )}
-                           </div>
-                      </div>
-                  </div>
-              </div>
-          )}
-      </div>
+  // Centralizando cálculo de porcentagem
+  const mentorPct = computeModulePercent(
+    (() => {
+      const { step6, ...rest } = mentorData;
+      if (step6.hasNoTestimonials) {
+        const { testimonials, hasNoTestimonials, ...cleanedStep6 } = step6;
+        return { ...rest, step6: cleanedStep6 };
+      }
+      const { hasNoTestimonials, ...step6Rest } = step6;
+      return { ...rest, step6: step6Rest };
+    })(),
+    (() => {
+      const { step6, ...rest } = INITIAL_MENTOR_DATA;
+      if (mentorData.step6.hasNoTestimonials) {
+        const { testimonials, hasNoTestimonials, ...cleanedStep6 } = step6;
+        return { ...rest, step6: cleanedStep6 };
+      }
+      const { hasNoTestimonials, ...step6Rest } = step6;
+      return { ...rest, step6: step6Rest };
+    })()
   );
 
+  /* 
+    CORREÇÃO DE PORCENTAGEM (MENTORADO):
+    1. Para 'No Clients': 
+       - defaults de ageRange (25/45) e hoursPerDay (2) devem contar como preenchidos.
+       - 'behavior' e 'role.area' são opcionais, então removemos da conta.
+    2. Para 'Yes Clients': fanHaterMap (null) não conta no total.
+       Solução: Override no initial para estrutura vazia completa.
+  */
+  const menteePct = computeModulePercent(
+    (() => {
+      if (!menteeData.hasClients) return menteeData;
+      const { hasClients, ...rest } = menteeData;
+
+      if (menteeData.hasClients === 'yes') {
+        const { personas, fanHaterMap, communityImpact, icpSynthesis, ...pathData } = rest;
+
+        // Remove opcionais (behavior, role.area)
+        const { demographics, ...demoRest } = pathData;
+        const { digitalPresence, role, ...demoFields } = demographics;
+        const { behavior, ...digPresRest } = digitalPresence;
+        const { area, ...roleRest } = role;
+
+        return {
+          ...demoRest,
+          demographics: {
+            ...demoFields,
+            digitalPresence: digPresRest,
+            role: roleRest
+          }
+        };
+      } else {
+        const { demographics, transformation, decisionMountain, consumptionJourney, icpTarget, ...pathData } = rest;
+        const { personas, ...pathDataNoPersonas } = pathData; // Exclude personas
+        const { community, impact } = pathData.communityImpact;
+        const { definition: def1, ...communityRest } = community;
+        const { definition: def2, ...impactRest } = impact;
+        return { ...pathDataNoPersonas, communityImpact: { community: communityRest, impact: impactRest } };
+      }
+    })(),
+    (() => {
+      // OVERRIDE INITIAL DATA PARA CORREÇÃO DE CÁLCULO
+      if (!menteeData.hasClients) return INITIAL_MENTEE_DATA;
+
+      const baseInitial = { ...INITIAL_MENTEE_DATA };
+
+      if (menteeData.hasClients === 'yes') {
+        const { hasClients, personas, fanHaterMap, communityImpact, icpSynthesis, ...pathData } = baseInitial;
+
+        // Remove opcionais (behavior, role.area)
+        const { demographics, ...demoRest } = pathData;
+        const { digitalPresence, role, ...demoFields } = demographics;
+        const { behavior, ...digPresRest } = digitalPresence;
+        const { area, ...roleRest } = role;
+
+        // Override nested defaults to ensure 'filled' counting matches logic
+        return {
+          ...demoRest,
+          demographics: {
+            ...demoFields,
+            role: roleRest,
+            digitalPresence: {
+              ...digPresRest,
+              hoursPerDay: -1 // Default 2 counts as filled
+            },
+            ageRange: { min: -1, max: -1 }, // Default 25/45 counts as filled
+          }
+        };
+      } else {
+        const { hasClients, demographics, transformation, decisionMountain, consumptionJourney, icpTarget, ...pathData } = baseInitial;
+        const { personas, ...pathDataNoPersonas } = pathData; // Exclude personas
+
+        // Override fanHaterMap from null to empty structure to count in denominator
+        const emptyEmpathyMap = { whoIs: '', feelings: '', saysDoes: '', sees: '', hears: '', thinks: '', weaknesses: '', gains: '' };
+
+        const { community, impact } = pathData.communityImpact;
+        const { definition: def1, ...communityRest } = community;
+        const { definition: def2, ...impactRest } = impact;
+
+        return {
+          ...pathDataNoPersonas,
+          fanHaterMap: { fan: emptyEmpathyMap, hater: emptyEmpathyMap },
+          communityImpact: {
+            community: communityRest,
+            impact: impactRest
+          }
+        };
+      }
+    })()
+  );
+
+  console.log('Mentee Debug:', {
+    pct: menteePct,
+    filled: countFilledLeaves(
+      (() => {
+        if (!menteeData.hasClients) return menteeData;
+        const { hasClients, ...rest } = menteeData;
+        if (menteeData.hasClients === 'yes') {
+          const { personas, fanHaterMap, communityImpact, icpSynthesis, ...pathData } = rest;
+          return { ...pathData }; // Updated to match logic above
+        } else {
+          const { demographics, transformation, decisionMountain, consumptionJourney, icpTarget, ...pathData } = rest;
+          const { personas, ...pathDataNoP } = pathData;
+          const { community, impact } = pathData.communityImpact;
+          const { definition: def1, ...communityRest } = community;
+          const { definition: def2, ...impactRest } = impact;
+          return { ...pathDataNoP, communityImpact: { community: communityRest, impact: impactRest } };
+        }
+      })(),
+      (() => {
+        if (!menteeData.hasClients) return INITIAL_MENTEE_DATA;
+        return INITIAL_MENTEE_DATA; // Simplified log, logic is in main block
+      })()),
+    total: 22
+  });
+
+  const methodPct = computeModulePercent(
+    (() => {
+      if (!methodData.stage) return methodData;
+      const { stage, ...rest } = methodData;
+
+      if (methodData.stage === 'structured') {
+        // Structured: Name, Transformation, Pillars (exclude ID for clean count)
+        const { purpose, journeyMap, ...pathData } = rest;
+        const cleanPillars = pathData.pillars.map(({ id, ...p }) => p);
+        const { pillars, ...pathRest } = pathData;
+        return { stage, ...pathRest, pillars: cleanPillars };
+      } else {
+        // None/Idea: Purpose, JourneyMap (exclude ID, problems, solutions)
+        const { name, transformation, pillars, ...pathData } = rest;
+        const cleanJourney = pathData.journeyMap.map(({ id, problems, solutions, ...j }) => j);
+        const { journeyMap, ...pathRest } = pathData;
+        return { stage, ...pathRest, journeyMap: cleanJourney };
+      }
+    })(),
+    (() => {
+      if (!methodData.stage) return INITIAL_METHOD_DATA;
+      const { stage, ...rest } = INITIAL_METHOD_DATA;
+
+      if (methodData.stage === 'structured') {
+        const { purpose, journeyMap, ...pathData } = rest;
+        const cleanPillars = pathData.pillars.map(({ id, ...p }) => p);
+        const { pillars, ...pathRest } = pathData;
+        return { stage, ...pathRest, pillars: cleanPillars };
+      } else {
+        const { name, transformation, pillars, ...pathData } = rest;
+        const cleanJourney = pathData.journeyMap.map(({ id, problems, solutions, ...j }) => j);
+        const { journeyMap, ...pathRest } = pathData;
+        return { stage, ...pathRest, journeyMap: cleanJourney };
+      }
+    })()
+  );
+
+  console.log('Method Debug:', { pct: methodPct });
+  const deliveryPct = computeModulePercent(
+    (() => {
+      // Filter Delivery Data
+      const { mandatory, overdelivery, ...rest } = deliveryData;
+
+      // 1. Mandatory: Handle 'otherEngagementText'
+      const hasOther = mandatory.onlineEngagement.includes("OUTRO: Descreva");
+      const { otherEngagementText, ...mandatoryRest } = mandatory;
+      const finalMandatory = hasOther ? mandatory : mandatoryRest;
+
+      // 2. Overdelivery: Handle 'hasIndividual' and exclude accelerators (pre-filled defaults)
+      const { hasIndividual, individualDetails, frequency, accelerators, ...overdeliveryRest } = overdelivery;
+
+      let finalOverdelivery;
+      if (hasIndividual === 'no') {
+        // Exclude details/frequency if no individual, and always exclude accelerators
+        finalOverdelivery = { hasIndividual };
+      } else {
+        // Include details/frequency but exclude accelerators
+        finalOverdelivery = { hasIndividual, individualDetails, frequency };
+      }
+
+      return { ...rest, mandatory: finalMandatory, overdelivery: finalOverdelivery };
+    })(),
+    (() => {
+      // Filter Initial Data (denominator)
+      const { mandatory, overdelivery, ...rest } = INITIAL_DELIVERY_DATA;
+
+      // 1. Mandatory
+      const hasOther = deliveryData.mandatory?.onlineEngagement?.includes("OUTRO: Descreva");
+      const { otherEngagementText, ...mandatoryRest } = mandatory;
+      const finalMandatory = hasOther ? mandatory : mandatoryRest;
+
+      // 2. Overdelivery: exclude accelerators from initial data too
+      const { hasIndividual, individualDetails, frequency, accelerators, ...overdeliveryRest } = overdelivery;
+
+      let finalOverdelivery;
+      if (deliveryData.overdelivery?.hasIndividual === 'no') {
+        finalOverdelivery = { hasIndividual };
+      } else {
+        finalOverdelivery = { hasIndividual, individualDetails, frequency };
+      }
+
+      return { ...rest, mandatory: finalMandatory, overdelivery: finalOverdelivery };
+    })()
+  );
+
+  const isModuleLocked = (moduleId: string): boolean => {
+    switch (moduleId) {
+      case 'mentor':
+        return false; // Primeiro módulo sempre liberado
+      case 'mentorado':
+        return mentorPct < 100;
+      case 'metodo':
+        return menteePct < 100;
+      case 'entrega_fundacao':
+        return methodPct < 100;
+      // Adicionar outros módulos conforme necessário
+      case 'marketing':
+      case 'vendas':
+      case 'entrega_preparacao':
+      case 'plano_acao':
+        return deliveryPct < 100; // Exemplo: bloqueia Preparação até Fundacao (Oferta) estar completa
+      default:
+        return false;
+    }
+  };
+
+  const renderModulesGrid = () => {
+    const modules = [
+      { name: 'O Mentor', key: 'mentor', description: 'Sua autoridade, história e diferenciais', pct: mentorPct },
+      { name: 'O Mentorado', key: 'mentorado', description: 'Quem é seu cliente ideal', pct: menteePct },
+      { name: 'O Método', key: 'metodo', description: 'Seu processo e transformação', pct: methodPct },
+      { name: 'A Entrega', key: 'entrega_fundacao', description: 'Estrutura de seu programa', pct: deliveryPct }
+    ];
+
+    const overall = Math.round((mentorPct + menteePct + methodPct + deliveryPct) / modules.length);
+
+    return (
+      <div className="bg-[#051522] border border-white/5 rounded-lg p-4 sm:p-6 md:p-8 min-h-[400px] sm:min-h-[600px] shadow-2xl">
+        <h2 className="text-2xl sm:text-3xl font-serif text-white mb-1 sm:mb-2">Bem-vindo, {resolvedName}!</h2>
+        <p className="text-sm sm:text-base text-gray-500 mb-6 sm:mb-8">{resolvedEmail || 'Sem e-mail cadastrado'}</p>
+
+        <div className="mb-8 sm:mb-12">
+          <div className="flex justify-between items-center mb-2 sm:mb-3">
+            <h3 className="text-base sm:text-lg font-semibold text-white">Progresso Geral do Diagnóstico</h3>
+            <span className="text-xl sm:text-2xl font-bold text-[#CA9A43]">{overall}%</span>
+          </div>
+          <div className="w-full bg-gray-700 rounded-full h-2 sm:h-3">
+            <div className="h-full bg-gradient-to-r from-[#CA9A43] to-yellow-500 rounded-full transition-all"
+              style={{ width: `${overall}%` }} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          {modules.map((module) => {
+            const locked = isModuleLocked(module.key);
+            const statusLabel = locked
+              ? 'Bloqueado'
+              : (module.pct === 100 ? 'Preenchido' : (module.pct === 0 ? 'Não iniciado' : 'Em andamento'));
+
+            const badgeColor = locked
+              ? 'bg-gray-700 text-gray-400'
+              : (module.pct === 100 ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400');
+
+            return (
+              <motion.div key={module.key} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                className={`border rounded-lg p-4 sm:p-6 transition-all relative ${locked
+                  ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                  : (module.pct === 100 ? 'bg-[#CA9A43]/10 border-[#CA9A43]/50 cursor-pointer' : 'bg-white/5 border-white/10 hover:border-white/20 cursor-pointer')}`}
+                onClick={() => !locked && setActiveItem(module.key)}>
+
+                {locked && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10">
+                    <i className="bi bi-lock-fill text-3xl sm:text-4xl text-gray-500/50"></i>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row items-start justify-between mb-3 sm:mb-4 gap-3">
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
+                      <h3 className="text-base sm:text-lg font-bold text-white">
+                        {module.pct === 100 ? '✅ ' : ''}{module.name}
+                      </h3>
+                      <span className={`text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-semibold ${badgeColor} flex items-center gap-1`}>
+                        {locked && <i className="bi bi-lock-fill text-[8px] sm:text-[10px]"></i>}
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-400">{module.description}</p>
+                  </div>
+                  <div className="text-left sm:text-right w-full sm:w-auto">
+                    {!locked && (
+                      <>
+                        <div className="text-xl sm:text-2xl font-bold text-[#CA9A43]">{module.pct}%</div>
+                        <div className="w-full sm:w-28 h-2 bg-gray-700 rounded-full mt-2">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${module.pct}%`, backgroundColor: module.pct === 100 ? '#10b981' : (module.pct === 0 ? '#374151' : '#f59e0b') }} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 sm:mt-8 p-3 sm:p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg text-xs sm:text-sm text-blue-300">
+          ℹ️ Os módulos devem ser completados em ordem sequencial. Complete um módulo 100% para desbloquear o próximo.
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
-      if (activeItem === 'overview') {
-          return renderModulesGrid();
-      }
-
-      if (activeItem === 'mentor') {
-          return (
-            <MentorModule 
-                data={mentorData}
-                onUpdate={handleUpdateMentor}
-                onSaveAndExit={handleSaveAndExit}
-                onComplete={handleSendToEvaluation}
-                isReadOnly={mentorStatus === 'under_review'}
-            />
-          );
-      }
-
-      if (activeItem === 'mentorado') {
-          return (
-            <MenteeModule
-                data={menteeData}
-                onUpdate={(newData) => setMenteeData(newData)}
-                onSaveAndExit={handleSaveAndExit}
-                onComplete={handleMenteeSendToEvaluation}
-                isReadOnly={menteeStatus === 'under_review'}
-            />
-          );
-      }
-
-      if (activeItem === 'metodo') {
-          return (
-            <MethodModule 
-              data={methodData}
-              onUpdate={(newData) => setMethodData(newData)}
-              onSaveAndExit={handleSaveAndExit}
-              onComplete={handleMethodSendToEvaluation}
-              isReadOnly={methodStatus === 'under_review'}
-            />
-          );
-      }
-
-      if (activeItem === 'entrega_fundacao') {
-          return (
-              <DeliveryModule
-                  data={deliveryData}
-                  onUpdate={(newData) => setDeliveryData(newData)}
-                  onSaveAndExit={handleSaveAndExit}
-                  onComplete={handleDeliverySendToEvaluation}
-                  isReadOnly={deliveryStatus === 'under_review'}
-              />
-          )
-      }
-
-      // Placeholder Genérico
+    // Verificar se tenta acessar módulo bloqueado (segurança extra)
+    if (activeItem !== 'overview' && isModuleLocked(activeItem)) {
       return (
-        <div className="bg-[#051522] border border-white/5 rounded-lg p-1 min-h-[600px] shadow-2xl relative overflow-hidden flex items-center justify-center">
-             <div className="text-center">
-                <i className="bi bi-cone-striped text-4xl text-[#CA9A43] mb-4 block"></i>
-                <h3 className="font-serif text-2xl text-white mb-2">Em Construção</h3>
-                <p className="text-gray-500">O módulo {getActiveLabel()} estará disponível em breve.</p>
-                <button onClick={() => setActiveItem('overview')} className="mt-6 text-[#CA9A43] text-sm hover:underline">
-                    Voltar para Visão Geral
-                </button>
-             </div>
+        <div className="flex flex-col items-center justify-center p-12 text-center h-full">
+          <i className="bi bi-lock-fill text-6xl text-gray-600 mb-6"></i>
+          <h2 className="text-2xl font-bold text-white mb-2">Módulo Bloqueado</h2>
+          <p className="text-gray-400 mb-6 max-w-md">
+            Você precisa completar 100% do módulo anterior para desbloquear este conteúdo.
+          </p>
+          <button
+            onClick={() => setActiveItem('overview')}
+            className="bg-[#CA9A43] text-black px-6 py-2 rounded font-bold hover:bg-[#b88b3b] transition"
+          >
+            Voltar para Visão Geral
+          </button>
         </div>
       );
+    }
+
+    if (activeItem === 'overview') return renderModulesGrid();
+    if (activeItem === 'mentor') {
+      return <MentorModule data={mentorData} onUpdate={handleUpdateMentor} onSaveAndExit={() => handleSaveAndExit('mentor')} onComplete={() => handleSendToEvaluation('mentor')} isReadOnly={false} savedStep={getModuleStep('mentor')} onStepChange={(step) => saveModuleStep('mentor', step)} />;
+    }
+    if (activeItem === 'mentorado') {
+      return <MenteeModule data={menteeData} onUpdate={handleUpdateMentee} onSaveAndExit={() => handleSaveAndExit('mentorado')} onComplete={() => handleSendToEvaluation('mentorado')} isReadOnly={false} savedStep={getModuleStep('mentee')} onStepChange={(step) => saveModuleStep('mentee', step)} />;
+    }
+    if (activeItem === 'metodo') {
+      return <MethodModule data={methodData} onUpdate={handleUpdateMethod} onSaveAndExit={() => handleSaveAndExit('metodo')} onComplete={() => handleSendToEvaluation('metodo')} isReadOnly={false} savedStep={getModuleStep('method')} onStepChange={(step) => saveModuleStep('method', step)} />;
+    }
+    if (activeItem === 'entrega_fundacao') {
+      return <DeliveryModule data={deliveryData} onUpdate={handleUpdateDelivery} onSaveAndExit={() => handleSaveAndExit('entrega_fundacao')} onComplete={() => handleSendToEvaluation('entrega_fundacao')} isReadOnly={false} savedStep={getModuleStep('delivery')} onStepChange={(step) => saveModuleStep('delivery', step)} />;
+    }
+
+    return (
+      <div className="bg-[#051522] border border-white/5 rounded-lg p-1 min-h-[600px] shadow-2xl relative overflow-hidden flex items-center justify-center">
+        <div className="text-center">
+          <i className="bi bi-cone-striped text-4xl text-[#CA9A43] mb-4 block"></i>
+          <h3 className="font-serif text-2xl text-white mb-2">Em Construção</h3>
+          <p className="text-gray-500">O módulo {getActiveLabel()} estará disponível em breve.</p>
+          <button onClick={() => setActiveItem('overview')} className="mt-6 text-[#CA9A43] text-sm hover:underline">Voltar para Visão Geral</button>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="min-h-screen bg-[#031A2B] flex text-white font-sans overflow-hidden relative">
-      
-      {/* Mobile Backdrop */}
       <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
-          />
-        )}
+        {isMobileMenuOpen && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMobileMenuOpen(false)} className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm" />}
       </AnimatePresence>
 
-      {/* Sidebar - Drawer on Mobile, Fixed on Desktop */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-[#020f19] border-r border-white/5 flex flex-col shadow-xl 
-        transform transition-transform duration-300 ease-in-out
-        lg:relative lg:translate-x-0
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div className="h-24 flex items-center justify-center border-b border-white/5 px-6 bg-[#020f19] relative">
-          <Logo className="w-28" variant="footer" />
-          {/* Close button mobile only */}
-          <button 
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="absolute right-4 text-gray-500 hover:text-white lg:hidden"
-          >
-            <i className="bi bi-x-lg"></i>
-          </button>
+      <motion.aside className={`fixed lg:static inset-y-0 left-0 w-64 sm:w-72 lg:w-64 bg-[#0A2540] border-r border-white/5 p-4 sm:p-6 z-50 lg:z-0 lg:translate-x-0 overflow-y-auto transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="mb-6 sm:mb-8 flex items-center gap-2 sm:gap-3">
+          <Logo className="w-8 h-8 sm:w-10 sm:h-10" />
+          <span className="text-base sm:text-lg font-bold text-[#CA9A43]">Menu</span>
         </div>
-
-        <div className="flex-1 py-8 overflow-y-auto custom-scrollbar">
-          <div className="space-y-2">
-            {menuStructure.map((section) => (
-              <div key={section.id} className="px-4">
-                <button
-                  onClick={() => toggleSection(section.id)}
-                  className="w-full flex items-center justify-between px-2 py-2 mb-1 group"
-                >
-                  <span className="text-[10px] text-[#CA9A43] group-hover:text-[#FFE39B] uppercase tracking-widest font-bold transition-colors">
-                    {section.title}
-                  </span>
-                  <i className={`bi bi-chevron-down text-[#CA9A43] text-[10px] transition-transform duration-300 ${openSections.includes(section.id) ? 'rotate-180' : ''}`}></i>
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {openSections.includes(section.id) && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                      className="overflow-hidden"
-                    >
-                      <ul className="pl-2 space-y-1 pb-4 border-l border-white/5 ml-2">
-                        {section.items.map((item) => (
-                          <li key={item.id}>
-                            <button
-                              onClick={() => handleMenuItemClick(item.id)}
-                              className={`w-full text-left px-4 py-2 text-sm transition-all duration-300 rounded-r-sm flex items-center gap-3 relative
-                                ${activeItem === item.id 
-                                  ? 'text-white bg-white/5' 
-                                  : 'text-gray-500 hover:text-white hover:bg-white/5'
-                                }`}
-                            >
-                              {activeItem === item.id && (
-                                <motion.div layoutId="activeIndicator" className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#CA9A43]" />
-                              )}
-                              {item.label}
-                              {/* Status Indicators */}
-                              {item.id === 'mentor' && mentorStatus === 'under_review' && <i className="bi bi-lock-fill text-[10px] ml-auto text-blue-500"></i>}
-                              {item.id === 'mentor' && mentorStatus === 'completed' && <i className="bi bi-check-circle-fill text-[10px] ml-auto text-green-500"></i>}
-                              {item.id === 'metodo' && methodStatus === 'under_review' && <i className="bi bi-lock-fill text-[10px] ml-auto text-blue-500"></i>}
-                              {item.id === 'metodo' && isMethodStarted && methodStatus !== 'under_review' && <i className="bi bi-circle-fill text-[8px] ml-auto text-[#CA9A43]"></i>}
-                              {item.id === 'mentorado' && isMenteeStarted && menteeStatus !== 'under_review' && <i className="bi bi-circle-fill text-[8px] ml-auto text-[#CA9A43]"></i>}
-                              {item.id === 'mentorado' && menteeStatus === 'under_review' && <i className="bi bi-lock-fill text-[10px] ml-auto text-blue-500"></i>}
-                              {item.id === 'entrega_fundacao' && isDeliveryStarted && deliveryStatus !== 'under_review' && <i className="bi bi-circle-fill text-[8px] ml-auto text-[#CA9A43]"></i>}
-                              {item.id === 'entrega_fundacao' && deliveryStatus === 'under_review' && <i className="bi bi-lock-fill text-[10px] ml-auto text-blue-500"></i>}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                {section.id !== 'acao' && <div className="h-[1px] w-full bg-white/5 my-2 mx-auto"></div>}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* User Profile Footer */}
-        <div className="p-4 border-t border-white/5 bg-[#010a12]">
-          <button 
-            onClick={() => setIsProfileModalOpen(true)}
-            className="w-full flex items-center gap-3 mb-3 p-2 rounded-lg hover:bg-white/5 transition-all group text-left"
-          >
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FFE39B] to-[#CA9A43] flex items-center justify-center text-[#031A2B] font-bold text-lg shadow-lg shadow-[#CA9A43]/20 shrink-0 group-hover:scale-105 transition-transform">
-              {/* Usando a primeira letra do Nome */}
-              {userName.charAt(0).toUpperCase()}
-            </div>
-            <div className="overflow-hidden flex-1">
-              <p className="text-sm font-bold text-white truncate group-hover:text-[#CA9A43] transition-colors">
-                  {userName !== 'Membro' ? userName : 'Editar Perfil'}
-              </p>
-              <p className="text-xs text-gray-500 truncate" title={userEmail}>{userEmail}</p>
-            </div>
-            <i className="bi bi-pencil-square text-gray-600 group-hover:text-[#CA9A43] transition-colors"></i>
-          </button>
-          
-          <button 
-            onClick={onLogout}
-            className="w-full group flex items-center gap-2 text-xs text-gray-500 hover:text-red-400 transition-colors px-3 py-2"
-          >
-            <i className="bi bi-box-arrow-left text-lg"></i>
-            <span className="uppercase tracking-wider">Sair da Conta</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-[#031A2B] relative custom-scrollbar w-full">
-        <div className="h-24 border-b border-white/5 flex items-center justify-between px-6 lg:px-10 bg-[#0B1426] backdrop-blur sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-            {/* Mobile Hamburger Trigger */}
-            <button 
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="lg:hidden text-white hover:text-[#CA9A43] transition-colors"
-            >
-              <i className="bi bi-list text-2xl"></i>
+        {menuStructure.map(section => (
+          <div key={section.id} className="mb-4 sm:mb-6">
+            <button onClick={() => toggleSection(section.id)} className="text-[10px] sm:text-xs font-bold text-gray-400 hover:text-white transition mb-2 sm:mb-3 flex items-center justify-between w-full">
+              {section.title}
+              <span className="text-[10px] sm:text-xs">{openSections.includes(section.id) ? '▼' : '▶'}</span>
             </button>
-            <h1 className="font-serif text-2xl md:text-3xl text-white truncate max-w-[200px] md:max-w-none">{getActiveLabel()}</h1>
+            {openSections.includes(section.id) && (
+              <div className="space-y-1 sm:space-y-2">
+                {section.items.map(item => {
+                  const locked = isModuleLocked(item.id);
+                  const isCurrent = activeItem === item.id;
+
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        if (!locked) {
+                          setActiveItem(item.id);
+                          setIsMobileMenuOpen(false);
+                        }
+                      }}
+                      className={`block w-full text-left px-3 sm:px-4 py-1.5 sm:py-2 rounded transition text-xs sm:text-sm flex items-center justify-between
+                        ${isCurrent ? 'bg-[#CA9A43] text-black font-semibold' : ''}
+                        ${!isCurrent && !locked ? 'text-gray-400 hover:text-white hover:bg-white/5' : ''}
+                        ${locked ? 'text-gray-600 cursor-not-allowed opacity-50' : ''}
+                      `}
+                    >
+                      <span className="truncate">{item.label}</span>
+                      {locked && <i className="bi bi-lock-fill text-[10px] sm:text-xs ml-2 flex-shrink-0"></i>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          
-          <div className="flex items-center gap-3">
-             {/* Status Badges no Header */}
-             {activeItem === 'mentor' && (
-                <div className="text-xs text-[#CA9A43] border border-[#CA9A43]/30 px-3 py-1 rounded-full bg-[#CA9A43]/5 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${mentorStatus === 'under_review' ? 'bg-blue-500' : 'bg-[#CA9A43] animate-pulse'}`}></span>
-                    <span className="hidden md:inline">{mentorStatus === 'under_review' ? 'Em Análise' : 'Em Progresso'}</span>
-                    <span className="md:hidden">{mentorStatus === 'under_review' ? 'Análise' : 'Ativo'}</span>
-                </div>
-             )}
-             {activeItem === 'metodo' && (
-                <div className="text-xs text-[#CA9A43] border border-[#CA9A43]/30 px-3 py-1 rounded-full bg-[#CA9A43]/5 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${methodStatus === 'under_review' ? 'bg-blue-500' : 'bg-[#CA9A43] animate-pulse'}`}></span>
-                    <span className="hidden md:inline">{methodStatus === 'under_review' ? 'Em Análise' : 'Em Progresso'}</span>
-                    <span className="md:hidden">{methodStatus === 'under_review' ? 'Análise' : 'Ativo'}</span>
-                </div>
-             )}
-             {activeItem === 'mentorado' && (
-                <div className="text-xs text-[#CA9A43] border border-[#CA9A43]/30 px-3 py-1 rounded-full bg-[#CA9A43]/5 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${menteeStatus === 'under_review' ? 'bg-blue-500' : 'bg-[#CA9A43] animate-pulse'}`}></span>
-                    <span className="hidden md:inline">{menteeStatus === 'under_review' ? 'Em Análise' : 'Em Progresso'}</span>
-                    <span className="md:hidden">{menteeStatus === 'under_review' ? 'Análise' : 'Ativo'}</span>
-                </div>
-             )}
-              {activeItem === 'entrega_fundacao' && (
-                <div className="text-xs text-[#CA9A43] border border-[#CA9A43]/30 px-3 py-1 rounded-full bg-[#CA9A43]/5 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${deliveryStatus === 'under_review' ? 'bg-blue-500' : 'bg-[#CA9A43] animate-pulse'}`}></span>
-                    <span className="hidden md:inline">{deliveryStatus === 'under_review' ? 'Em Análise' : 'Em Progresso'}</span>
-                    <span className="md:hidden">{deliveryStatus === 'under_review' ? 'Análise' : 'Ativo'}</span>
-                </div>
-             )}
+        ))}
+      </motion.aside>
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="bg-[#0A2540] border-b border-white/5 px-3 sm:px-4 md:px-6 py-3 sm:py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="lg:hidden text-white text-xl sm:text-2xl flex-shrink-0">☰</button>
+            <div className="min-w-0 flex-1"><h1 className="text-base sm:text-lg md:text-xl font-bold text-white truncate">{getActiveLabel()}</h1></div>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 flex-shrink-0">
+            {lastSaveError && (
+              <div className="hidden sm:flex text-red-400 text-xs font-semibold items-center gap-2 bg-red-500/10 px-2 sm:px-3 py-1 sm:py-1.5 rounded border border-red-500/20">
+                <i className="bi bi-exclamation-triangle"></i>
+                <span className="hidden md:inline">Erro ao salvar: {lastSaveError}</span>
+                <span className="md:hidden">Erro</span>
+              </div>
+            )}
+            {isSaving && !lastSaveError && (
+              <span className="hidden sm:flex text-[#CA9A43] text-[10px] sm:text-xs font-semibold animate-pulse items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-[#CA9A43] rounded-full inline-block" />
+                <span className="hidden md:inline">Salvando...</span>
+              </span>
+            )}
+            {!isSaving && !lastSaveError && (
+              <span className="hidden sm:flex text-green-400 text-[10px] sm:text-xs font-semibold items-center gap-1">
+                <i className="bi bi-check-circle-fill"></i>
+                <span className="hidden md:inline">Salvo</span>
+              </span>
+            )}
+            <button onClick={() => setIsProfileModalOpen(true)} className="text-xs sm:text-sm text-gray-400 hover:text-white transition hidden sm:block">👤 <span className="hidden md:inline">Perfil</span></button>
+            <button onClick={handleLogout} className="px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded transition text-xs sm:text-sm font-semibold">Sair</button>
           </div>
         </div>
 
-        <div className="p-4 md:p-10 max-w-6xl mx-auto">
-          <motion.div
-            key={activeItem}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-          >
-             {renderContent()}
-          </motion.div>
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+          <AnimatePresence mode="wait">
+            <motion.div key={activeItem} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+              {renderContent()}
+            </motion.div>
+          </AnimatePresence>
         </div>
-      </main>
+      </div>
 
-      {/* Profile Edit Modal */}
       <Modal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)}>
-        <div className="text-center">
-            <h2 className="font-serif text-3xl text-white mb-2">Seu Perfil</h2>
-            <p className="font-sans text-prosperus-neutral-grey/60 mb-8 text-sm">
-                Mantenha seus dados atualizados para uma melhor experiência.
-            </p>
-
-            <form onSubmit={handleSaveProfile} className="space-y-6 text-left">
-                {/* Email Read-only */}
-                <div>
-                    <label className="block font-sans text-xs uppercase tracking-widest text-gray-500 mb-2">
-                        Email Cadastrado
-                    </label>
-                    <div className="w-full bg-[#031A2B] border border-white/5 p-4 text-gray-400 font-sans rounded-sm cursor-not-allowed flex items-center gap-3">
-                        <i className="bi bi-lock-fill text-xs"></i>
-                        {userEmail}
-                    </div>
-                </div>
-
-                {/* Name Edit */}
-                <div>
-                    <label className="block font-sans text-xs uppercase tracking-widest text-[#CA9A43] mb-2">
-                        Seu Nome Completo
-                    </label>
-                    <input
-                        type="text"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        placeholder="Como você quer ser chamado?"
-                        className="w-full bg-[#051522] border border-white/10 p-4 text-white font-sans focus:border-[#CA9A43] outline-none rounded-sm transition-colors"
-                    />
-                </div>
-
-                {/* Description Edit */}
-                <div>
-                    <label className="block font-sans text-xs uppercase tracking-widest text-[#CA9A43] mb-2">
-                        Bio / Descrição Curta
-                    </label>
-                    <textarea
-                        value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        placeholder="Ex: Fundador da Agência X, Especialista em Vendas..."
-                        className="w-full bg-[#051522] border border-white/10 p-4 text-white font-sans focus:border-[#CA9A43] outline-none rounded-sm transition-colors h-24 resize-none"
-                    />
-                </div>
-
-                <div className="flex gap-4 pt-4 border-t border-white/5">
-                    <button 
-                        type="button" 
-                        onClick={() => setIsProfileModalOpen(false)}
-                        className="flex-1 py-3 border border-white/10 text-gray-400 hover:text-white text-sm font-bold uppercase tracking-wider rounded-sm transition-colors"
-                    >
-                        Cancelar
-                    </button>
-                    <button 
-                        type="submit" 
-                        className="flex-1 py-3 bg-[#CA9A43] text-[#031A2B] hover:bg-[#FFE39B] text-sm font-bold uppercase tracking-wider rounded-sm transition-colors shadow-lg shadow-[#CA9A43]/20"
-                    >
-                        Salvar Alterações
-                    </button>
-                </div>
-            </form>
+        <div className="bg-[#051522] border border-white/10 rounded-lg p-4 sm:p-6 md:p-8 max-w-md mx-4">
+          <h2 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6">Editar Perfil</h2>
+          <div className="space-y-3 sm:space-y-4">
+            <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Nome" className="w-full bg-white/5 border border-white/10 rounded px-3 sm:px-4 py-2 text-sm sm:text-base text-white placeholder-gray-500" />
+            <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Descrição" className="w-full bg-white/5 border border-white/10 rounded px-3 sm:px-4 py-2 text-sm sm:text-base text-white placeholder-gray-500 h-20 sm:h-24 resize-none" />
+          </div>
+          <div className="flex gap-2 sm:gap-3 mt-4 sm:mt-6">
+            <button onClick={handleSaveProfile} className="flex-1 bg-[#CA9A43] hover:bg-[#D4B050] text-black font-semibold py-2 rounded transition text-sm sm:text-base">Salvar</button>
+            <button onClick={() => setIsProfileModalOpen(false)} className="flex-1 bg-white/5 hover:bg-white/10 text-white font-semibold py-2 rounded transition text-sm sm:text-base">Cancelar</button>
+          </div>
         </div>
       </Modal>
-
     </div>
   );
 };

@@ -47,6 +47,7 @@ export interface JourneyStep {
 
 export interface ConsumptionJourneyData {
     discoveryChannel: string; // Como conhece a marca (First Step)
+    finalResult: string; // Resultado final / Recomendação (Last Step)
     steps: JourneyStep[];
 }
 
@@ -111,7 +112,7 @@ export interface MenteeData {
     demographics: DemographicProfile;
     transformation: TransformationData;
     decisionMountain: DecisionLayer;
-    consumptionJourney: ConsumptionJourneyData; 
+    consumptionJourney: ConsumptionJourneyData;
     icpTarget: ICPTarget;
     personas: Persona[];
     fanHaterMap: FanHaterMap;
@@ -145,6 +146,7 @@ export const INITIAL_MENTEE_DATA: MenteeData = {
     },
     consumptionJourney: {
         discoveryChannel: '',
+        finalResult: '',
         steps: []
     },
     icpTarget: {
@@ -168,6 +170,8 @@ interface MenteeModuleProps {
     onSaveAndExit: () => void;
     onComplete?: () => void;
     isReadOnly?: boolean;
+    savedStep?: number; // Etapa salva anteriormente
+    onStepChange?: (step: number) => void; // Callback quando a etapa muda
 }
 
 // --- UTILS ---
@@ -199,18 +203,18 @@ const getInitialStep = (data: MenteeData): number => {
     if (!data.hasClients) return 1;
 
     if (data.hasClients === 'no') {
+        if (data.personas.length === 0) return 2;
+        if (!data.fanHaterMap.fan) return 3;
+        if (!data.communityImpact.community.positive) return 4;
+        if (!data.icpSynthesis.phrase) return 5;
+        return 6; // Complete
+    } else {
         if (!data.demographics.detailedProfile) return 2;
         if (!data.transformation.before.metrics) return 3;
         if (!data.decisionMountain.motivation) return 4;
         if (data.consumptionJourney.steps.length === 0) return 5;
         if (!data.icpTarget.centerPhrase) return 6;
-        return 7; // Complete
-    } else {
-         if (data.personas.length === 0) return 2;
-         if (!data.fanHaterMap.fan) return 3;
-         if (!data.communityImpact.community.positive) return 4;
-         if (!data.icpSynthesis.phrase) return 5;
-         return 6; // Complete
+        return 7; // Complete (6 steps + 1)
     }
 };
 
@@ -219,30 +223,30 @@ const getInitialStep = (data: MenteeData): number => {
 const MenteeIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
     return (
         <div className="h-full overflow-y-auto custom-scrollbar">
-            <div className="min-h-full flex flex-col items-center justify-center text-center p-6 md:p-16 animate-fadeIn">
-                <div className="w-16 h-16 md:w-20 md:h-20 bg-[#CA9A43]/10 rounded-full flex items-center justify-center mb-6 md:mb-8 border border-[#CA9A43]/30 flex-shrink-0">
-                    <i className="bi bi-people text-3xl md:text-4xl text-[#CA9A43]"></i>
+            <div className="min-h-full flex flex-col items-center justify-center text-center p-4 sm:p-6 md:p-16 animate-fadeIn">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-[#CA9A43]/10 rounded-full flex items-center justify-center mb-4 sm:mb-6 md:mb-8 border border-[#CA9A43]/30 flex-shrink-0">
+                    <i className="bi bi-people text-2xl sm:text-3xl md:text-4xl text-[#CA9A43]"></i>
                 </div>
-                
-                <h2 className="font-serif text-3xl md:text-5xl text-white mb-6 md:mb-8">
+
+                <h2 className="font-serif text-2xl sm:text-3xl md:text-5xl text-white mb-4 sm:mb-6 md:mb-8">
                     O Mentorado
                 </h2>
-                
-                <div className="max-w-2xl space-y-4 md:space-y-6 text-gray-300 font-sans text-base md:text-lg leading-relaxed mb-8 md:mb-10">
+
+                <div className="max-w-2xl space-y-3 sm:space-y-4 md:space-y-6 text-gray-300 font-sans text-sm sm:text-base md:text-lg leading-relaxed mb-6 sm:mb-8 md:mb-10">
                     <p>
                         Este módulo é sobre quem está do outro lado: <strong className="text-white">o mentorado</strong>. As perguntas serão sobre se você já tem clientes, o quanto conhece esses clientes e, quando ainda não existe clareza, vamos desenhar juntos um primeiro cliente ideal para testar.
                     </p>
-                    <p>
-                         O objetivo é descobrir quem é a pessoa que mais ganha com o que você faz, para alinhar método, comunicação e oferta com ela.
+                    <p className="hidden sm:block">
+                        O objetivo é descobrir quem é a pessoa que mais ganha com o que você faz, para alinhar método, comunicação e oferta com ela.
                     </p>
-                    <p className="italic text-[#CA9A43]">
+                    <p className="italic text-[#CA9A43] text-xs sm:text-sm md:text-base">
                         Quanto mais claro você for aqui, mais certeiro será o plano que vamos construir juntos depois.
                     </p>
                 </div>
 
-                <button 
+                <button
                     onClick={onStart}
-                    className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-3 px-8 md:py-4 md:px-10 rounded-sm uppercase tracking-widest transition-all shadow-lg hover:shadow-[#CA9A43]/20 flex-shrink-0 text-sm md:text-base"
+                    className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-2 px-6 sm:py-3 sm:px-8 md:py-4 md:px-10 rounded-sm uppercase tracking-widest transition-all shadow-lg hover:shadow-[#CA9A43]/20 flex-shrink-0 text-xs sm:text-sm md:text-base w-full sm:w-auto max-w-xs"
                 >
                     Começar Diagnóstico
                 </button>
@@ -255,19 +259,20 @@ const MenteeIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
 const SaveStatusIndicator = ({ status, lightMode }: { status: 'idle' | 'saving' | 'saved', lightMode?: boolean }) => {
     if (status === 'idle') return null;
     return (
-        <div className={`flex items-center gap-2 text-xs font-sans uppercase tracking-widest absolute top-6 right-6 px-3 py-1 rounded-full border backdrop-blur-sm z-20 pointer-events-none transition-all duration-300
+        <div className={`flex items-center gap-2 text-[10px] sm:text-xs font-sans uppercase tracking-widest absolute top-3 right-3 sm:top-6 sm:right-6 px-2 sm:px-3 py-1 rounded-full border backdrop-blur-sm z-20 pointer-events-none transition-all duration-300
             ${lightMode ? 'bg-white/80 border-gray-200 text-gray-500' : 'bg-[#031A2B]/80 border-white/10'}
         `}>
             {status === 'saving' && (
                 <>
                     <div className="w-2 h-2 rounded-full bg-[#CA9A43] animate-pulse"></div>
-                    <span className="text-[#CA9A43]">Salvando...</span>
+                    <span className="text-[#CA9A43] hidden sm:inline">Salvando...</span>
+                    <span className="text-[#CA9A43] sm:hidden">...</span>
                 </>
             )}
             {status === 'saved' && (
                 <>
                     <span className="text-green-400 text-sm">✓</span>
-                    <span className={`${lightMode ? 'text-gray-500' : 'text-gray-400'}`}>Salvo</span>
+                    <span className={`${lightMode ? 'text-gray-500' : 'text-gray-400'} hidden sm:inline`}>Salvo</span>
                 </>
             )}
         </div>
@@ -277,40 +282,40 @@ const SaveStatusIndicator = ({ status, lightMode }: { status: 'idle' | 'saving' 
 // Completion View (Tela de Sucesso/Envio)
 const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; readOnly?: boolean }> = ({ onReview, onSend, readOnly }) => {
     return (
-        <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <motion.div 
+        <div className="h-full flex flex-col items-center justify-center text-center p-4 sm:p-8">
+            <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.5, type: "spring" }}
-                className={`w-24 h-24 rounded-full border flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,0,0,0.2)]
-                    ${readOnly 
-                        ? 'bg-blue-500/10 border-blue-500 shadow-blue-500/20' 
+                className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full border flex items-center justify-center mb-4 sm:mb-6 shadow-[0_0_30px_rgba(0,0,0,0.2)]
+                    ${readOnly
+                        ? 'bg-blue-500/10 border-blue-500 shadow-blue-500/20'
                         : 'bg-green-500/10 border-green-500 shadow-green-500/20'
                     }`}
             >
                 {readOnly ? (
-                    <i className="bi bi-file-earmark-lock text-5xl text-blue-500"></i>
+                    <i className="bi bi-file-earmark-lock text-4xl sm:text-5xl text-blue-500"></i>
                 ) : (
-                    <i className="bi bi-check-lg text-5xl text-green-500"></i>
+                    <i className="bi bi-check-lg text-4xl sm:text-5xl text-green-500"></i>
                 )}
             </motion.div>
-            
-            <motion.h2 
+
+            <motion.h2
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
-                className="font-serif text-4xl text-white mb-4"
+                className="font-serif text-2xl sm:text-3xl md:text-4xl text-white mb-3 sm:mb-4"
             >
                 {readOnly ? 'Módulo em Análise' : 'Módulo Concluído!'}
             </motion.h2>
-            
-            <motion.p 
+
+            <motion.p
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
-                className="text-gray-400 max-w-md font-sans text-lg mb-8 leading-relaxed"
+                className="text-gray-400 max-w-md font-sans text-sm sm:text-base md:text-lg mb-6 sm:mb-8 leading-relaxed px-4"
             >
-                {readOnly 
+                {readOnly
                     ? 'Suas respostas foram enviadas e estão sendo analisadas pela nossa equipe.'
                     : 'Parabéns! Você definiu seu cliente ideal. Deseja enviar agora para avaliação ou apenas salvar?'
                 }
@@ -320,19 +325,19 @@ const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; read
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.4 }}
-                className="flex flex-col md:flex-row gap-4"
+                className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto px-4"
             >
-                <button 
+                <button
                     onClick={onReview}
-                    className="px-6 py-3 border border-white/10 hover:bg-white/5 text-gray-300 rounded-sm font-bold text-sm uppercase tracking-wider transition-colors"
+                    className="px-4 sm:px-6 py-2 sm:py-3 border border-white/10 hover:bg-white/5 text-gray-300 rounded-sm font-bold text-xs sm:text-sm uppercase tracking-wider transition-colors"
                 >
                     {readOnly ? 'Visualizar Respostas' : 'Revisar Respostas'}
                 </button>
-                
+
                 {!readOnly && onSend && (
-                    <button 
+                    <button
                         onClick={onSend}
-                        className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-sm text-sm uppercase tracking-wider shadow-lg hover:shadow-green-500/30 transition-all flex items-center justify-center gap-2"
+                        className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-sm text-xs sm:text-sm uppercase tracking-wider shadow-lg hover:shadow-green-500/30 transition-all flex items-center justify-center gap-2"
                     >
                         Enviar para Avaliação <i className="bi bi-send-fill"></i>
                     </button>
@@ -354,21 +359,21 @@ const ClientStatusSelection: React.FC<{
     };
 
     return (
-        <div className="max-w-5xl mx-auto h-full flex flex-col items-center justify-center pb-12 pt-8 overflow-y-auto custom-scrollbar">
-            <div className="text-center mb-12 relative flex-shrink-0">
-                <h2 className="font-serif text-3xl md:text-4xl text-white font-bold leading-tight mb-4">
-                    Você já tem clientes para o produto,<br /> serviço ou mentoria que oferece hoje?
+        <div className="max-w-5xl mx-auto h-full flex flex-col items-center justify-center pb-8 sm:pb-12 pt-6 sm:pt-8 overflow-y-auto custom-scrollbar">
+            <div className="text-center mb-8 sm:mb-12 relative flex-shrink-0 px-4">
+                <h2 className="font-serif text-2xl sm:text-3xl md:text-4xl text-white font-bold leading-tight mb-3 sm:mb-4">
+                    Você já tem clientes para o produto,<br className="hidden sm:block" /> serviço ou mentoria que oferece hoje?
                 </h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl mb-12 px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 w-full max-w-4xl mb-8 sm:mb-12 px-4">
                 {/* Opção NÃO */}
                 <motion.button
                     whileHover={!readOnly ? { y: -4, scale: 1.02 } : {}}
                     whileTap={!readOnly ? { scale: 0.98 } : {}}
                     onClick={() => handleSelect('no')}
                     disabled={readOnly}
-                    className={`relative p-8 rounded-2xl border-2 flex flex-col items-center justify-center text-center h-[240px] transition-all duration-300 group
+                    className={`relative p-6 sm:p-8 rounded-2xl border-2 flex flex-col items-center justify-center text-center h-[200px] sm:h-[240px] transition-all duration-300 group
                         ${data.hasClients === 'no'
                             ? 'bg-red-500/10 border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.2)]'
                             : 'bg-[#081e30] border-white/5 hover:border-red-500/50'
@@ -376,17 +381,17 @@ const ClientStatusSelection: React.FC<{
                         ${readOnly && data.hasClients !== 'no' ? 'opacity-30 grayscale' : 'opacity-100'}
                     `}
                 >
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl mb-6 transition-colors
+                    <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center text-2xl sm:text-3xl mb-4 sm:mb-6 transition-colors
                         ${data.hasClients === 'no' ? 'bg-red-500 text-white' : 'bg-white/5 text-gray-500 group-hover:bg-red-500/20 group-hover:text-red-500'}
                     `}>
                         <i className="bi bi-people"></i>
                     </div>
-                    <span className={`text-xl font-bold transition-colors ${data.hasClients === 'no' ? 'text-white' : 'text-gray-400 group-hover:text-white'}`}>
+                    <span className={`text-lg sm:text-xl font-bold transition-colors ${data.hasClients === 'no' ? 'text-white' : 'text-gray-400 group-hover:text-white'}`}>
                         Não, ainda não tenho clientes
                     </span>
                     {data.hasClients === 'no' && (
-                        <motion.div layoutId="check" className="absolute top-4 right-4 text-red-500">
-                            <i className="bi bi-check-circle-fill text-2xl"></i>
+                        <motion.div layoutId="check" className="absolute top-3 right-3 sm:top-4 sm:right-4 text-red-500">
+                            <i className="bi bi-check-circle-fill text-xl sm:text-2xl"></i>
                         </motion.div>
                     )}
                 </motion.button>
@@ -397,7 +402,7 @@ const ClientStatusSelection: React.FC<{
                     whileTap={!readOnly ? { scale: 0.98 } : {}}
                     onClick={() => handleSelect('yes')}
                     disabled={readOnly}
-                    className={`relative p-8 rounded-2xl border-2 flex flex-col items-center justify-center text-center h-[240px] transition-all duration-300 group
+                    className={`relative p-6 sm:p-8 rounded-2xl border-2 flex flex-col items-center justify-center text-center h-[200px] sm:h-[240px] transition-all duration-300 group
                         ${data.hasClients === 'yes'
                             ? 'bg-emerald-500/10 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.2)]'
                             : 'bg-[#081e30] border-white/5 hover:border-emerald-500/50'
@@ -405,17 +410,17 @@ const ClientStatusSelection: React.FC<{
                         ${readOnly && data.hasClients !== 'yes' ? 'opacity-30 grayscale' : 'opacity-100'}
                     `}
                 >
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl mb-6 transition-colors
+                    <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center text-2xl sm:text-3xl mb-4 sm:mb-6 transition-colors
                         ${data.hasClients === 'yes' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-gray-500 group-hover:bg-emerald-500/20 group-hover:text-emerald-500'}
                     `}>
                         <i className="bi bi-people-fill"></i>
                     </div>
-                    <span className={`text-xl font-bold transition-colors ${data.hasClients === 'yes' ? 'text-white' : 'text-gray-400 group-hover:text-white'}`}>
+                    <span className={`text-lg sm:text-xl font-bold transition-colors ${data.hasClients === 'yes' ? 'text-white' : 'text-gray-400 group-hover:text-white'}`}>
                         Sim, já tenho clientes
                     </span>
                     {data.hasClients === 'yes' && (
-                        <motion.div layoutId="check" className="absolute top-4 right-4 text-emerald-500">
-                            <i className="bi bi-check-circle-fill text-2xl"></i>
+                        <motion.div layoutId="check" className="absolute top-3 right-3 sm:top-4 sm:right-4 text-emerald-500">
+                            <i className="bi bi-check-circle-fill text-xl sm:text-2xl"></i>
                         </motion.div>
                     )}
                 </motion.button>
@@ -426,9 +431,9 @@ const ClientStatusSelection: React.FC<{
                     <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="text-center mb-8 px-4"
+                        className="text-center mb-6 sm:mb-8 px-4"
                     >
-                        <p className={`text-lg font-medium ${data.hasClients === 'yes' ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <p className={`text-base sm:text-lg font-medium ${data.hasClients === 'yes' ? 'text-emerald-400' : 'text-red-400'}`}>
                             {data.hasClients === 'yes'
                                 ? 'Ótimo! Vamos direcionar o conteúdo para escala e otimização.'
                                 : 'Ótimo! Vamos direcionar o conteúdo para validação e primeiras vendas.'}
@@ -437,13 +442,13 @@ const ClientStatusSelection: React.FC<{
                 )}
             </AnimatePresence>
 
-            <div className="bg-[#031A2B] border border-[#CA9A43]/20 rounded-lg p-4 max-w-2xl flex items-start gap-4 mx-4">
-                <div className="text-[#CA9A43] text-xl mt-1">
+            <div className="bg-[#031A2B] border border-[#CA9A43]/20 rounded-lg p-3 sm:p-4 max-w-2xl flex items-start gap-3 sm:gap-4 mx-4">
+                <div className="text-[#CA9A43] text-lg sm:text-xl mt-1 flex-shrink-0">
                     <i className="bi bi-info-circle"></i>
                 </div>
                 <div>
-                    <h4 className="text-[#CA9A43] text-sm font-bold uppercase tracking-widest mb-1">Por que isso importa?</h4>
-                    <p className="text-gray-400 text-sm leading-relaxed">
+                    <h4 className="text-[#CA9A43] text-xs sm:text-sm font-bold uppercase tracking-widest mb-1">Por que isso importa?</h4>
+                    <p className="text-gray-400 text-xs sm:text-sm leading-relaxed">
                         Essa resposta define sua jornada de aprendizado. Quem não tem clientes precisa construir o avatar do zero. Quem já tem clientes deve expandir seu radar para novas oportunidades.
                     </p>
                 </div>
@@ -482,11 +487,11 @@ const DemographicWizard: React.FC<{
         }
     };
 
-    const togglePlatform = (p: string) => { 
-        if (readOnly) return; 
-        const current = data.demographics.digitalPresence.platforms; 
-        const updated = current.includes(p) ? current.filter(x => x !== p) : [...current, p]; 
-        updateDemo('digitalPresence', { ...data.demographics.digitalPresence, platforms: updated }); 
+    const togglePlatform = (p: string) => {
+        if (readOnly) return;
+        const current = data.demographics.digitalPresence.platforms;
+        const updated = current.includes(p) ? current.filter(x => x !== p) : [...current, p];
+        updateDemo('digitalPresence', { ...data.demographics.digitalPresence, platforms: updated });
     };
 
     const handleNext = () => {
@@ -514,22 +519,22 @@ const DemographicWizard: React.FC<{
     // INTRO SCREEN
     if (wizardStep === 0) {
         return (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-center animate-fadeIn">
+            <div className="h-full flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 text-center animate-fadeIn">
                 <div className="max-w-3xl">
-                    <h2 className="font-serif text-3xl md:text-5xl text-white mb-4">Dados Demográficos</h2>
-                    <p className="text-xl md:text-2xl text-gray-400 mb-8 font-serif italic">"Quem são essas pessoas? Como vivem? O que têm em comum?"</p>
-                    
-                    <div className="bg-[#031A2B] border border-[#CA9A43] p-8 rounded-xl mb-10 shadow-lg relative overflow-hidden">
+                    <h2 className="font-serif text-2xl sm:text-3xl md:text-5xl text-white mb-3 sm:mb-4">Dados Demográficos</h2>
+                    <p className="text-lg sm:text-xl md:text-2xl text-gray-400 mb-6 sm:mb-8 font-serif italic">"Quem são essas pessoas? Como vivem? O que têm em comum?"</p>
+
+                    <div className="bg-[#031A2B] border border-[#CA9A43] p-4 sm:p-6 md:p-8 rounded-xl mb-6 sm:mb-8 md:mb-10 shadow-lg relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1 h-full bg-[#CA9A43]"></div>
-                        <p className="text-white text-lg leading-relaxed">
-                            <span className="text-[#CA9A43] font-bold block mb-2 text-sm uppercase tracking-widest">Missão</span>
+                        <p className="text-white text-sm sm:text-base md:text-lg leading-relaxed">
+                            <span className="text-[#CA9A43] font-bold block mb-2 text-xs sm:text-sm uppercase tracking-widest">Missão</span>
                             Pense nos seus melhores clientes, aqueles que deram certo com você. Vamos descrever quem são essas pessoas em detalhes para que você possa encontrar mais delas.
                         </p>
                     </div>
 
-                    <button 
+                    <button
                         onClick={handleNext}
-                        className="bg-[#CA9A43] text-[#031A2B] font-bold py-4 px-10 rounded-full text-lg uppercase tracking-widest hover:bg-[#FFE39B] hover:scale-105 transition-all shadow-[0_0_30px_rgba(202,154,67,0.3)]"
+                        className="bg-[#CA9A43] text-[#031A2B] font-bold py-3 px-6 sm:py-4 sm:px-10 rounded-full text-sm sm:text-base md:text-lg uppercase tracking-widest hover:bg-[#FFE39B] hover:scale-105 transition-all shadow-[0_0_30px_rgba(202,154,67,0.3)] w-full sm:w-auto"
                     >
                         Iniciar Mapeamento <i className="bi bi-arrow-right ml-2"></i>
                     </button>
@@ -557,15 +562,15 @@ const DemographicWizard: React.FC<{
                         { title: '6. Estado Civil', value: data.demographics.maritalStatus === 'single' ? 'Solteiro(a)' : data.demographics.maritalStatus === 'married' ? 'Casado(a)' : 'Outro', step: 6 },
                         { title: '7. Cargo/Função', value: `${data.demographics.role.category} - ${data.demographics.role.area}`, step: 7 },
                     ].map((item, i) => (
-                         <div key={i} className="bg-[#081e30] border border-white/5 p-6 rounded-lg flex justify-between items-start group hover:border-white/20 transition-colors">
-                             <div>
-                                 <h4 className="text-[#CA9A43] text-xs font-bold uppercase tracking-widest mb-2">{item.title}</h4>
-                                 <p className="text-gray-300 text-sm line-clamp-2">{item.value || 'Não preenchido'}</p>
-                             </div>
-                             <button onClick={() => setWizardStep(item.step)} className="text-gray-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
-                                 <i className="bi bi-pencil"></i>
-                             </button>
-                         </div>
+                        <div key={i} className="bg-[#081e30] border border-white/5 p-6 rounded-lg flex justify-between items-start group hover:border-white/20 transition-colors">
+                            <div>
+                                <h4 className="text-[#CA9A43] text-xs font-bold uppercase tracking-widest mb-2">{item.title}</h4>
+                                <p className="text-gray-300 text-sm line-clamp-2">{item.value || 'Não preenchido'}</p>
+                            </div>
+                            <button onClick={() => setWizardStep(item.step)} className="text-gray-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
+                                <i className="bi bi-pencil"></i>
+                            </button>
+                        </div>
                     ))}
                 </div>
 
@@ -587,11 +592,11 @@ const DemographicWizard: React.FC<{
     return (
         <div className="h-full flex flex-col max-w-4xl mx-auto w-full relative">
             {!readOnly && <SaveStatusIndicator status={saveStatus} />}
-            
+
             {/* Progress Bar */}
             <div className="w-full h-1 bg-white/5 mb-8 mt-2 relative">
-                <div 
-                    className="absolute top-0 left-0 h-full bg-[#CA9A43] transition-all duration-500 ease-out" 
+                <div
+                    className="absolute top-0 left-0 h-full bg-[#CA9A43] transition-all duration-500 ease-out"
                     style={{ width: `${(wizardStep / 7) * 100}%` }}
                 ></div>
                 <div className="absolute right-0 -top-6 text-xs text-[#CA9A43] font-bold">
@@ -609,62 +614,62 @@ const DemographicWizard: React.FC<{
                         transition={{ duration: 0.3 }}
                         className="w-full bg-[#081e30] border border-white/5 rounded-2xl p-8 md:p-10 shadow-lg relative min-h-[400px] flex flex-col justify-center"
                     >
-                         <div className="absolute top-6 left-6 w-8 h-8 rounded-full bg-[#3B82F6] text-white flex items-center justify-center font-bold text-sm">
+                        <div className="absolute top-6 left-6 w-8 h-8 rounded-full bg-[#3B82F6] text-white flex items-center justify-center font-bold text-sm">
                             {wizardStep}
-                         </div>
+                        </div>
 
-                         {/* QUESTION 1: DETAILED PROFILE */}
-                         {wizardStep === 1 && (
-                             <div className="mt-8">
-                                 <label className="block text-xl md:text-2xl font-serif text-white mb-2 font-semibold">Descreva com o máximo de detalhes quem é o seu cliente ideal</label>
-                                 <p className="text-gray-400 text-sm mb-6 leading-relaxed">O que ele fala, o que faz no dia a dia, com quem anda, seus medos, fraquezas e frustrações.</p>
-                                 
-                                 <div className="mb-4">
-                                     <button onClick={() => setShowExamples(!showExamples)} className="text-[#CA9A43] text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:text-white transition-colors mb-2">
-                                         <i className="bi bi-lightbulb-fill"></i> {showExamples ? 'Ocultar Dicas' : 'Ver Dicas & Exemplos'}
-                                     </button>
-                                     <AnimatePresence>
-                                         {showExamples && (
-                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-[#031A2B] border border-white/10 p-4 rounded-lg text-sm text-gray-300 overflow-hidden">
-                                                 <p className="mb-2"><strong>💡 Pense em:</strong> Rotina matinal, pressões no trabalho, o que tira o sono dele, o que ele sonha em comprar/conquistar.</p>
-                                                 <p className="italic">Ex: "João, 40 anos, empresário. Sente culpa por não ver os filhos crescerem. No trabalho, finge ter controle, mas vive apagando incêndio..."</p>
-                                             </motion.div>
-                                         )}
-                                     </AnimatePresence>
-                                 </div>
+                        {/* QUESTION 1: DETAILED PROFILE */}
+                        {wizardStep === 1 && (
+                            <div className="mt-8">
+                                <label className="block text-xl md:text-2xl font-serif text-white mb-2 font-semibold">Descreva com o máximo de detalhes quem é o seu cliente ideal</label>
+                                <p className="text-gray-400 text-sm mb-6 leading-relaxed">O que ele fala, o que faz no dia a dia, com quem anda, seus medos, fraquezas e frustrações.</p>
 
-                                 <textarea
+                                <div className="mb-4">
+                                    <button onClick={() => setShowExamples(!showExamples)} className="text-[#CA9A43] text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:text-white transition-colors mb-2">
+                                        <i className="bi bi-lightbulb-fill"></i> {showExamples ? 'Ocultar Dicas' : 'Ver Dicas & Exemplos'}
+                                    </button>
+                                    <AnimatePresence>
+                                        {showExamples && (
+                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-[#031A2B] border border-white/10 p-4 rounded-lg text-sm text-gray-300 overflow-hidden">
+                                                <p className="mb-2"><strong>💡 Pense em:</strong> Rotina matinal, pressões no trabalho, o que tira o sono dele, o que ele sonha em comprar/conquistar.</p>
+                                                <p className="italic">Ex: "João, 40 anos, empresário. Sente culpa por não ver os filhos crescerem. No trabalho, finge ter controle, mas vive apagando incêndio..."</p>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+
+                                <textarea
                                     value={data.demographics.detailedProfile}
                                     onChange={(e) => updateDemo('detailedProfile', e.target.value)}
                                     placeholder="Comece descrevendo um dia típico na vida dele..."
                                     className={`w-full h-64 bg-[#051522] border p-6 text-white text-base rounded-lg resize-none outline-none transition-all
                                         ${readOnly ? 'border-transparent cursor-not-allowed opacity-70' : 'border-white/10 focus:border-[#CA9A43] focus:ring-1 focus:ring-[#CA9A43]'}
                                     `}
-                                 />
-                                 <div className={`text-right text-xs mt-2 font-bold ${data.demographics.detailedProfile.length < 100 ? 'text-red-400' : 'text-[#10B981]'}`}>
-                                     {data.demographics.detailedProfile.length} caracteres (Mín. 100)
-                                 </div>
-                             </div>
-                         )}
+                                />
+                                <div className={`text-right text-xs mt-2 font-bold ${data.demographics.detailedProfile.length < 100 ? 'text-red-400' : 'text-[#10B981]'}`}>
+                                    {data.demographics.detailedProfile.length} caracteres (Mín. 100)
+                                </div>
+                            </div>
+                        )}
 
-                         {/* QUESTION 2: GENDER */}
-                         {wizardStep === 2 && (
-                             <div className="mt-4 text-center">
-                                 <label className="block text-2xl font-serif text-white mb-10 font-semibold">Qual é o gênero mais comum?</label>
-                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {/* QUESTION 2: GENDER */}
+                        {wizardStep === 2 && (
+                            <div className="mt-4 text-center">
+                                <label className="block text-2xl font-serif text-white mb-10 font-semibold">Qual é o gênero mais comum?</label>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {[
                                         { id: 'male', label: 'Masculino', icon: 'bi-gender-male' },
                                         { id: 'female', label: 'Feminino', icon: 'bi-gender-female' },
                                         { id: 'mixed', label: 'Misto', icon: 'bi-gender-ambiguous' },
                                         { id: 'irrelevant', label: 'Não importa', icon: 'bi-dash-circle' }
                                     ].map(opt => (
-                                        <button 
-                                            key={opt.id} 
+                                        <button
+                                            key={opt.id}
                                             onClick={() => updateDemo('gender', opt.id as any)}
                                             disabled={readOnly}
                                             className={`p-6 rounded-xl border-2 flex flex-col items-center gap-4 transition-all duration-200 h-40 justify-center
-                                                ${data.demographics.gender === opt.id 
-                                                    ? 'border-[#10B981] bg-[#10B981]/10 text-white shadow-[0_0_20px_rgba(16,185,129,0.2)] scale-105' 
+                                                ${data.demographics.gender === opt.id
+                                                    ? 'border-[#10B981] bg-[#10B981]/10 text-white shadow-[0_0_20px_rgba(16,185,129,0.2)] scale-105'
                                                     : 'border-white/5 bg-[#051522] text-gray-500 hover:border-white/20 hover:text-gray-300'
                                                 }
                                             `}
@@ -673,139 +678,129 @@ const DemographicWizard: React.FC<{
                                             <span className="font-bold text-sm uppercase tracking-wider">{opt.label}</span>
                                         </button>
                                     ))}
-                                 </div>
-                             </div>
-                         )}
+                                </div>
+                            </div>
+                        )}
 
-                         {/* QUESTION 3: AGE RANGE */}
-                         {wizardStep === 3 && (
-                             <div className="mt-4 text-center w-full max-w-2xl mx-auto">
-                                 <label className="block text-2xl font-serif text-white mb-2 font-semibold">Qual faixa de idade?</label>
-                                 <p className="text-gray-400 text-sm mb-12">Arraste os controles para definir a mínima e a máxima.</p>
-                                 
-                                 <div className="bg-[#051522] border border-white/10 p-10 rounded-xl shadow-inner relative">
-                                     <div className="text-[#CA9A43] font-bold text-3xl mb-12 flex items-center justify-center gap-4">
-                                         <span>{data.demographics.ageRange.min}</span>
-                                         <span className="text-gray-600 text-xl">até</span>
-                                         <span>{data.demographics.ageRange.max} anos</span>
-                                     </div>
-                                     
-                                     <div className="relative h-2 bg-gray-700 rounded-full mb-8">
-                                         {/* Range Track Visual */}
-                                         <div 
-                                            className="absolute h-full bg-gradient-to-r from-[#3B82F6] to-[#10B981] rounded-full opacity-80"
-                                            style={{
-                                                left: `${((data.demographics.ageRange.min - 18) / (80 - 18)) * 100}%`,
-                                                right: `${100 - ((data.demographics.ageRange.max - 18) / (80 - 18)) * 100}%`
-                                            }}
-                                         ></div>
-                                         
-                                         {/* Inputs overlaid */}
-                                         <input 
-                                            type="range" 
-                                            min="18" max="80" 
-                                            value={data.demographics.ageRange.min} 
-                                            onChange={(e) => {
-                                                const val = parseInt(e.target.value);
-                                                if(val < data.demographics.ageRange.max) updateDemo('ageRange', { ...data.demographics.ageRange, min: val });
-                                            }}
-                                            className="absolute w-full h-full opacity-0 cursor-pointer z-20 top-0 left-0" 
-                                         />
-                                         <input 
-                                            type="range" 
-                                            min="18" max="80" 
-                                            value={data.demographics.ageRange.max} 
-                                            onChange={(e) => {
-                                                const val = parseInt(e.target.value);
-                                                if(val > data.demographics.ageRange.min) updateDemo('ageRange', { ...data.demographics.ageRange, max: val });
-                                            }}
-                                            className="absolute w-full h-full opacity-0 cursor-pointer z-20 top-0 left-0" 
-                                         />
+                        {/* QUESTION 3: AGE RANGE */}
+                        {wizardStep === 3 && (
+                            <div className="mt-4 text-center w-full max-w-2xl mx-auto">
+                                <label className="block text-2xl font-serif text-white mb-2 font-semibold">Qual faixa de idade?</label>
+                                <p className="text-gray-400 text-sm mb-12">Arraste os controles para definir a mínima e a máxima.</p>
 
-                                         {/* Custom Thumbs (Visual Only, positioned by percentages) */}
-                                         <div 
-                                            className="absolute w-6 h-6 bg-white border-2 border-[#3B82F6] rounded-full shadow-lg top-1/2 -translate-y-1/2 pointer-events-none z-10"
-                                            style={{ left: `calc(${((data.demographics.ageRange.min - 18) / (80 - 18)) * 100}% - 12px)` }}
-                                         ></div>
-                                         <div 
-                                            className="absolute w-6 h-6 bg-white border-2 border-[#10B981] rounded-full shadow-lg top-1/2 -translate-y-1/2 pointer-events-none z-10"
-                                            style={{ left: `calc(${((data.demographics.ageRange.max - 18) / (80 - 18)) * 100}% - 12px)` }}
-                                         ></div>
-                                     </div>
-                                     
-                                     <div className="flex justify-between text-xs text-gray-500 font-bold uppercase tracking-widest px-1">
-                                         <span>18 Anos</span>
-                                         <span>80+ Anos</span>
-                                     </div>
-                                 </div>
-                             </div>
-                         )}
+                                <div className="bg-[#051522] border border-white/10 p-10 rounded-xl shadow-inner relative">
+                                    <div className="text-[#CA9A43] font-bold text-3xl mb-12 flex items-center justify-center gap-4">
+                                        <span>{data.demographics.ageRange.min}</span>
+                                        <span className="text-gray-600 text-xl">até</span>
+                                        <span>{data.demographics.ageRange.max} anos</span>
+                                    </div>
 
-                         {/* QUESTION 4: LOCATION */}
-                         {wizardStep === 4 && (
-                             <div className="mt-8">
-                                 <label className="block text-2xl font-serif text-white mb-2 font-semibold">Onde esses clientes vivem ou atuam?</label>
-                                 <p className="text-gray-400 text-sm mb-6">Cidade, Região ou País. Digite e pressione Enter.</p>
-                                 
-                                 <div className="flex gap-4 mb-6">
-                                     <div className="relative flex-1">
-                                         <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
-                                         <input 
-                                            value={locationInput} 
-                                            onChange={(e) => setLocationInput(e.target.value)} 
-                                            onKeyDown={(e) => e.key === 'Enter' && addLocation()} 
-                                            placeholder="Ex: São Paulo, Brasil..." 
+                                    {/* Separate sliders for better UX */}
+                                    <div className="space-y-8">
+                                        {/* Min Age Slider */}
+                                        <div>
+                                            <label className="block text-sm text-[#3B82F6] font-bold mb-3 uppercase tracking-wider">Idade Mínima</label>
+                                            <input
+                                                type="range"
+                                                min="18" max="80"
+                                                value={data.demographics.ageRange.min}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    if (val < data.demographics.ageRange.max) updateDemo('ageRange', { ...data.demographics.ageRange, min: val });
+                                                }}
+                                                className="w-full h-2 bg-gray-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#3B82F6] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-lg [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#3B82F6] [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-lg"
+                                            />
+                                        </div>
+
+                                        {/* Max Age Slider */}
+                                        <div>
+                                            <label className="block text-sm text-[#10B981] font-bold mb-3 uppercase tracking-wider">Idade Máxima</label>
+                                            <input
+                                                type="range"
+                                                min="18" max="80"
+                                                value={data.demographics.ageRange.max}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    if (val > data.demographics.ageRange.min) updateDemo('ageRange', { ...data.demographics.ageRange, max: val });
+                                                }}
+                                                className="w-full h-2 bg-gray-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#10B981] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-lg [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#10B981] [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-lg"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-between text-xs text-gray-500 font-bold uppercase tracking-widest px-1 mt-4">
+                                        <span>18 Anos</span>
+                                        <span>80+ Anos</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* QUESTION 4: LOCATION */}
+                        {wizardStep === 4 && (
+                            <div className="mt-8">
+                                <label className="block text-2xl font-serif text-white mb-2 font-semibold">Onde esses clientes vivem ou atuam?</label>
+                                <p className="text-gray-400 text-sm mb-6">Cidade, Região ou País. Digite e pressione Enter.</p>
+
+                                <div className="flex gap-4 mb-6">
+                                    <div className="relative flex-1">
+                                        <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                                        <input
+                                            value={locationInput}
+                                            onChange={(e) => setLocationInput(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && addLocation()}
+                                            placeholder="Ex: São Paulo, Brasil..."
                                             disabled={readOnly}
-                                            className="w-full bg-[#051522] border border-white/10 p-4 pl-12 text-white rounded-lg outline-none focus:border-[#CA9A43] transition-all" 
-                                         />
-                                     </div>
-                                     <button 
-                                        onClick={addLocation} 
-                                        disabled={readOnly || !locationInput} 
+                                            className="w-full bg-[#051522] border border-white/10 p-4 pl-12 text-white rounded-lg outline-none focus:border-[#CA9A43] transition-all"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={addLocation}
+                                        disabled={readOnly || !locationInput}
                                         className="bg-[#051522] text-[#CA9A43] border border-[#CA9A43] font-bold px-6 rounded-lg hover:bg-[#CA9A43] hover:text-[#031A2B] transition-all disabled:opacity-50"
-                                     >
+                                    >
                                         Adicionar
-                                     </button>
-                                 </div>
+                                    </button>
+                                </div>
 
-                                 <div className="flex flex-wrap gap-3 min-h-[100px] p-4 bg-[#051522]/50 rounded-lg border border-white/5">
-                                     {data.demographics.locations.length === 0 && <span className="text-gray-600 text-sm italic">Nenhuma localização adicionada ainda.</span>}
-                                     {data.demographics.locations.map((loc, i) => (
-                                         <motion.span 
-                                            key={i} 
+                                <div className="flex flex-wrap gap-3 min-h-[100px] p-4 bg-[#051522]/50 rounded-lg border border-white/5">
+                                    {data.demographics.locations.length === 0 && <span className="text-gray-600 text-sm italic">Nenhuma localização adicionada ainda.</span>}
+                                    {data.demographics.locations.map((loc, i) => (
+                                        <motion.span
+                                            key={i}
                                             initial={{ scale: 0 }} animate={{ scale: 1 }}
                                             className="bg-[#3B82F6]/20 border border-[#3B82F6]/50 px-4 py-2 rounded-full text-white text-sm flex items-center gap-2 group"
-                                         >
-                                             <i className="bi bi-geo-alt-fill text-[#3B82F6]"></i> {loc} 
-                                             {!readOnly && (
-                                                 <button onClick={() => updateDemo('locations', data.demographics.locations.filter(l => l !== loc))} className="hover:text-red-400 ml-1">
-                                                     <i className="bi bi-x-circle-fill"></i>
-                                                 </button>
-                                             )}
-                                         </motion.span>
-                                     ))}
-                                 </div>
-                             </div>
-                         )}
+                                        >
+                                            <i className="bi bi-geo-alt-fill text-[#3B82F6]"></i> {loc}
+                                            {!readOnly && (
+                                                <button onClick={() => updateDemo('locations', data.demographics.locations.filter(l => l !== loc))} className="hover:text-red-400 ml-1">
+                                                    <i className="bi bi-x-circle-fill"></i>
+                                                </button>
+                                            )}
+                                        </motion.span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
-                         {/* QUESTION 5: DIGITAL PRESENCE */}
-                         {wizardStep === 5 && (
-                             <div className="mt-4">
-                                 <label className="block text-2xl font-serif text-white mb-8 text-center font-semibold">Como é a presença digital deles?</label>
-                                 
-                                 <div className="grid gap-6">
-                                     {/* Platforms */}
-                                     <div className="bg-[#051522] border border-white/10 p-6 rounded-xl">
-                                         <label className="text-gray-400 text-xs font-bold uppercase mb-4 block">Plataformas Principais</label>
-                                         <div className="flex flex-wrap gap-3">
+                        {/* QUESTION 5: DIGITAL PRESENCE */}
+                        {wizardStep === 5 && (
+                            <div className="mt-4">
+                                <label className="block text-2xl font-serif text-white mb-8 text-center font-semibold">Como é a presença digital deles?</label>
+
+                                <div className="grid gap-6">
+                                    {/* Platforms */}
+                                    <div className="bg-[#051522] border border-white/10 p-6 rounded-xl">
+                                        <label className="text-gray-400 text-xs font-bold uppercase mb-4 block">Plataformas Principais</label>
+                                        <div className="flex flex-wrap gap-3">
                                             {['Instagram', 'LinkedIn', 'Facebook', 'TikTok', 'YouTube', 'Twitter', 'WhatsApp'].map(p => (
-                                                <button 
-                                                    key={p} 
-                                                    onClick={() => togglePlatform(p)} 
-                                                    disabled={readOnly} 
+                                                <button
+                                                    key={p}
+                                                    onClick={() => togglePlatform(p)}
+                                                    disabled={readOnly}
                                                     className={`px-4 py-2 rounded-full border text-sm transition-all flex items-center gap-2
-                                                        ${data.demographics.digitalPresence.platforms.includes(p) 
-                                                            ? 'bg-[#CA9A43] border-[#CA9A43] text-[#031A2B] font-bold' 
+                                                        ${data.demographics.digitalPresence.platforms.includes(p)
+                                                            ? 'bg-[#CA9A43] border-[#CA9A43] text-[#031A2B] font-bold'
                                                             : 'bg-transparent border-white/10 text-gray-400 hover:border-white/30'
                                                         }`}
                                                 >
@@ -813,63 +808,63 @@ const DemographicWizard: React.FC<{
                                                     {p}
                                                 </button>
                                             ))}
-                                         </div>
-                                     </div>
+                                        </div>
+                                    </div>
 
-                                     <div className="grid md:grid-cols-2 gap-6">
-                                         {/* Hours */}
-                                         <div className="bg-[#051522] border border-white/10 p-6 rounded-xl flex flex-col justify-center">
-                                             <label className="text-gray-400 text-xs font-bold uppercase mb-4 block flex justify-between">
-                                                 <span>Tempo Online (h/dia)</span>
-                                                 <span className="text-white text-lg">{data.demographics.digitalPresence.hoursPerDay}h</span>
-                                             </label>
-                                             <input 
-                                                type="range" min="0" max="12" 
-                                                value={data.demographics.digitalPresence.hoursPerDay} 
-                                                onChange={(e) => updateDemo('digitalPresence', { ...data.demographics.digitalPresence, hoursPerDay: parseInt(e.target.value) })} 
-                                                disabled={readOnly} 
-                                                className="w-full accent-[#CA9A43] h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" 
-                                             />
-                                             <div className="flex justify-between text-[10px] text-gray-600 mt-2 font-bold uppercase">
-                                                 <span>Offline</span>
-                                                 <span>Viciado</span>
-                                             </div>
-                                         </div>
+                                    <div className="grid md:grid-cols-2 gap-6">
+                                        {/* Hours */}
+                                        <div className="bg-[#051522] border border-white/10 p-6 rounded-xl flex flex-col justify-center">
+                                            <label className="text-gray-400 text-xs font-bold uppercase mb-4 block flex justify-between">
+                                                <span>Tempo Online (h/dia)</span>
+                                                <span className="text-white text-lg">{data.demographics.digitalPresence.hoursPerDay}h</span>
+                                            </label>
+                                            <input
+                                                type="range" min="0" max="12"
+                                                value={data.demographics.digitalPresence.hoursPerDay}
+                                                onChange={(e) => updateDemo('digitalPresence', { ...data.demographics.digitalPresence, hoursPerDay: parseInt(e.target.value) })}
+                                                disabled={readOnly}
+                                                className="w-full accent-[#CA9A43] h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                                            />
+                                            <div className="flex justify-between text-[10px] text-gray-600 mt-2 font-bold uppercase">
+                                                <span>Offline</span>
+                                                <span>Viciado</span>
+                                            </div>
+                                        </div>
 
-                                         {/* Behavior */}
-                                         <div className="bg-[#051522] border border-white/10 p-6 rounded-xl">
-                                             <label className="text-gray-400 text-xs font-bold uppercase mb-2 block">Comportamento Específico</label>
-                                             <textarea 
-                                                value={data.demographics.digitalPresence.behavior} 
-                                                onChange={(e) => updateDemo('digitalPresence', { ...data.demographics.digitalPresence, behavior: e.target.value })} 
-                                                placeholder="Ex: Só vê stories, não posta nada..." 
-                                                disabled={readOnly} 
-                                                className="w-full bg-transparent border-b border-white/10 p-2 text-white text-sm h-20 resize-none outline-none focus:border-[#CA9A43] placeholder:text-gray-700" 
-                                             />
-                                         </div>
-                                     </div>
-                                 </div>
-                             </div>
-                         )}
+                                        {/* Behavior */}
+                                        <div className="bg-[#051522] border border-white/10 p-6 rounded-xl">
+                                            <label className="text-gray-400 text-xs font-bold uppercase mb-2 block">Comportamento Específico</label>
+                                            <textarea
+                                                value={data.demographics.digitalPresence.behavior}
+                                                onChange={(e) => updateDemo('digitalPresence', { ...data.demographics.digitalPresence, behavior: e.target.value })}
+                                                placeholder="Ex: Só vê stories, não posta nada..."
+                                                disabled={readOnly}
+                                                className="w-full bg-transparent border-b border-white/10 p-2 text-white text-sm h-20 resize-none outline-none focus:border-[#CA9A43] placeholder:text-gray-700"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
-                         {/* QUESTION 6: MARITAL STATUS */}
-                         {wizardStep === 6 && (
-                             <div className="mt-8 text-center max-w-xl mx-auto">
-                                 <label className="block text-2xl font-serif text-white mb-10 font-semibold">Qual o estado civil mais comum?</label>
-                                 <div className="flex flex-col gap-3">
+                        {/* QUESTION 6: MARITAL STATUS */}
+                        {wizardStep === 6 && (
+                            <div className="mt-8 text-center max-w-xl mx-auto">
+                                <label className="block text-2xl font-serif text-white mb-10 font-semibold">Qual o estado civil mais comum?</label>
+                                <div className="flex flex-col gap-3">
                                     {[
                                         { id: 'single', label: 'Solteiro(a)' },
                                         { id: 'married', label: 'Casado(a)' },
                                         { id: 'divorced', label: 'Divorciado(a)' },
                                         { id: 'irrelevant', label: 'Não Relevante' }
                                     ].map(opt => (
-                                        <button 
-                                            key={opt.id} 
-                                            onClick={() => updateDemo('maritalStatus', opt.id as any)} 
-                                            disabled={readOnly} 
+                                        <button
+                                            key={opt.id}
+                                            onClick={() => updateDemo('maritalStatus', opt.id as any)}
+                                            disabled={readOnly}
                                             className={`w-full p-4 rounded-full border text-left flex justify-between items-center transition-all px-8
-                                                ${data.demographics.maritalStatus === opt.id 
-                                                    ? 'bg-[#3B82F6]/20 border-[#3B82F6] text-white shadow-lg' 
+                                                ${data.demographics.maritalStatus === opt.id
+                                                    ? 'bg-[#3B82F6]/20 border-[#3B82F6] text-white shadow-lg'
                                                     : 'bg-[#051522] border-white/10 text-gray-400 hover:bg-white/5 hover:border-white/30'
                                                 }`}
                                         >
@@ -877,25 +872,25 @@ const DemographicWizard: React.FC<{
                                             {data.demographics.maritalStatus === opt.id && <i className="bi bi-check-circle-fill text-[#3B82F6]"></i>}
                                         </button>
                                     ))}
-                                 </div>
-                             </div>
-                         )}
+                                </div>
+                            </div>
+                        )}
 
-                         {/* QUESTION 7: ROLE */}
-                         {wizardStep === 7 && (
-                             <div className="mt-8 text-center max-w-2xl mx-auto">
-                                 <label className="block text-2xl font-serif text-white mb-2 font-semibold">Qual cargo, função ou papel eles ocupam?</label>
-                                 <p className="text-gray-400 text-sm mb-10">Selecione a categoria e especifique a área.</p>
-                                 
-                                 <div className="bg-[#051522] border border-white/10 p-8 rounded-xl space-y-6 shadow-inner">
-                                     <div>
-                                         <label className="block text-left text-gray-500 text-xs font-bold uppercase mb-2 ml-1">Categoria Principal</label>
-                                         <select 
-                                            value={data.demographics.role.category} 
-                                            onChange={(e) => updateDemo('role', { ...data.demographics.role, category: e.target.value })} 
-                                            disabled={readOnly} 
+                        {/* QUESTION 7: ROLE */}
+                        {wizardStep === 7 && (
+                            <div className="mt-8 text-center max-w-2xl mx-auto">
+                                <label className="block text-2xl font-serif text-white mb-2 font-semibold">Qual cargo, função ou papel eles ocupam?</label>
+                                <p className="text-gray-400 text-sm mb-10">Selecione a categoria e especifique a área.</p>
+
+                                <div className="bg-[#051522] border border-white/10 p-8 rounded-xl space-y-6 shadow-inner">
+                                    <div>
+                                        <label className="block text-left text-gray-500 text-xs font-bold uppercase mb-2 ml-1">Categoria Principal</label>
+                                        <select
+                                            value={data.demographics.role.category}
+                                            onChange={(e) => updateDemo('role', { ...data.demographics.role, category: e.target.value })}
+                                            disabled={readOnly}
                                             className="w-full bg-[#081e30] border border-white/10 p-4 text-white rounded-lg outline-none focus:border-[#CA9A43] appearance-none"
-                                         >
+                                        >
                                             <option value="">Selecione...</option>
                                             <option value="Dono/Empresário">👔 Dono/Empresário</option>
                                             <option value="Gestor/Líder">📊 Gestor/Líder</option>
@@ -903,36 +898,36 @@ const DemographicWizard: React.FC<{
                                             <option value="Especialista">🎓 Especialista/Consultor</option>
                                             <option value="CLT">📋 CLT/Funcionário</option>
                                             <option value="Outro">🎯 Outro</option>
-                                         </select>
-                                     </div>
-                                     
-                                     <div>
-                                         <label className="block text-left text-gray-500 text-xs font-bold uppercase mb-2 ml-1">Área de Atuação</label>
-                                         <input 
-                                            value={data.demographics.role.area} 
-                                            onChange={(e) => updateDemo('role', { ...data.demographics.role, area: e.target.value })} 
-                                            disabled={readOnly} 
-                                            placeholder="Ex: Marketing, TI, Vendas, Saúde..." 
-                                            className="w-full bg-[#081e30] border border-white/10 p-4 text-white rounded-lg outline-none focus:border-[#CA9A43]" 
-                                         />
-                                     </div>
-                                 </div>
-                             </div>
-                         )}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-left text-gray-500 text-xs font-bold uppercase mb-2 ml-1">Área de Atuação</label>
+                                        <input
+                                            value={data.demographics.role.area}
+                                            onChange={(e) => updateDemo('role', { ...data.demographics.role, area: e.target.value })}
+                                            disabled={readOnly}
+                                            placeholder="Ex: Marketing, TI, Vendas, Saúde..."
+                                            className="w-full bg-[#081e30] border border-white/10 p-4 text-white rounded-lg outline-none focus:border-[#CA9A43]"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </motion.div>
                 </AnimatePresence>
             </div>
 
             {/* Navigation Footer */}
             <div className="p-4 flex justify-between items-center border-t border-white/5 bg-[#031A2B]">
-                <button 
-                    onClick={handlePrev} 
+                <button
+                    onClick={handlePrev}
                     className={`text-gray-400 hover:text-white px-4 py-2 font-bold uppercase text-sm tracking-wider flex items-center gap-2 ${wizardStep === 1 ? 'invisible' : ''}`}
                 >
                     <i className="bi bi-arrow-left"></i> Anterior
                 </button>
-                <button 
-                    onClick={handleNext} 
+                <button
+                    onClick={handleNext}
                     disabled={!validateStep(wizardStep)}
                     className="bg-[#CA9A43] text-[#031A2B] font-bold py-3 px-8 rounded-full uppercase tracking-widest text-sm hover:bg-[#FFE39B] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
                 >
@@ -1007,19 +1002,30 @@ const ConsumptionJourney: React.FC<{
     readOnly?: boolean;
 }> = ({ data, onUpdate, readOnly }) => {
     const steps = Array.isArray(data.consumptionJourney.steps) ? data.consumptionJourney.steps : [];
-    
+
     // Auto-save logic
     const saveStatus = useAutoSave(data.consumptionJourney);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     // Update Discovery Channel
     const updateDiscovery = (val: string) => {
-        if(readOnly) return;
+        if (readOnly) return;
         onUpdate({
             ...data,
             consumptionJourney: {
                 ...data.consumptionJourney,
                 discoveryChannel: val
+            }
+        });
+    };
+
+    const updateFinalResult = (val: string) => {
+        if (readOnly) return;
+        onUpdate({
+            ...data,
+            consumptionJourney: {
+                ...data.consumptionJourney,
+                finalResult: val
             }
         });
     };
@@ -1032,11 +1038,11 @@ const ConsumptionJourney: React.FC<{
             description: ''
         };
         const updatedSteps = [...steps, newStep];
-        onUpdate({ 
-            ...data, 
+        onUpdate({
+            ...data,
             consumptionJourney: { ...data.consumptionJourney, steps: updatedSteps }
         });
-        
+
         // Scroll to the new card
         setTimeout(() => {
             if (scrollRef.current) {
@@ -1049,8 +1055,8 @@ const ConsumptionJourney: React.FC<{
     const updateStep = (id: string, field: keyof JourneyStep, value: string) => {
         if (readOnly) return;
         const updatedSteps = steps.map(s => s.id === id ? { ...s, [field]: value } : s);
-        onUpdate({ 
-            ...data, 
+        onUpdate({
+            ...data,
             consumptionJourney: { ...data.consumptionJourney, steps: updatedSteps }
         });
     };
@@ -1062,8 +1068,8 @@ const ConsumptionJourney: React.FC<{
         }
         if (readOnly) return;
         const updatedSteps = steps.filter(s => s.id !== id);
-        onUpdate({ 
-            ...data, 
+        onUpdate({
+            ...data,
             consumptionJourney: { ...data.consumptionJourney, steps: updatedSteps }
         });
     };
@@ -1075,16 +1081,18 @@ const ConsumptionJourney: React.FC<{
 
         const newSteps = [...steps];
         [newSteps[index], newSteps[newIndex]] = [newSteps[newIndex], newSteps[index]];
-        
-        onUpdate({ 
-            ...data, 
+
+        onUpdate({
+            ...data,
             consumptionJourney: { ...data.consumptionJourney, steps: newSteps }
         });
     };
 
-    const stepCount = steps.length;
-    const progressColor = stepCount < 5 ? 'text-red-500' : 'text-green-500';
-    const progressBorder = stepCount < 5 ? 'border-red-500' : 'border-green-500';
+    // Validation: Start + Middle Steps + End >= 5 (so Middle >= 3)
+    const middleStepCount = steps.length;
+    const totalCount = middleStepCount + 2; // + Start + End
+    const progressColor = totalCount < 5 ? 'text-red-500' : 'text-green-500';
+    const progressBorder = totalCount < 5 ? 'border-red-500' : 'border-green-500';
 
     return (
         <div className="flex flex-col w-full">
@@ -1093,18 +1101,18 @@ const ConsumptionJourney: React.FC<{
                 <h2 className="font-serif text-3xl text-white font-bold mb-2">Jornada de Consumo dos Seus Melhores Clientes</h2>
                 <div className="bg-[#EEF2FF]/5 border border-[#EEF2FF]/20 rounded-lg p-3 max-w-3xl mx-auto mb-4">
                     <p className="text-gray-300 text-sm italic">
-                        "Pense nos seus melhores clientes. Do momento em que eles descobrem sua marca até indicarem seu nome, eles passam por uma sequência. 
+                        "Pense nos seus melhores clientes. Do momento em que eles descobrem sua marca até indicarem seu nome, eles passam por uma sequência.
                         <strong className="text-white block mt-1">Sua missão aqui é desenhar esse caminho.</strong>"
                     </p>
                 </div>
                 <div className="bg-[#FEF3C7]/10 border border-[#FEF3C7]/30 rounded px-4 py-2 inline-block">
                     <p className="text-[#FEF3C7] text-xs font-bold uppercase tracking-widest">
-                        Mínimo de 5 etapas obrigatórias (excluindo início e fim)
+                        Mínimo de 5 etapas ao todo (incluindo início e fim)
                     </p>
                 </div>
             </div>
 
-            <div 
+            <div
                 ref={scrollRef}
                 className={`w-full flex items-center gap-6 px-12 overflow-x-auto snap-x snap-mandatory py-8 ${horizontalScrollbarStyles}`}
             >
@@ -1117,7 +1125,7 @@ const ConsumptionJourney: React.FC<{
                     </div>
                     <div className="flex-1 flex flex-col">
                         <label className="text-blue-200/50 text-xs font-bold uppercase mb-2">Como/Onde acontece? <span className="text-red-500">*</span></label>
-                        <textarea 
+                        <textarea
                             value={data.consumptionJourney.discoveryChannel || ''}
                             onChange={(e) => updateDiscovery(e.target.value)}
                             disabled={readOnly}
@@ -1142,9 +1150,9 @@ const ConsumptionJourney: React.FC<{
                                             <button onClick={() => moveStep(index, 'right')} disabled={index === steps.length - 1} className="px-2 py-1 text-gray-400 hover:text-white disabled:opacity-30"><i className="bi bi-chevron-right"></i></button>
                                         </div>
                                         {/* Improved Delete Button */}
-                                        <button 
-                                            type="button" 
-                                            onClick={(e) => removeStep(step.id, e)} 
+                                        <button
+                                            type="button"
+                                            onClick={(e) => removeStep(step.id, e)}
                                             className="w-8 h-8 flex items-center justify-center rounded-full bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-all z-20 cursor-pointer shadow-lg"
                                             title="Excluir Etapa"
                                         >
@@ -1172,23 +1180,32 @@ const ConsumptionJourney: React.FC<{
                 )}
 
                 {/* CARD END: FIM */}
+                {/* CARD END: FIM (EDITABLE) */}
                 <div className="snap-center flex-shrink-0 w-[320px] h-[450px] bg-gradient-to-b from-green-900/20 to-green-900/5 rounded-2xl shadow-xl border border-green-500/30 border-l-4 border-l-green-500 flex flex-col p-6 relative">
                     <div className="absolute top-6 left-6 w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold shadow-md"><i className="bi bi-star-fill"></i></div>
-                    <div className="mt-12 mb-6"><h3 className="text-green-300 font-bold text-lg uppercase tracking-wide">Fim</h3><p className="text-green-100 font-bold text-xl">Recomenda Você</p></div>
-                    <div className="space-y-3 mt-4">
-                        <div className="flex items-center gap-3 text-green-200 text-sm font-bold bg-black/20 p-3 rounded-lg border border-green-500/10"><i className="bi bi-megaphone-fill text-green-400"></i> Recomenda a marca</div>
-                        <div className="flex items-center gap-3 text-green-200 text-sm font-bold bg-black/20 p-3 rounded-lg border border-green-500/10"><i className="bi bi-arrow-repeat text-green-400"></i> Segunda compra</div>
-                        <div className="flex items-center gap-3 text-green-200 text-sm font-bold bg-black/20 p-3 rounded-lg border border-green-500/10"><i className="bi bi-chat-quote-fill text-green-400"></i> Depoimento positivo</div>
+                    <div className="mt-12 mb-6">
+                        <h3 className="text-green-300 font-bold text-lg uppercase tracking-wide">Fim</h3>
+                        <p className="text-green-100 font-bold text-xl">Recomenda Você</p>
+                    </div>
+                    <div className="flex-1 flex flex-col">
+                        <label className="text-green-200/50 text-xs font-bold uppercase mb-2">Resultado Final / Ação <span className="text-red-500">*</span></label>
+                        <textarea
+                            value={data.consumptionJourney.finalResult || ''}
+                            onChange={(e) => updateFinalResult(e.target.value)}
+                            disabled={readOnly}
+                            placeholder="Ex: Recomenda para amigos, compra novamente, faz depoimento..."
+                            className="w-full h-full bg-green-900/20 border border-green-500/20 rounded p-3 text-green-100 text-sm resize-none outline-none focus:border-green-400 placeholder:text-green-200/30"
+                        />
                     </div>
                 </div>
             </div>
 
             <div className="mt-4 flex flex-col items-center justify-center pb-2 flex-shrink-0">
-                 <div className={`px-4 py-1 rounded-full border ${progressBorder} bg-[#031A2B] ${progressColor} text-xs font-bold uppercase tracking-widest flex items-center gap-2`}>
-                     {stepCount >= 5 ? <i className="bi bi-check-circle-fill"></i> : <i className="bi bi-exclamation-circle"></i>}
-                     {stepCount} Etapas Criadas (Mínimo 5)
-                 </div>
-                 {stepCount > 0 && <div className="flex gap-1 mt-2">{steps.map((_, i) => (<div key={i} className={`w-2 h-2 rounded-full ${progressColor} bg-current opacity-50`}></div>))}</div>}
+                <div className={`px-4 py-1 rounded-full border ${progressBorder} bg-[#031A2B] ${progressColor} text-xs font-bold uppercase tracking-widest flex items-center gap-2`}>
+                    {totalCount >= 5 ? <i className="bi bi-check-circle-fill"></i> : <i className="bi bi-exclamation-circle"></i>}
+                    {totalCount} Etapas Totais (Mínimo 5)
+                </div>
+                {middleStepCount > 0 && <div className="flex gap-1 mt-2">{steps.map((_, i) => (<div key={i} className={`w-2 h-2 rounded-full ${progressColor} bg-current opacity-50`}></div>))}</div>}
             </div>
         </div>
     );
@@ -1323,7 +1340,7 @@ const RadarChart: React.FC<{
     const [editingPersonaIndex, setEditingPersonaIndex] = useState<number | null>(null);
     const [activeDragIndex, setActiveDragIndex] = useState<number | null>(null);
     const [isDragging, setIsDragging] = useState(false);
-    const dragStartPos = useRef<{x: number, y: number} | null>(null);
+    const dragStartPos = useRef<{ x: number, y: number } | null>(null);
     const personasRef = useRef(data.personas);
     personasRef.current = data.personas;
     const onUpdateRef = useRef(onUpdate);
@@ -1543,14 +1560,18 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
     onUpdate,
     onSaveAndExit,
     onComplete,
-    isReadOnly = false
+    isReadOnly = false,
+    savedStep,
+    onStepChange
 }) => {
     // Initial Step Logic
     const initialStep = getInitialStep(data);
-    const maxSteps = data.hasClients === 'no' ? 6 : (data.hasClients === 'yes' ? 5 : 1);
+    const maxSteps = data.hasClients === 'no' ? 5 : (data.hasClients === 'yes' ? 6 : 1);
     const isComplete = initialStep > maxSteps;
 
-    const [currentStep, setCurrentStep] = useState(isComplete ? 1 : initialStep);
+    // Usar savedStep se disponível, caso contrário usar initialStep
+    const startingStep = savedStep !== undefined ? savedStep : (isComplete ? 1 : initialStep);
+    const [currentStep, setCurrentStep] = useState(startingStep);
     // Intro logic: Show intro ONLY if not read-only AND user is at step 1 AND hasn't answered the first question.
     const [showIntro, setShowIntro] = useState(!isReadOnly && initialStep === 1 && !data.hasClients);
     const [showCompletion, setShowCompletion] = useState(isReadOnly || isComplete);
@@ -1558,11 +1579,18 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
     // Calcula o total de passos baseado no fluxo
     const getTotalSteps = () => {
         // SWAPPED LOGIC:
-        if (data.hasClients === 'no') return 6; // Deep Dive Flow (ClientStatus + Demo + Trans + Decision + Journey + Bullseye)
-        if (data.hasClients === 'yes') return 5; // Hypothesis Flow (ClientStatus + Radar + FanHater + Community + Synthesis)
+        if (data.hasClients === 'no') return 5; // Hypothesis Flow (ClientStatus + Radar + FanHater + Community + Synthesis)
+        if (data.hasClients === 'yes') return 6; // Deep Dive Flow (ClientStatus + Demo + Trans + Decision + Journey + Bullseye)
         return 1;
     };
     const totalSteps = getTotalSteps();
+
+    // Salvar currentStep sempre que ele mudar
+    useEffect(() => {
+        if (onStepChange && !showIntro && !showCompletion) {
+            onStepChange(currentStep);
+        }
+    }, [currentStep, onStepChange, showIntro, showCompletion]);
 
     // Se estiver em modo leitura, começa na tela de resumo/conclusão
     useEffect(() => {
@@ -1574,15 +1602,20 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
 
     const handleNext = () => {
         if (currentStep < totalSteps) {
-            setCurrentStep(prev => prev + 1);
+            const nextStep = currentStep + 1;
+            setCurrentStep(nextStep);
+            if (onStepChange) onStepChange(nextStep);
         } else {
             setShowCompletion(true);
+            if (onStepChange) onStepChange(currentStep);
         }
     };
 
     const handlePrev = () => {
         if (currentStep > 1) {
-            setCurrentStep(prev => prev - 1);
+            const prevStep = currentStep - 1;
+            setCurrentStep(prevStep);
+            if (onStepChange) onStepChange(prevStep);
         }
     };
 
@@ -1593,21 +1626,21 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
         if (currentStep === 1) return <ClientStatusSelection {...commonProps} />;
 
         // SWAPPED LOGIC:
-        // Fluxo SEM CLIENTES (NO) -> Deep Dive Flow
+        // Fluxo SEM CLIENTES (NO) -> Hypothesis Flow
         if (data.hasClients === 'no') {
+            if (currentStep === 2) return <RadarChart {...commonProps} />;
+            if (currentStep === 3) return <FanHaterMapComponent {...commonProps} />;
+            if (currentStep === 4) return <CommunityImpact {...commonProps} />;
+            if (currentStep === 5) return <ICPSynthesis {...commonProps} />;
+        }
+
+        // Fluxo COM CLIENTES (YES) -> Deep Dive Flow
+        if (data.hasClients === 'yes') {
             if (currentStep === 2) return <DemographicWizard {...commonProps} />;
             if (currentStep === 3) return <TransformationComparison {...commonProps} />;
             if (currentStep === 4) return <DecisionMountain {...commonProps} />;
             if (currentStep === 5) return <ConsumptionJourney {...commonProps} />;
             if (currentStep === 6) return <ICPBullseye {...commonProps} />;
-        }
-
-        // Fluxo COM CLIENTES (YES) -> Hypothesis Flow
-        if (data.hasClients === 'yes') {
-            if (currentStep === 2) return <RadarChart {...commonProps} />;
-            if (currentStep === 3) return <FanHaterMapComponent {...commonProps} />;
-            if (currentStep === 4) return <CommunityImpact {...commonProps} />;
-            if (currentStep === 5) return <ICPSynthesis {...commonProps} />;
         }
     };
 
@@ -1616,17 +1649,42 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
         if (isReadOnly) return true;
         if (currentStep === 1) return !!data.hasClients;
 
-        // NO CLIENTS FLOW (Deep Dive)
+        // NO CLIENTS FLOW (Hypothesis)
         if (data.hasClients === 'no') {
+            // Step 2: Radar
+            if (currentStep === 2) {
+                return data.personas.length >= 1 && data.personas.every(p => p.name && p.description && p.currentSituation && p.problem && p.objective);
+            }
+            // Step 3: Fan/Hater
+            if (currentStep === 3) {
+                const fh = data.fanHaterMap;
+                return !!fh.fan && !!fh.hater &&
+                    !!fh.fan.whoIs && !!fh.fan.feelings &&
+                    !!fh.hater.whoIs && !!fh.hater.feelings;
+            }
+            // Step 4: Community
+            if (currentStep === 4) {
+                const comm = data.communityImpact;
+                return comm.community.positive.length > 3 && comm.community.negative.length > 3 &&
+                    comm.impact.positive.length > 3 && comm.impact.negative.length > 3;
+            }
+            // Step 5: Synthesis
+            if (currentStep === 5) {
+                return data.icpSynthesis.phrase.length >= 20;
+            }
+        }
+
+        // YES CLIENTS FLOW (Deep Dive)
+        if (data.hasClients === 'yes') {
             // Step 2: Demographics
             if (currentStep === 2) {
                 const d = data.demographics;
                 return d.detailedProfile.length > 20 &&
-                       !!d.gender &&
-                       d.locations.length > 0 &&
-                       d.digitalPresence.platforms.length > 0 &&
-                       !!d.maritalStatus &&
-                       !!d.role.category;
+                    !!d.gender &&
+                    d.locations.length > 0 &&
+                    d.digitalPresence.platforms.length > 0 &&
+                    !!d.maritalStatus &&
+                    !!d.role.category;
             }
             // Step 3: Transformation
             if (currentStep === 3) {
@@ -1640,39 +1698,15 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
             }
             // Step 5: Journey
             if (currentStep === 5) {
-                 const j = data.consumptionJourney;
-                 return !!j.discoveryChannel && j.discoveryChannel.trim().length > 0 && 
-                        j.steps.length >= 5 && 
-                        j.steps.every(s => s.title.trim().length > 0 && s.description.trim().length > 0);
+                const j = data.consumptionJourney;
+                return !!j.discoveryChannel && j.discoveryChannel.trim().length > 0 &&
+                    !!j.finalResult && j.finalResult.trim().length > 0 &&
+                    j.steps.length >= 3 && // Min 3 middle steps + Start + End = 5 Total
+                    j.steps.every(s => s.title.trim().length > 0 && s.description.trim().length > 0);
             }
             // Step 6: ICP Target
             if (currentStep === 6) {
                 return data.icpTarget.centerPhrase.length > 3 && data.icpTarget.arrows.length >= 3;
-            }
-        }
-
-        // YES CLIENTS FLOW (Hypothesis)
-        if (data.hasClients === 'yes') {
-            // Step 2: Radar
-            if (currentStep === 2) {
-                return data.personas.length >= 1 && data.personas.every(p => p.name && p.description && p.currentSituation && p.problem && p.objective);
-            }
-            // Step 3: Fan/Hater
-            if (currentStep === 3) {
-                const fh = data.fanHaterMap;
-                return !!fh.fan && !!fh.hater && 
-                       !!fh.fan.whoIs && !!fh.fan.feelings &&
-                       !!fh.hater.whoIs && !!fh.hater.feelings;
-            }
-            // Step 4: Community
-            if (currentStep === 4) {
-                const comm = data.communityImpact;
-                return comm.community.positive.length > 3 && comm.community.negative.length > 3 &&
-                       comm.impact.positive.length > 3 && comm.impact.negative.length > 3;
-            }
-            // Step 5: Synthesis
-            if (currentStep === 5) {
-                return data.icpSynthesis.phrase.length >= 20;
             }
         }
 
@@ -1722,7 +1756,11 @@ export const MenteeModule: React.FC<MenteeModuleProps> = ({
                             <MenteeIntro onStart={() => setShowIntro(false)} />
                         ) : showCompletion ? (
                             <CompletionView
-                                onReview={() => { setShowCompletion(false); setCurrentStep(1); }}
+                                onReview={() => {
+                                    setShowCompletion(false);
+                                    setCurrentStep(1);
+                                    if (onStepChange) onStepChange(1);
+                                }}
                                 onSend={onComplete}
                                 readOnly={isReadOnly}
                             />

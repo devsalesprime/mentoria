@@ -39,7 +39,7 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
 
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
+
             // Construção do contexto para a IA
             const context = {
                 mentor: {
@@ -92,9 +92,9 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
                     }
                 },
                 contents: [
-                    { 
-                        role: 'user', 
-                        parts: [{ text: `Analise este negócio de mentoria: ${JSON.stringify(context)}` }] 
+                    {
+                        role: 'user',
+                        parts: [{ text: `Analise este negócio de mentoria: ${JSON.stringify(context)}` }]
                     }
                 ]
             });
@@ -134,7 +134,7 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
                 <div className="max-w-4xl mx-auto space-y-8">
                     {/* Header Score */}
                     <div className="text-center mb-12">
-                         <div className="inline-block relative">
+                        <div className="inline-block relative">
                             <svg className="w-32 h-32 transform -rotate-90">
                                 <circle cx="64" cy="64" r="60" stroke="#1f2937" strokeWidth="8" fill="transparent" />
                                 <circle cx="64" cy="64" r="60" stroke="#CA9A43" strokeWidth="8" fill="transparent" strokeDasharray={377} strokeDashoffset={377 - (377 * diagnosis.score) / 100} className="transition-all duration-1000 ease-out" />
@@ -143,8 +143,8 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
                                 <span className="text-4xl font-serif font-bold text-white">{diagnosis.score}</span>
                                 <span className="text-[10px] uppercase text-[#CA9A43] tracking-widest">Score</span>
                             </div>
-                         </div>
-                         <h2 className="text-white font-serif text-2xl mt-4 mb-2">{diagnosis.scoreReason}</h2>
+                        </div>
+                        <h2 className="text-white font-serif text-2xl mt-4 mb-2">{diagnosis.scoreReason}</h2>
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-8">
@@ -163,7 +163,7 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
                         {/* Blind Spots */}
                         <div className="bg-[#081e30] p-6 rounded-lg border border-red-500/20">
                             <h3 className="text-red-500 font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2"><i className="bi bi-exclamation-triangle"></i> Pontos Cegos</h3>
-                             <ul className="space-y-3">
+                            <ul className="space-y-3">
                                 {diagnosis.blindSpots.map((item, i) => (
                                     <li key={i} className="text-gray-300 text-sm flex items-start gap-2">
                                         <span className="text-red-500 mt-1">•</span> {item}
@@ -202,7 +202,7 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
             <p className="text-gray-400 max-w-lg mb-8">
                 Nossa IA vai analisar todas as suas respostas dos módulos anteriores e criar um diagnóstico estratégico personalizado.
             </p>
-            
+
             {/*
             {!hasEnoughData() ? (
                 <div className="bg-red-500/10 border border-red-500/30 p-4 rounded text-sm text-red-300 mb-6">
@@ -217,7 +217,7 @@ export const ActionPlanModule: React.FC<ActionPlanProps> = ({ mentorData, mentee
                 </button>
             )}
             */}
-            
+
             <div className="bg-[#081e30] border border-white/10 p-4 rounded-lg text-sm text-gray-400 max-w-md">
                 <p className="flex items-center justify-center gap-2">
                     <i className="bi bi-cone-striped text-[#CA9A43]"></i>

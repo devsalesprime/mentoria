@@ -7,25 +7,22 @@ import { Modal } from '../ui/Modal';
 // --- TYPES & INTERFACES ---
 
 export interface Moment {
-  id: string;
-  year: string; // Format YYYY-MM
-  description: string;
+    id: string;
+    year: string; // Format YYYY (year only)
+    description: string;
 }
 
 export interface Testimonial {
-  id: string;
-  title: string; // Was name
-  description: string; // Was text
-  imageUrl?: string;
-  videoUrl?: string;
+    id: string;
+    title: string; // Was name
+    description: string; // Was text
+    imageUrl?: string;
+    videoUrl?: string;
 }
 
 // Estrutura completa dos dados do módulo
 export interface MentorData {
     step1: {
-        field1: string; // Deprecated
-        field2: string; // Deprecated
-        field3: string; // Deprecated
         field4: string; // The Pitch
     };
     step2: {
@@ -55,7 +52,7 @@ export interface MentorData {
 }
 
 export const INITIAL_MENTOR_DATA: MentorData = {
-    step1: { field1: '', field2: '', field3: '', field4: '' },
+    step1: { field4: '' },
     step2: { moments: [] },
     step3: { first: '', second: '', third: '' },
     step4: { mission: '', vision: '', values: '' },
@@ -71,6 +68,8 @@ interface MentorModuleProps {
     onComplete: () => void; // Chamado quando o usuário clica em "Enviar para Avaliação"
     onSaveAndExit: () => void; // Chamado para apenas salvar e voltar
     isReadOnly?: boolean; // Se true, desabilita edições
+    savedStep?: number; // Etapa salva anteriormente
+    onStepChange?: (step: number) => void; // Callback quando a etapa muda
 }
 
 interface StepProps<T> {
@@ -82,31 +81,29 @@ interface StepProps<T> {
 // --- UTILS ---
 
 const useAutoSave = (value: any, delay: number = 2000) => {
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [lastValue, setLastValue] = useState(JSON.stringify(value));
-  
-  useEffect(() => {
-    const currentValue = JSON.stringify(value);
-    if (currentValue !== lastValue) {
-        setSaveStatus('saving');
-        const handler = setTimeout(() => {
-            setSaveStatus('saved');
-            setLastValue(currentValue);
-            setTimeout(() => setSaveStatus('idle'), 2000);
-        }, delay);
-        return () => clearTimeout(handler);
-    }
-  }, [value, delay, lastValue]);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [lastValue, setLastValue] = useState(JSON.stringify(value));
 
-  return saveStatus;
+    useEffect(() => {
+        const currentValue = JSON.stringify(value);
+        if (currentValue !== lastValue) {
+            setSaveStatus('saving');
+            const handler = setTimeout(() => {
+                setSaveStatus('saved');
+                setLastValue(currentValue);
+                setTimeout(() => setSaveStatus('idle'), 2000);
+            }, delay);
+            return () => clearTimeout(handler);
+        }
+    }, [value, delay, lastValue]);
+
+    return saveStatus;
 };
 
-// Formata YYYY-MM para Mês/Ano
+// Formata YYYY para Ano
 const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
-    const [year, month] = dateStr.split('-');
-    const date = new Date(parseInt(year), parseInt(month) - 1);
-    return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    return dateStr; // Just return the year as-is
 };
 
 const getInitialStep = (data: MentorData): number => {
@@ -124,7 +121,7 @@ const getInitialStep = (data: MentorData): number => {
     if (data.step6.testimonials.length === 0 && !data.step6.hasNoTestimonials) return 6;
     // Step 7: Differentiation
     if (!data.step7.marketStandard || !data.step7.myDifference) return 7;
-    
+
     return 8; // Completed
 };
 
@@ -137,11 +134,11 @@ const MentorIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
                 <div className="w-16 h-16 md:w-20 md:h-20 bg-[#CA9A43]/10 rounded-full flex items-center justify-center mb-6 md:mb-8 border border-[#CA9A43]/30 flex-shrink-0">
                     <i className="bi bi-person-badge text-3xl md:text-4xl text-[#CA9A43]"></i>
                 </div>
-                
+
                 <h2 className="font-serif text-3xl md:text-5xl text-white mb-6 md:mb-8">
                     O Mentor
                 </h2>
-                
+
                 <div className="max-w-2xl space-y-4 md:space-y-6 text-gray-300 font-sans text-base md:text-lg leading-relaxed mb-8 md:mb-10">
                     <p>
                         Neste módulo, as perguntas serão sobre <strong className="text-white">você como mentor(a)</strong>: sua história, seus pontos fortes, jeito de pensar e forma de ajudar.
@@ -157,7 +154,7 @@ const MentorIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
                     </p>
                 </div>
 
-                <button 
+                <button
                     onClick={onStart}
                     className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-3 px-8 md:py-4 md:px-10 rounded-sm uppercase tracking-widest transition-all shadow-lg hover:shadow-[#CA9A43]/20 flex-shrink-0 text-sm md:text-base"
                 >
@@ -192,13 +189,13 @@ const SaveStatusIndicator = ({ status }: { status: 'idle' | 'saving' | 'saved' }
 const CompletionView: React.FC<{ onReview: () => void; onSend: () => void; readOnly?: boolean }> = ({ onReview, onSend, readOnly }) => {
     return (
         <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <motion.div 
+            <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.5, type: "spring" }}
                 className={`w-24 h-24 rounded-full border flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,0,0,0.2)]
-                    ${readOnly 
-                        ? 'bg-blue-500/10 border-blue-500/50 shadow-blue-500/20' 
+                    ${readOnly
+                        ? 'bg-blue-500/10 border-blue-500/50 shadow-blue-500/20'
                         : 'bg-green-500/10 border-green-500/50 shadow-green-500/20'
                     }`}
             >
@@ -208,8 +205,8 @@ const CompletionView: React.FC<{ onReview: () => void; onSend: () => void; readO
                     <i className="bi bi-check-lg text-5xl text-green-500"></i>
                 )}
             </motion.div>
-            
-            <motion.h2 
+
+            <motion.h2
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
@@ -217,14 +214,14 @@ const CompletionView: React.FC<{ onReview: () => void; onSend: () => void; readO
             >
                 {readOnly ? 'Módulo em Análise' : 'Módulo Concluído!'}
             </motion.h2>
-            
-            <motion.p 
+
+            <motion.p
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
                 className="text-gray-400 max-w-md font-sans text-lg mb-8 leading-relaxed"
             >
-                {readOnly 
+                {readOnly
                     ? 'Suas respostas foram enviadas e estão sendo analisadas pela nossa equipe. Você será notificado em breve.'
                     : 'Parabéns! Você finalizou a etapa fundamental. Deseja enviar agora para avaliação ou apenas salvar?'
                 }
@@ -236,15 +233,15 @@ const CompletionView: React.FC<{ onReview: () => void; onSend: () => void; readO
                 transition={{ delay: 0.4 }}
                 className="flex flex-col md:flex-row gap-4"
             >
-                <button 
+                <button
                     onClick={onReview}
                     className="px-6 py-3 border border-white/10 hover:bg-white/5 text-gray-300 rounded-sm font-bold text-sm uppercase tracking-wider transition-colors"
                 >
                     {readOnly ? 'Visualizar Respostas' : 'Revisar Respostas'}
                 </button>
-                
+
                 {!readOnly && (
-                    <button 
+                    <button
                         onClick={onSend}
                         className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-sm text-sm uppercase tracking-wider shadow-lg hover:shadow-green-500/30 transition-all flex items-center justify-center gap-2"
                     >
@@ -330,8 +327,8 @@ const AIButton: React.FC<{ onClick: () => void; loading: boolean; disabled: bool
             disabled={disabled || loading}
             className={`
                 relative group overflow-hidden px-8 py-4 rounded-full font-bold uppercase tracking-widest text-sm transition-all duration-300 shadow-[0_0_20px_rgba(202,154,67,0.2)]
-                ${loading 
-                    ? 'bg-gray-800 text-gray-500 cursor-wait' 
+                ${loading
+                    ? 'bg-gray-800 text-gray-500 cursor-wait'
                     : 'bg-gradient-to-r from-[#CA9A43] to-[#FBBF24] text-[#031A2B] hover:shadow-[0_0_30px_rgba(202,154,67,0.6)] hover:-translate-y-1'
                 }
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none
@@ -340,12 +337,12 @@ const AIButton: React.FC<{ onClick: () => void; loading: boolean; disabled: bool
             <div className="relative z-10 flex items-center gap-2">
                 {loading ? (
                     <>
-                    <div className="w-4 h-4 border-2 border-[#031A2B] border-t-transparent rounded-full animate-spin"></div>
-                    Analisando com IA...
+                        <div className="w-4 h-4 border-2 border-[#031A2B] border-t-transparent rounded-full animate-spin"></div>
+                        Analisando com IA...
                     </>
                 ) : (
                     <>
-                    <i className="bi bi-stars text-lg"></i> Validar com IA
+                        <i className="bi bi-stars text-lg"></i> Validar com IA
                     </>
                 )}
             </div>
@@ -383,12 +380,12 @@ const useAIAnalysis = () => {
                             score: { type: Type.NUMBER },
                             title: { type: Type.STRING },
                             feedback: { type: Type.STRING },
-                            improvements: { 
-                                type: Type.ARRAY, 
-                                items: { 
+                            improvements: {
+                                type: Type.ARRAY,
+                                items: {
                                     type: Type.OBJECT,
                                     properties: { title: { type: Type.STRING }, text: { type: Type.STRING } }
-                                } 
+                                }
                             }
                         }
                     }
@@ -411,61 +408,61 @@ const useAIAnalysis = () => {
 
 // STEP 1: O QUE VOCÊ FAZ HOJE?
 const Step1: React.FC<StepProps<MentorData['step1']>> = ({ data, onUpdate, readOnly }) => {
-  const saveStatus = useAutoSave(data);
-  const { analyze, isAnalyzing, analysis, isModalOpen, setIsModalOpen } = useAIAnalysis();
+    const saveStatus = useAutoSave(data);
+    const { analyze, isAnalyzing, analysis, isModalOpen, setIsModalOpen } = useAIAnalysis();
 
-  const handleChange = (field: keyof MentorData['step1'], value: string) => {
-    if (readOnly) return;
-    onUpdate({ ...data, [field]: value });
-  };
+    const handleChange = (field: keyof MentorData['step1'], value: string) => {
+        if (readOnly) return;
+        onUpdate({ ...data, [field]: value });
+    };
 
-  return (
-    <div className="relative h-full flex flex-col overflow-y-auto custom-scrollbar pr-2 pb-8">
-      {!readOnly && <SaveStatusIndicator status={saveStatus} />}
-      <div className="mb-6 flex-shrink-0">
-        <h2 className="font-serif text-3xl text-white mb-2">O que você faz hoje?</h2>
-        <p className="text-sm text-gray-400 font-sans">
-            Para construir sua autoridade, precisamos clareza absoluta.
-        </p>
-      </div>
-      
-      <div className="space-y-8 pb-4">
-        {/* Instructional Bullet Points */}
-        <div className="bg-[#081e30] border border-white/10 p-6 rounded-lg">
-            <h4 className="text-[#CA9A43] text-sm font-bold uppercase tracking-widest mb-4">Antes de escrever seu Pitch, reflita:</h4>
-            <ul className="space-y-3 text-gray-300 font-sans text-sm">
-                <li className="flex items-start gap-3">
-                    <i className="bi bi-check-circle text-[#CA9A43] mt-0.5"></i>
-                    <span><strong>Simplicidade:</strong> Você consegue explicar o que faz para uma criança de 10 anos?</span>
-                </li>
-                <li className="flex items-start gap-3">
-                    <i className="bi bi-check-circle text-[#CA9A43] mt-0.5"></i>
-                    <span><strong>Público:</strong> Com quem exatamente você trabalha e qual problema resolve?</span>
-                </li>
-                <li className="flex items-start gap-3">
-                    <i className="bi bi-check-circle text-[#CA9A43] mt-0.5"></i>
-                    <span><strong>Entrega:</strong> Como você entrega isso hoje? (Consultoria, serviço, mentoria...)</span>
-                </li>
-            </ul>
-        </div>
+    return (
+        <div className="relative h-full flex flex-col overflow-y-auto custom-scrollbar pr-2 pb-8">
+            {!readOnly && <SaveStatusIndicator status={saveStatus} />}
+            <div className="mb-6 flex-shrink-0">
+                <h2 className="font-serif text-3xl text-white mb-2">O que você faz hoje?</h2>
+                <p className="text-sm text-gray-400 font-sans">
+                    Para construir sua autoridade, precisamos clareza absoluta.
+                </p>
+            </div>
 
-        {/* The Pitch Input */}
-        <div className={`bg-[#081e30] p-6 border rounded-sm transition-colors group ${readOnly ? 'border-white/5 opacity-80' : 'border-white/5 hover:border-[#CA9A43]/20'}`}>
-            <label className="block text-[#CA9A43] text-xs font-bold uppercase tracking-widest mb-3">
-                Pitch: Escreva como se estivesse falando para um empresário que nunca te viu.
-            </label>
-            <textarea
-                value={data.field4}
-                onChange={(e) => handleChange('field4', e.target.value)}
-                placeholder="Ex: Eu ajudo donos de agência a dobrarem o lucro sem trabalhar mais..."
-                disabled={readOnly}
-                className={`w-full bg-[#051522] border p-4 text-white text-lg outline-none rounded-sm resize-none transition-all placeholder:text-gray-700 h-40
+            <div className="space-y-8 pb-4">
+                {/* Instructional Bullet Points */}
+                <div className="bg-[#081e30] border border-white/10 p-6 rounded-lg">
+                    <h4 className="text-[#CA9A43] text-sm font-bold uppercase tracking-widest mb-4">Antes de escrever seu Pitch, reflita:</h4>
+                    <ul className="space-y-3 text-gray-300 font-sans text-sm">
+                        <li className="flex items-start gap-3">
+                            <i className="bi bi-check-circle text-[#CA9A43] mt-0.5"></i>
+                            <span><strong>Simplicidade:</strong> Você consegue explicar o que faz para uma criança de 10 anos?</span>
+                        </li>
+                        <li className="flex items-start gap-3">
+                            <i className="bi bi-check-circle text-[#CA9A43] mt-0.5"></i>
+                            <span><strong>Público:</strong> Com quem exatamente você trabalha e qual problema resolve?</span>
+                        </li>
+                        <li className="flex items-start gap-3">
+                            <i className="bi bi-check-circle text-[#CA9A43] mt-0.5"></i>
+                            <span><strong>Entrega:</strong> Como você entrega isso hoje? (Consultoria, serviço, mentoria...)</span>
+                        </li>
+                    </ul>
+                </div>
+
+                {/* The Pitch Input */}
+                <div className={`bg-[#081e30] p-6 border rounded-sm transition-colors group ${readOnly ? 'border-white/5 opacity-80' : 'border-white/5 hover:border-[#CA9A43]/20'}`}>
+                    <label className="block text-[#CA9A43] text-xs font-bold uppercase tracking-widest mb-3">
+                        Pitch: Escreva como se estivesse falando para um empresário que nunca te viu.
+                    </label>
+                    <textarea
+                        value={data.field4}
+                        onChange={(e) => handleChange('field4', e.target.value)}
+                        placeholder="Ex: Eu ajudo donos de agência a dobrarem o lucro sem trabalhar mais..."
+                        disabled={readOnly}
+                        className={`w-full bg-[#051522] border p-4 text-white text-lg outline-none rounded-sm resize-none transition-all placeholder:text-gray-700 h-40
                     ${readOnly ? 'border-transparent text-gray-400 cursor-not-allowed' : 'border-white/10 focus:border-[#CA9A43]'}
                 `}
-            />
-        </div>
+                    />
+                </div>
 
-        {/* 
+                {/* 
         {!readOnly && (
             <AIButton 
                 onClick={() => analyze(data.field4, 'Posicionamento e Pitch')} 
@@ -475,116 +472,116 @@ const Step1: React.FC<StepProps<MentorData['step1']>> = ({ data, onUpdate, readO
         )}
         */}
 
-        <AIAnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} analysis={analysis} />
-      </div>
-    </div>
-  );
+                <AIAnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} analysis={analysis} />
+            </div>
+        </div>
+    );
 };
 
 // STEP 2: SUA HISTÓRIA (TIMELINE)
 const Step2: React.FC<StepProps<MentorData['step2']>> = ({ data, onUpdate, readOnly }) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentMoment, setCurrentMoment] = useState<Moment>({ id: '', year: '', description: '' });
-  const saveStatus = useAutoSave(data);
-  const { analyze, isAnalyzing, analysis, isModalOpen: isAIModalOpen, setIsModalOpen: setIsAIModalOpen } = useAIAnalysis();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [currentMoment, setCurrentMoment] = useState<Moment>({ id: '', year: '', description: '' });
+    const saveStatus = useAutoSave(data);
+    const { analyze, isAnalyzing, analysis, isModalOpen: isAIModalOpen, setIsModalOpen: setIsAIModalOpen } = useAIAnalysis();
 
-  const handleSaveMoment = () => {
-    if (currentMoment.year && currentMoment.description) {
-        let updatedMoments = [...data.moments];
-        
-        if (currentMoment.id) {
-            // Edit existing
-            updatedMoments = updatedMoments.map(m => m.id === currentMoment.id ? currentMoment : m);
-        } else {
-            // Add new
-            updatedMoments.push({ ...currentMoment, id: Date.now().toString() });
+    const handleSaveMoment = () => {
+        if (currentMoment.year && currentMoment.description) {
+            let updatedMoments = [...data.moments];
+
+            if (currentMoment.id) {
+                // Edit existing
+                updatedMoments = updatedMoments.map(m => m.id === currentMoment.id ? currentMoment : m);
+            } else {
+                // Add new
+                updatedMoments.push({ ...currentMoment, id: Date.now().toString() });
+            }
+
+            // Sort Chronologically
+            updatedMoments.sort((a, b) => a.year.localeCompare(b.year));
+
+            onUpdate({ moments: updatedMoments });
+            setIsModalOpen(false);
+            setCurrentMoment({ id: '', year: '', description: '' });
         }
-        
-        // Sort Chronologically
-        updatedMoments.sort((a, b) => a.year.localeCompare(b.year));
-        
-        onUpdate({ moments: updatedMoments });
-        setIsModalOpen(false);
+    };
+
+    const openEdit = (moment: Moment) => {
+        if (readOnly) return;
+        setCurrentMoment(moment);
+        setIsModalOpen(true);
+    };
+
+    const openNew = () => {
+        if (readOnly) return;
         setCurrentMoment({ id: '', year: '', description: '' });
-    }
-  };
+        setIsModalOpen(true);
+    };
 
-  const openEdit = (moment: Moment) => {
-      if (readOnly) return;
-      setCurrentMoment(moment);
-      setIsModalOpen(true);
-  };
+    const removeMoment = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        onUpdate({ moments: data.moments.filter(m => m.id !== id) });
+    };
 
-  const openNew = () => {
-      if (readOnly) return;
-      setCurrentMoment({ id: '', year: '', description: '' });
-      setIsModalOpen(true);
-  };
-
-  const removeMoment = (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      onUpdate({ moments: data.moments.filter(m => m.id !== id) });
-  };
-
-  return (
-    <div className="relative h-full flex flex-col">
-        {!readOnly && <SaveStatusIndicator status={saveStatus} />}
-        <div className="flex justify-between items-start mb-8">
-            <div>
-                <h2 className="font-serif text-3xl text-white mb-2">Sua história em momentos</h2>
-                <p className="text-sm text-gray-400 font-sans max-w-2xl">
-                    Quero entender de onde você veio até chegar onde está hoje. Compartilhe os momentos que marcaram sua jornada e que hoje fazem você ter algo valioso para passar adiante.
-                </p>
-            </div>
-            {!readOnly && (
-                <button 
-                    onClick={openNew}
-                    className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-2 px-4 text-sm rounded-sm flex items-center gap-2 transition-colors flex-shrink-0"
-                >
-                    <i className="bi bi-plus-lg"></i> Adicionar Momento
-                </button>
-            )}
-        </div>
-
-        <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar relative">
-            <div className="absolute left-[20px] top-0 bottom-0 w-[1px] bg-gradient-to-b from-[#CA9A43] to-transparent opacity-30"></div>
-            <div className="space-y-8 pl-2 pb-20">
-                {data.moments.map((moment) => (
-                    <motion.div 
-                        key={moment.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="relative pl-10 group"
+    return (
+        <div className="relative h-full flex flex-col">
+            {!readOnly && <SaveStatusIndicator status={saveStatus} />}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 sm:gap-4 mb-4 sm:mb-8 flex-shrink-0">
+                <div className="flex-1">
+                    <h2 className="font-serif text-xl sm:text-3xl text-white mb-1 sm:mb-2">Sua história em momentos</h2>
+                    <p className="text-[11px] sm:text-sm text-gray-400 font-sans max-w-2xl leading-tight sm:leading-normal">
+                        Compartilhe os momentos que marcaram sua jornada.
+                    </p>
+                </div>
+                {!readOnly && (
+                    <button
+                        onClick={openNew}
+                        className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-2 px-4 text-xs sm:text-sm rounded-sm flex items-center justify-center gap-2 transition-colors flex-shrink-0 w-full sm:w-auto"
                     >
-                        <div className="absolute left-[16px] top-6 w-[9px] h-[9px] rounded-full bg-[#CA9A43] ring-4 ring-[#031A2B] z-10"></div>
-                        <div 
-                            onClick={() => openEdit(moment)}
-                            className={`bg-[#081e30] border border-white/5 p-4 rounded-sm relative transition-all
-                                ${!readOnly ? 'cursor-pointer hover:border-[#CA9A43]/50 hover:bg-[#0a253a]' : ''}
-                            `}
-                        >
-                            {!readOnly && (
-                                <button 
-                                    onClick={(e) => removeMoment(moment.id, e)}
-                                    className="absolute top-2 right-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity z-20"
-                                >
-                                    <i className="bi bi-trash"></i>
-                                </button>
-                            )}
-                            <span className="inline-block px-2 py-0.5 bg-[#CA9A43]/10 text-[#CA9A43] text-xs font-bold rounded mb-2">
-                                {formatDate(moment.year)}
-                            </span>
-                            <p className="text-gray-300 text-sm leading-relaxed">{moment.description}</p>
-                            {!readOnly && <div className="text-[10px] text-gray-600 mt-2 opacity-0 group-hover:opacity-100 uppercase font-bold">Clique para editar</div>}
-                        </div>
-                    </motion.div>
-                ))}
-                {data.moments.length === 0 && (
-                    <div className="text-center text-gray-500 italic py-10 pl-10">Nenhum momento adicionado ainda.</div>
+                        <i className="bi bi-plus-lg"></i> Adicionar
+                    </button>
                 )}
             </div>
-            
-            {/*
+
+            <div className="flex-1 overflow-y-auto pr-2 sm:pr-4 custom-scrollbar relative">
+                <div className="absolute left-[12px] sm:left-[20px] top-0 bottom-0 w-[1px] bg-gradient-to-b from-[#CA9A43] to-transparent opacity-30"></div>
+                <div className="space-y-6 sm:space-y-8 pl-0 sm:pl-2 pb-32">
+                    {data.moments.map((moment) => (
+                        <motion.div
+                            key={moment.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            className="relative pl-8 sm:pl-10 group"
+                        >
+                            <div className="absolute left-[8px] sm:left-[16px] top-4 sm:top-6 w-[9px] h-[9px] rounded-full bg-[#CA9A43] ring-4 ring-[#031A2B] z-10"></div>
+                            <div
+                                onClick={() => openEdit(moment)}
+                                className={`bg-[#081e30] border border-white/5 p-3 sm:p-4 rounded-sm relative transition-all
+                                ${!readOnly ? 'cursor-pointer hover:border-[#CA9A43]/50 hover:bg-[#0a253a]' : ''}
+                            `}
+                            >
+                                {!readOnly && (
+                                    <button
+                                        onClick={(e) => removeMoment(moment.id, e)}
+                                        className="absolute top-2 right-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity z-20 text-sm sm:text-base"
+                                    >
+                                        <i className="bi bi-trash"></i>
+                                    </button>
+                                )}
+                                <span className="inline-block px-2 py-0.5 bg-[#CA9A43]/10 text-[#CA9A43] text-[10px] sm:text-xs font-bold rounded mb-2">
+                                    {formatDate(moment.year)}
+                                </span>
+                                <p className="text-gray-300 text-xs sm:text-sm leading-relaxed pr-6">{moment.description}</p>
+                                {!readOnly && <div className="text-[9px] sm:text-[10px] text-gray-600 mt-2 opacity-0 group-hover:opacity-100 uppercase font-bold">Clique para editar</div>}
+                            </div>
+                        </motion.div>
+                    ))}
+                    {data.moments.length === 0 && (
+                        <div className="text-center text-gray-500 italic py-10 pl-8 sm:pl-10 text-sm">Nenhum momento adicionado ainda.</div>
+                    )}
+                </div>
+
+                {/*
             {!readOnly && data.moments.length > 0 && (
                  <div className="absolute bottom-4 left-0 right-0 flex justify-center">
                     <AIButton 
@@ -595,50 +592,53 @@ const Step2: React.FC<StepProps<MentorData['step2']>> = ({ data, onUpdate, readO
                  </div>
             )}
             */}
+            </div>
+
+            <AIAnalysisModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} analysis={analysis} />
+
+            <AnimatePresence>
+                {isModalOpen && (
+                    <div className="absolute inset-0 bg-[#031A2B]/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-[#081e30] border border-[#CA9A43]/30 p-4 sm:p-6 w-full max-w-md shadow-2xl rounded-sm"
+                        >
+                            <h3 className="font-serif text-lg sm:text-xl text-white mb-3 sm:mb-4">{currentMoment.id ? 'Editar Momento' : 'Novo Momento'}</h3>
+                            <div className="space-y-3 sm:space-y-4">
+                                <div>
+                                    <label className="block text-[10px] sm:text-xs uppercase text-gray-500 font-bold mb-1">Ano</label>
+                                    <input
+                                        type="number"
+                                        min="1900"
+                                        max="2100"
+                                        placeholder="Ex: 2024"
+                                        value={currentMoment.year}
+                                        onChange={e => setCurrentMoment({ ...currentMoment, year: e.target.value })}
+                                        className="w-full bg-[#051522] border border-white/10 p-2 text-white text-sm focus:border-[#CA9A43] outline-none rounded"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] sm:text-xs uppercase text-gray-500 font-bold mb-1">O que aconteceu?</label>
+                                    <textarea
+                                        value={currentMoment.description}
+                                        onChange={e => setCurrentMoment({ ...currentMoment, description: e.target.value })}
+                                        placeholder="Descreva este marco..."
+                                        className="w-full bg-[#051522] border border-white/10 p-2 sm:p-3 text-white text-xs sm:text-sm focus:border-[#CA9A43] outline-none h-24 sm:h-28 resize-none rounded"
+                                    />
+                                </div>
+                                <div className="flex gap-2 justify-end pt-2">
+                                    <button onClick={() => setIsModalOpen(false)} className="px-3 sm:px-4 py-2 text-xs text-gray-400 hover:text-white transition">Cancelar</button>
+                                    <button onClick={handleSaveMoment} className="px-3 sm:px-4 py-2 bg-[#CA9A43] text-[#031A2B] text-xs font-bold hover:bg-[#FFE39B] transition rounded">Salvar</button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
-
-        <AIAnalysisModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} analysis={analysis} />
-
-        <AnimatePresence>
-            {isModalOpen && (
-                <div className="absolute inset-0 bg-[#031A2B]/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <motion.div 
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.9, opacity: 0 }}
-                        className="bg-[#081e30] border border-[#CA9A43]/30 p-6 w-full max-w-md shadow-2xl"
-                    >
-                        <h3 className="font-serif text-xl text-white mb-4">{currentMoment.id ? 'Editar Momento' : 'Novo Momento'}</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs uppercase text-gray-500 font-bold mb-1">Data</label>
-                                <input 
-                                    type="month" 
-                                    value={currentMoment.year}
-                                    onChange={e => setCurrentMoment({...currentMoment, year: e.target.value})}
-                                    className="w-full bg-[#051522] border border-white/10 p-2 text-white text-sm focus:border-[#CA9A43] outline-none"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs uppercase text-gray-500 font-bold mb-1">O que aconteceu?</label>
-                                <textarea 
-                                    value={currentMoment.description}
-                                    onChange={e => setCurrentMoment({...currentMoment, description: e.target.value})}
-                                    placeholder="Descreva este marco..."
-                                    className="w-full bg-[#051522] border border-white/10 p-2 text-white text-sm focus:border-[#CA9A43] outline-none h-24 resize-none"
-                                />
-                            </div>
-                            <div className="flex gap-2 justify-end pt-2">
-                                <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs text-gray-400 hover:text-white">Cancelar</button>
-                                <button onClick={handleSaveMoment} className="px-4 py-2 bg-[#CA9A43] text-[#031A2B] text-xs font-bold hover:bg-[#FFE39B]">Salvar</button>
-                            </div>
-                        </div>
-                    </motion.div>
-                </div>
-            )}
-        </AnimatePresence>
-    </div>
-  );
+    );
 };
 
 // STEP 3: PÓDIO DAS CONQUISTAS
@@ -664,13 +664,13 @@ const Step3: React.FC<StepProps<MentorData['step3']>> = ({ data, onUpdate, readO
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 overflow-y-auto custom-scrollbar pb-4">
                 <div className="lg:col-span-1 space-y-4">
-                     {['first', 'second', 'third'].map((key, idx) => {
-                         const labels = ['1º Lugar (Ouro)', '2º Lugar (Prata)', '3º Lugar (Bronze)'];
-                         const colors = ['#CA9A43', '#9CA3AF', '#A05D2D'];
-                         return (
+                    {['first', 'second', 'third'].map((key, idx) => {
+                        const labels = ['1º Lugar (Ouro)', '2º Lugar (Prata)', '3º Lugar (Bronze)'];
+                        const colors = ['#CA9A43', '#9CA3AF', '#A05D2D'];
+                        return (
                             <div key={key} className={`bg-[#081e30] p-4 border rounded-sm ${readOnly ? 'border-white/5' : 'border-white/5'}`}>
                                 <label className="font-bold text-xs uppercase block mb-2" style={{ color: colors[idx] }}>{labels[idx]}</label>
-                                <textarea 
+                                <textarea
                                     value={(data as any)[key]}
                                     onChange={(e) => handleChange(key as any, e.target.value)}
                                     disabled={readOnly}
@@ -680,36 +680,36 @@ const Step3: React.FC<StepProps<MentorData['step3']>> = ({ data, onUpdate, readO
                                     placeholder="Digite sua conquista..."
                                 />
                             </div>
-                         );
-                     })}
+                        );
+                    })}
                 </div>
 
                 <div className="lg:col-span-2 bg-[#2C2C2C] rounded-lg p-8 flex items-end justify-center gap-4 relative overflow-hidden min-h-[300px]">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white/5 to-transparent pointer-events-none"></div>
-                    
+
                     {/* 2nd Place */}
                     <motion.div initial={{ height: 0 }} animate={{ height: '12rem' }} className="w-1/3 bg-gray-400/20 border-t-4 border-gray-400 flex flex-col items-center justify-start pt-4 relative">
-                         <span className="text-4xl font-serif text-gray-400 font-bold opacity-50 absolute bottom-4">2</span>
-                         <div className="px-4 text-center">
+                        <span className="text-4xl font-serif text-gray-400 font-bold opacity-50 absolute bottom-4">2</span>
+                        <div className="px-4 text-center">
                             <p className="text-white text-xs md:text-sm line-clamp-4 leading-relaxed italic">"{data.second || '...'}"</p>
-                         </div>
+                        </div>
                     </motion.div>
 
                     {/* 1st Place */}
                     <motion.div initial={{ height: 0 }} animate={{ height: '16rem' }} className="w-1/3 bg-[#CA9A43]/20 border-t-4 border-[#CA9A43] flex flex-col items-center justify-start pt-6 relative shadow-[0_0_30px_rgba(202,154,67,0.2)] z-10">
-                         <span className="text-6xl font-serif text-[#CA9A43] font-bold opacity-50 absolute bottom-4">1</span>
-                         <div className="absolute -top-6 text-[#CA9A43] text-2xl animate-bounce">👑</div>
-                         <div className="px-4 text-center">
+                        <span className="text-6xl font-serif text-[#CA9A43] font-bold opacity-50 absolute bottom-4">1</span>
+                        <div className="absolute -top-6 text-[#CA9A43] text-2xl animate-bounce">👑</div>
+                        <div className="px-4 text-center">
                             <p className="text-white text-sm md:text-base font-bold line-clamp-5 leading-relaxed italic">"{data.first || '...'}"</p>
-                         </div>
+                        </div>
                     </motion.div>
 
                     {/* 3rd Place */}
                     <motion.div initial={{ height: 0 }} animate={{ height: '10rem' }} className="w-1/3 bg-[#A05D2D]/20 border-t-4 border-[#A05D2D] flex flex-col items-center justify-start pt-4 relative">
-                         <span className="text-4xl font-serif text-[#A05D2D] font-bold opacity-50 absolute bottom-4">3</span>
-                         <div className="px-4 text-center">
+                        <span className="text-4xl font-serif text-[#A05D2D] font-bold opacity-50 absolute bottom-4">3</span>
+                        <div className="px-4 text-center">
                             <p className="text-white text-xs md:text-sm line-clamp-4 leading-relaxed italic">"{data.third || '...'}"</p>
-                         </div>
+                        </div>
                     </motion.div>
                 </div>
             </div>
@@ -826,7 +826,7 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentTestimonial, setCurrentTestimonial] = useState<Testimonial>({ id: '', title: '', description: '', videoUrl: '', imageUrl: '' });
     const saveStatus = useAutoSave(data);
-    
+
     // File Input Ref
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -847,11 +847,11 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
 
         let updated = [...data.testimonials];
         if (currentTestimonial.id) {
-             updated = updated.map(t => t.id === currentTestimonial.id ? currentTestimonial : t);
+            updated = updated.map(t => t.id === currentTestimonial.id ? currentTestimonial : t);
         } else {
-             updated.push({ ...currentTestimonial, id: Date.now().toString() });
+            updated.push({ ...currentTestimonial, id: Date.now().toString() });
         }
-        
+
         onUpdate({ ...data, testimonials: updated, hasNoTestimonials: false });
         setIsModalOpen(false);
     };
@@ -864,10 +864,10 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
     const toggleNoTestimonials = () => {
         if (readOnly) return;
         const newVal = !data.hasNoTestimonials;
-        onUpdate({ 
-            ...data, 
+        onUpdate({
+            ...data,
             hasNoTestimonials: newVal,
-            testimonials: newVal ? [] : data.testimonials 
+            testimonials: newVal ? [] : data.testimonials
         });
     };
 
@@ -886,22 +886,22 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
     return (
         <div className="relative h-full flex flex-col">
             {!readOnly && <SaveStatusIndicator status={saveStatus} />}
-            <div className="flex justify-between items-start mb-2">
-                <div>
-                    <h2 className="font-serif text-3xl text-white mb-2">Depoimentos: Quem valida o seu resultado?</h2>
-                    <p className="text-sm text-gray-400 font-sans max-w-2xl">
-                         Autoridade não é apenas o que você fala sobre si mesmo, mas o que os outros confirmam sobre você. Selecione os casos de sucesso que melhor representam a transformação que você entrega. Foque em qualidade, não apenas quantidade.
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 sm:gap-4 mb-3 sm:mb-2 flex-shrink-0">
+                <div className="flex-1">
+                    <h2 className="font-serif text-xl sm:text-3xl text-white mb-1 sm:mb-2">Depoimentos: Quem valida o seu resultado?</h2>
+                    <p className="text-[11px] sm:text-sm text-gray-400 font-sans max-w-2xl leading-tight sm:leading-normal">
+                        Selecione os casos de sucesso que melhor representam a transformação que você entrega.
                     </p>
                 </div>
                 {!readOnly && !data.hasNoTestimonials && (
-                    <button onClick={openNew} className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-2 px-4 text-sm rounded-sm flex items-center gap-2 flex-shrink-0">
+                    <button onClick={openNew} className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-2 px-4 text-xs sm:text-sm rounded-sm flex items-center justify-center gap-2 flex-shrink-0 w-full sm:w-auto">
                         <i className="bi bi-plus-lg"></i> Adicionar
                     </button>
                 )}
             </div>
 
             {/* Checkbox for "Starting from Scratch" */}
-             <div className="mb-6">
+            <div className="mb-6">
                 <label className="flex items-center gap-3 cursor-pointer group w-fit">
                     <div className={`w-5 h-5 border rounded flex items-center justify-center transition-colors ${data.hasNoTestimonials ? 'bg-[#CA9A43] border-[#CA9A43]' : 'border-gray-500 group-hover:border-gray-300'}`}>
                         {data.hasNoTestimonials && <i className="bi bi-check text-[#031A2B]"></i>}
@@ -911,7 +911,7 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
                         Estou começando do zero e construirei meus primeiros cases agora.
                     </span>
                 </label>
-             </div>
+            </div>
 
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar pb-4">
                 {data.hasNoTestimonials ? (
@@ -922,8 +922,8 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {data.testimonials.map((t) => (
-                            <div 
-                                key={t.id} 
+                            <div
+                                key={t.id}
                                 onClick={() => openEdit(t)}
                                 className={`bg-white p-6 rounded-sm relative group transition-all
                                      ${!readOnly ? 'cursor-pointer hover:shadow-[0_0_20px_rgba(255,255,255,0.1)]' : ''}
@@ -934,7 +934,7 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
                                         <i className="bi bi-trash"></i>
                                     </button>
                                 )}
-                                
+
                                 <div className="flex items-start gap-4 mb-4">
                                     {t.imageUrl ? (
                                         <img src={t.imageUrl} alt="Client" className="w-12 h-12 rounded-full object-cover border-2 border-[#CA9A43]" />
@@ -956,9 +956,9 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
                             </div>
                         ))}
                         {data.testimonials.length === 0 && !data.hasNoTestimonials && (
-                             <div className="col-span-full text-center text-gray-500 italic py-10">
+                            <div className="col-span-full text-center text-gray-500 italic py-10">
                                 Nenhum depoimento adicionado. Clique em "Adicionar" ou marque a opção de começar do zero.
-                             </div>
+                            </div>
                         )}
                     </div>
                 )}
@@ -968,52 +968,52 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
                 {isModalOpen && (
                     <div className="absolute inset-0 bg-[#031A2B]/95 backdrop-blur-md z-50 flex items-center justify-center p-4">
                         <div className="bg-[#081e30] border border-[#CA9A43]/30 p-6 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
-                             <h3 className="text-white text-xl font-serif mb-2">{currentTestimonial.id ? 'Editar Depoimento' : 'Novo Depoimento'}</h3>
-                             <p className="text-gray-400 text-xs mb-6">
+                            <h3 className="text-white text-xl font-serif mb-2">{currentTestimonial.id ? 'Editar Depoimento' : 'Novo Depoimento'}</h3>
+                            <p className="text-gray-400 text-xs mb-6">
                                 Use o Título para destacar o resultado principal (Ex: 'Dobrou o faturamento em 3 meses') e a Descrição para contar brevemente o contexto do cliente.
-                             </p>
+                            </p>
 
-                             <div className="space-y-4">
+                            <div className="space-y-4">
                                 <div>
                                     <label className="block text-gray-500 text-xs font-bold uppercase mb-1">Título (Resultado Principal)</label>
-                                    <input 
-                                        className="w-full bg-[#051522] border border-white/10 p-3 text-white focus:border-[#CA9A43] outline-none" 
-                                        placeholder="Ex: Faturou 100k em 30 dias" 
-                                        value={currentTestimonial.title} 
-                                        onChange={e => setCurrentTestimonial({...currentTestimonial, title: e.target.value})} 
+                                    <input
+                                        className="w-full bg-[#051522] border border-white/10 p-3 text-white focus:border-[#CA9A43] outline-none"
+                                        placeholder="Ex: Faturou 100k em 30 dias"
+                                        value={currentTestimonial.title}
+                                        onChange={e => setCurrentTestimonial({ ...currentTestimonial, title: e.target.value })}
                                     />
                                 </div>
-                                
+
                                 <div>
                                     <label className="block text-gray-500 text-xs font-bold uppercase mb-1">Descrição (Contexto)</label>
-                                    <textarea 
-                                        className="w-full bg-[#051522] border border-white/10 p-3 text-white h-24 focus:border-[#CA9A43] outline-none resize-none" 
-                                        placeholder="Como ele estava antes e como ficou depois..." 
-                                        value={currentTestimonial.description} 
-                                        onChange={e => setCurrentTestimonial({...currentTestimonial, description: e.target.value})} 
+                                    <textarea
+                                        className="w-full bg-[#051522] border border-white/10 p-3 text-white h-24 focus:border-[#CA9A43] outline-none resize-none"
+                                        placeholder="Como ele estava antes e como ficou depois..."
+                                        value={currentTestimonial.description}
+                                        onChange={e => setCurrentTestimonial({ ...currentTestimonial, description: e.target.value })}
                                     />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-gray-500 text-xs font-bold uppercase mb-1">Imagem (Opcional)</label>
-                                        <input 
-                                            type="file" 
-                                            accept="image/*" 
+                                        <input
+                                            type="file"
+                                            accept="image/*"
                                             ref={fileInputRef}
                                             onChange={handleImageUpload}
-                                            className="hidden" 
+                                            className="hidden"
                                         />
                                         <div className="flex gap-2">
-                                            <button 
+                                            <button
                                                 onClick={() => fileInputRef.current?.click()}
                                                 className="flex-1 bg-[#051522] border border-white/10 p-3 text-gray-400 hover:text-white hover:border-white/30 text-xs flex items-center justify-center gap-2"
                                             >
                                                 <i className="bi bi-upload"></i> {currentTestimonial.imageUrl ? 'Alterar' : 'Carregar'}
                                             </button>
-                                            
+
                                             {currentTestimonial.imageUrl && (
-                                                <button 
+                                                <button
                                                     onClick={() => setCurrentTestimonial(prev => ({ ...prev, imageUrl: '' }))}
                                                     className="px-3 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 rounded-sm"
                                                     title="Remover imagem"
@@ -1027,20 +1027,20 @@ const Step6: React.FC<StepProps<{ testimonials: Testimonial[], hasNoTestimonials
 
                                     <div>
                                         <label className="block text-gray-500 text-xs font-bold uppercase mb-1">Link do Vídeo (Opcional)</label>
-                                        <input 
-                                            className="w-full bg-[#051522] border border-white/10 p-3 text-white text-xs focus:border-[#CA9A43] outline-none" 
-                                            placeholder="YouTube / Vimeo / Drive" 
-                                            value={currentTestimonial.videoUrl} 
-                                            onChange={e => setCurrentTestimonial({...currentTestimonial, videoUrl: e.target.value})} 
+                                        <input
+                                            className="w-full bg-[#051522] border border-white/10 p-3 text-white text-xs focus:border-[#CA9A43] outline-none"
+                                            placeholder="YouTube / Vimeo / Drive"
+                                            value={currentTestimonial.videoUrl}
+                                            onChange={e => setCurrentTestimonial({ ...currentTestimonial, videoUrl: e.target.value })}
                                         />
                                     </div>
                                 </div>
-                             </div>
+                            </div>
 
-                             <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-white/5">
+                            <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-white/5">
                                 <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-white px-4 text-sm font-bold uppercase tracking-wider">Cancelar</button>
                                 <button onClick={handleSaveTestimonial} disabled={!currentTestimonial.title || !currentTestimonial.description} className="bg-[#CA9A43] text-[#031A2B] font-bold px-6 py-2 rounded-sm text-sm uppercase tracking-wider disabled:opacity-50">Salvar</button>
-                             </div>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -1062,10 +1062,10 @@ const Step7: React.FC<StepProps<{ marketStandard: string, myDifference: string }
         <div className="relative h-full flex flex-col">
             {!readOnly && <SaveStatusIndicator status={saveStatus} />}
             <div className="mb-4">
-                <h2 className="font-serif text-3xl text-white mb-2 leading-tight">O que faz com que em um mar de rosas-vermelhas,<br/> você seja a única <span className="text-[#CA9A43] italic">rosa-branca?</span></h2>
+                <h2 className="font-serif text-3xl text-white mb-2 leading-tight">O que faz com que em um mar de rosas-vermelhas,<br /> você seja a única <span className="text-[#CA9A43] italic">rosa-branca?</span></h2>
                 <p className="text-sm text-gray-400 font-sans">Compare o que é comum no seu mercado com o que você entrega de um jeito único.</p>
             </div>
-            
+
             <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-0 border border-white/10 rounded-lg overflow-hidden">
                 {/* Left: Market Standard */}
                 <div className="bg-red-900/10 p-6 flex flex-col border-b md:border-b-0 md:border-r border-white/10">
@@ -1073,7 +1073,7 @@ const Step7: React.FC<StepProps<{ marketStandard: string, myDifference: string }
                         <i className="bi bi-x-circle"></i> O que é comum no mercado?
                     </label>
                     <p className="text-gray-500 text-xs mb-4">Liste promessas, crenças, estilos, etc. que você vê como padrão no mercado em que atua.</p>
-                    <textarea 
+                    <textarea
                         value={data.marketStandard}
                         onChange={(e) => handleChange('marketStandard', e.target.value)}
                         disabled={readOnly}
@@ -1090,7 +1090,7 @@ const Step7: React.FC<StepProps<{ marketStandard: string, myDifference: string }
                         <i className="bi bi-check-circle"></i> O que você faz diferente?
                     </label>
                     <p className="text-gray-500 text-xs mb-4">Agora descreva o que você faz de um jeito próprio: sua forma de trabalhar, método, experiência ou estilo.</p>
-                    <textarea 
+                    <textarea
                         value={data.myDifference}
                         onChange={(e) => handleChange('myDifference', e.target.value)}
                         disabled={readOnly}
@@ -1107,35 +1107,47 @@ const Step7: React.FC<StepProps<{ marketStandard: string, myDifference: string }
 
 // --- MAIN MODULE COMPONENT ---
 
-export const MentorModule: React.FC<MentorModuleProps> = ({ 
-    data, 
-    onUpdate, 
-    onComplete, 
+export const MentorModule: React.FC<MentorModuleProps> = ({
+    data,
+    onUpdate,
+    onComplete,
     onSaveAndExit,
-    isReadOnly = false 
+    isReadOnly = false,
+    savedStep,
+    onStepChange
 }) => {
     // Initial Step Logic
     const initialStep = getInitialStep(data);
     const isComplete = initialStep > 7;
 
-    const [currentStep, setCurrentStep] = useState(isComplete ? 1 : initialStep);
+    // Usar savedStep se disponível, caso contrário usar initialStep
+    const startingStep = savedStep !== undefined ? savedStep : (isComplete ? 1 : initialStep);
+    const [currentStep, setCurrentStep] = useState(startingStep);
     // Intro logic: Show intro ONLY if not read-only AND user is at step 1 AND hasn't started filling field4.
     const [showIntro, setShowIntro] = useState(!isReadOnly && initialStep === 1 && !data.step1.field4);
     const [showCompletion, setShowCompletion] = useState(isReadOnly || isComplete);
     const totalSteps = 7;
-    
+
+    // Salvar currentStep sempre que ele mudar
+    useEffect(() => {
+        if (onStepChange && !showIntro && !showCompletion) {
+            console.log(`💾 MentorModule: Salvando etapa ${currentStep}`);
+            onStepChange(currentStep);
+        }
+    }, [currentStep, onStepChange, showIntro, showCompletion]);
+
     // Validation Logic
     const canProceed = (() => {
         if (isReadOnly) return true;
-        switch(currentStep) {
+        switch (currentStep) {
             case 1: return !!data.step1.field4 && data.step1.field4.trim().length > 0; // Pitch
             case 2: return data.step2.moments.length > 0; // Moments (At least one)
-            case 3: return !!data.step3.first && data.step3.first.trim().length > 0 && 
-                           !!data.step3.second && data.step3.second.trim().length > 0 && 
-                           !!data.step3.third && data.step3.third.trim().length > 0; // Achievements (All 3)
-            case 4: return !!data.step4.mission && data.step4.mission.trim().length > 0 && 
-                           !!data.step4.vision && data.step4.vision.trim().length > 0 && 
-                           !!data.step4.values && data.step4.values.trim().length > 0; // MVV (All 3)
+            case 3: return !!data.step3.first && data.step3.first.trim().length > 0 &&
+                !!data.step3.second && data.step3.second.trim().length > 0 &&
+                !!data.step3.third && data.step3.third.trim().length > 0; // Achievements (All 3)
+            case 4: return !!data.step4.mission && data.step4.mission.trim().length > 0 &&
+                !!data.step4.vision && data.step4.vision.trim().length > 0 &&
+                !!data.step4.values && data.step4.values.trim().length > 0; // MVV (All 3)
             case 5: return data.step5.text.length > 5; // Team
             case 6: return data.step6.testimonials.length > 0 || data.step6.hasNoTestimonials; // Testimonials
             case 7: return data.step7.marketStandard.length > 5 && data.step7.myDifference.length > 5; // Difference
@@ -1148,8 +1160,11 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
 
         if (currentStep === totalSteps) {
             setShowCompletion(true);
+            if (onStepChange) onStepChange(currentStep);
         } else {
-            setCurrentStep(prev => prev + 1);
+            const nextStep = currentStep + 1;
+            setCurrentStep(nextStep);
+            if (onStepChange) onStepChange(nextStep);
         }
     };
 
@@ -1184,9 +1199,10 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
     };
 
     return (
-        <div className="bg-[#051522] border border-white/5 rounded-lg h-[800px] shadow-2xl relative overflow-hidden flex flex-col">
-             {/* Header */}
-             <div className="bg-[#081e30] p-6 border-b border-white/5 flex items-center justify-between">
+        // Use full height on small screens and keep fixed height only on larger viewports
+        <div className="bg-[#051522] border border-white/5 rounded-lg h-full md:h-[800px] shadow-2xl relative overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="bg-[#081e30] p-6 border-b border-white/5 flex items-center justify-between">
                 <div>
                     <div className="flex items-center gap-3">
                         <button onClick={onSaveAndExit} className="text-gray-400 hover:text-white transition-colors">
@@ -1201,7 +1217,7 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
                         </span>
                     </div>
                 </div>
-                
+
                 {!showIntro && (
                     <div className="flex gap-1">
                         {Array.from({ length: totalSteps }).map((_, i) => (
@@ -1209,10 +1225,10 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
                         ))}
                     </div>
                 )}
-             </div>
+            </div>
 
-             {/* Content */}
-             <div className="flex-1 p-8 overflow-hidden">
+            {/* Content */}
+            <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={showIntro ? 'intro' : (showCompletion ? 'completed' : currentStep)}
@@ -1225,8 +1241,12 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
                         {showIntro ? (
                             <MentorIntro onStart={() => setShowIntro(false)} />
                         ) : showCompletion ? (
-                            <CompletionView 
-                                onReview={() => { setShowCompletion(false); setCurrentStep(1); }} 
+                            <CompletionView
+                                onReview={() => {
+                                    setShowCompletion(false);
+                                    setCurrentStep(1);
+                                    if (onStepChange) onStepChange(1);
+                                }}
                                 onSend={onComplete}
                                 readOnly={isReadOnly}
                             />
@@ -1235,13 +1255,17 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
                         )}
                     </motion.div>
                 </AnimatePresence>
-             </div>
+            </div>
 
-             {/* Footer Navigation */}
-             {!showIntro && !showCompletion && (
-                 <div className="bg-[#031A2B] p-4 border-t border-white/5 flex flex-col-reverse sm:flex-row justify-between items-center gap-4">
+            {/* Footer Navigation */}
+            {!showIntro && !showCompletion && (
+                <div className="bg-[#031A2B] p-4 border-t border-white/5 flex flex-col-reverse sm:flex-row justify-between items-center gap-4">
                     <button
-                        onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+                        onClick={() => {
+                            const prevStep = Math.max(1, currentStep - 1);
+                            setCurrentStep(prevStep);
+                            if (onStepChange) onStepChange(prevStep);
+                        }}
                         disabled={currentStep === 1}
                         className="text-gray-400 hover:text-white disabled:opacity-30 flex items-center gap-2 px-4 py-2 text-sm uppercase tracking-wider w-full sm:w-auto justify-center"
                     >
@@ -1259,13 +1283,13 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
                                 Salvar e Sair
                             </button>
                         )}
-                        
+
                         <button
                             onClick={handleNext}
                             disabled={!canProceed && !isReadOnly}
                             className={`font-bold px-6 py-3 rounded-sm flex items-center justify-center gap-2 transition-colors text-sm uppercase tracking-wider w-full sm:w-auto
-                                ${!canProceed && !isReadOnly 
-                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed' 
+                                ${!canProceed && !isReadOnly
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     : 'bg-[#CA9A43] text-[#031A2B] hover:bg-[#FFE39B]'
                                 }
                             `}
@@ -1273,8 +1297,8 @@ export const MentorModule: React.FC<MentorModuleProps> = ({
                             {currentStep === totalSteps ? (isReadOnly ? 'Finalizar Revisão' : 'Concluir') : 'Próxima Etapa'} <i className="bi bi-arrow-right"></i>
                         </button>
                     </div>
-                 </div>
-             )}
+                </div>
+            )}
         </div>
     );
 };

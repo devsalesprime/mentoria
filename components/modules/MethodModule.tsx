@@ -67,6 +67,8 @@ interface MethodModuleProps {
     onSaveAndExit: () => void;
     onComplete?: () => void;
     isReadOnly?: boolean;
+    savedStep?: number; // Etapa salva anteriormente
+    onStepChange?: (step: number) => void; // Callback quando a etapa muda
 }
 
 // --- STYLES FOR SCROLLBARS ---
@@ -75,19 +77,19 @@ const verticalScrollbarStyles = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::
 
 const getInitialStep = (data: MethodData): number => {
     if (!data.stage) return 1;
-    
+
     // Structured Path logic (Short Flow)
     if (data.stage === 'structured') {
         // Step 2 for structured is MethodStructuring (Name, Trans, Pillars)
-        // Check strict validation for pillars (3 mins, fields length > 10/15)
-        const hasValidPillars = data.pillars.length >= 3 && data.pillars.every(p => 
-            p.what.length >= 10 && p.why.length >= 15 && p.how.length >= 15
+        // Check strict validation for pillars (3 mins, fields length > 3)
+        const hasValidPillars = data.pillars.length >= 3 && data.pillars.every(p =>
+            p.what.length >= 3 && p.why.length >= 3 && p.how.length >= 3
         );
-        
-        if (!data.name || data.name.length < 5 || 
-            !data.transformation || data.transformation.length < 30 || 
+
+        if (!data.name || data.name.length < 5 ||
+            !data.transformation || data.transformation.length < 10 ||
             !hasValidPillars) return 2;
-            
+
         return 3; // Completed (Structured flow has 2 steps)
     }
 
@@ -95,15 +97,15 @@ const getInitialStep = (data: MethodData): number => {
     const pA = data.purpose.pointA;
     const pB = data.purpose.pointB;
     const hasPurpose = pA.pain.length > 3 && pA.failed.length > 3 && pA.limit.length > 3 &&
-                       pB.worth.length > 3 && pB.ability.length > 3 && pB.feeling.length > 3;
-    
+        pB.worth.length > 3 && pB.ability.length > 3 && pB.feeling.length > 3;
+
     if (!hasPurpose) return 2; // Purpose
 
-    const hasJourney = data.journeyMap.length >= 3 && 
-                       data.journeyMap.every(s => s.title.length > 3 && s.importance.length > 3);
+    const hasJourney = data.journeyMap.length >= 3 &&
+        data.journeyMap.every(s => s.title.length > 3 && s.importance.length > 3);
 
     if (!hasJourney) return 3; // Journey
-    
+
     // XRay Check
     const hasXRay = hasJourney && data.journeyMap.every(s => (s.problems?.length || 0) > 5 && (s.solutions?.length || 0) > 5);
     if (!hasXRay) return 4; // XRay
@@ -120,13 +122,13 @@ const MethodIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
                 <div className="w-16 h-16 md:w-20 md:h-20 bg-[#CA9A43]/10 rounded-full flex items-center justify-center mb-6 md:mb-8 border border-[#CA9A43]/30 flex-shrink-0">
                     <i className="bi bi-diagram-3 text-3xl md:text-4xl text-[#CA9A43]"></i>
                 </div>
-                
+
                 <h2 className="font-serif text-3xl md:text-5xl text-white mb-6 md:mb-8">
                     O Método
                 </h2>
-                
+
                 <p className="text-gray-300 font-sans text-base md:text-lg mb-8 md:mb-10 max-w-2xl leading-relaxed">
-                    Método vem do grego de “caminho até a meta”.<br/>
+                    Método vem do grego de “caminho até a meta”.<br />
                     É só isso: um jeito claro de sair do ponto A e chegar no ponto B.
                 </p>
 
@@ -165,7 +167,7 @@ const MethodIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
                     No fim, ter um método é mostrar que você sabe o caminho e pode levar alguém junto. Isso cria confiança. E confiança é o que faz uma pessoa dizer: “Quero que você seja meu mentor.”
                 </p>
 
-                <button 
+                <button
                     onClick={onStart}
                     className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-3 px-8 md:py-4 md:px-10 rounded-sm uppercase tracking-widest transition-all shadow-lg hover:shadow-[#CA9A43]/20 flex-shrink-0 text-sm md:text-base mb-8 md:mb-0"
                 >
@@ -180,13 +182,13 @@ const MethodIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
 const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; readOnly?: boolean }> = ({ onReview, onSend, readOnly }) => {
     return (
         <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <motion.div 
+            <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.5, type: "spring" }}
                 className={`w-24 h-24 rounded-full border flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,0,0,0.2)]
-                    ${readOnly 
-                        ? 'bg-blue-500/10 border-blue-500/50 shadow-blue-500/20' 
+                    ${readOnly
+                        ? 'bg-blue-500/10 border-blue-500/50 shadow-blue-500/20'
                         : 'bg-green-500/10 border-green-500/50 shadow-green-500/20'
                     }`}
             >
@@ -196,8 +198,8 @@ const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; read
                     <i className="bi bi-check-lg text-5xl text-green-500"></i>
                 )}
             </motion.div>
-            
-            <motion.h2 
+
+            <motion.h2
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
@@ -205,14 +207,14 @@ const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; read
             >
                 {readOnly ? 'Módulo em Análise' : 'Módulo Concluído!'}
             </motion.h2>
-            
-            <motion.p 
+
+            <motion.p
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
                 className="text-gray-400 max-w-md font-sans text-lg mb-8 leading-relaxed"
             >
-                {readOnly 
+                {readOnly
                     ? 'Suas respostas foram enviadas e estão sendo analisadas pela nossa equipe.'
                     : 'Parabéns! Você estruturou seu método. Deseja enviar agora para avaliação ou apenas salvar?'
                 }
@@ -224,15 +226,15 @@ const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; read
                 transition={{ delay: 0.4 }}
                 className="flex flex-col md:flex-row gap-4"
             >
-                <button 
+                <button
                     onClick={onReview}
                     className="px-6 py-3 border border-white/10 hover:bg-white/5 text-gray-300 rounded-sm font-bold text-sm uppercase tracking-wider transition-colors"
                 >
                     {readOnly ? 'Visualizar Respostas' : 'Revisar Respostas'}
                 </button>
-                
+
                 {!readOnly && onSend && (
-                    <button 
+                    <button
                         onClick={onSend}
                         className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-sm text-sm uppercase tracking-wider shadow-lg hover:shadow-green-500/30 transition-all flex items-center justify-center gap-2"
                     >
@@ -245,8 +247,8 @@ const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; read
 };
 
 // ETAPA 1: SELEÇÃO DO ESTÁGIO
-const MethodSelection: React.FC<{ 
-    data: MethodData; 
+const MethodSelection: React.FC<{
+    data: MethodData;
     onUpdate: (d: MethodData) => void;
     readOnly?: boolean;
 }> = ({ data, onUpdate, readOnly }) => {
@@ -294,7 +296,7 @@ const MethodSelection: React.FC<{
             <div className="text-center mb-12 relative flex-shrink-0">
                 <h2 className="font-serif text-3xl md:text-4xl text-white font-bold leading-tight mb-4 inline-block relative">
                     Você já tem um método claro para entregar a transformação que os seus mentorados buscam?
-                    <button 
+                    <button
                         onMouseEnter={() => setShowTooltip(true)}
                         onMouseLeave={() => setShowTooltip(false)}
                         className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-white/20 text-white/50 text-sm ml-3 hover:text-white hover:border-white transition-colors cursor-help align-middle font-sans"
@@ -303,7 +305,7 @@ const MethodSelection: React.FC<{
                     </button>
                     <AnimatePresence>
                         {showTooltip && (
-                            <motion.div 
+                            <motion.div
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: 10 }}
@@ -330,8 +332,8 @@ const MethodSelection: React.FC<{
                             onClick={() => handleSelect(card.id as MethodData['stage'])}
                             className={`relative bg-[#081e30] border rounded-sm p-8 min-h-[280px] flex flex-col items-center justify-center text-center transition-all duration-300 group
                                 ${readOnly ? 'cursor-default' : 'cursor-pointer'}
-                                ${isSelected 
-                                    ? `${card.borderColor} ${card.bgSelected} shadow-[0_0_30px_rgba(0,0,0,0.2)]` 
+                                ${isSelected
+                                    ? `${card.borderColor} ${card.bgSelected} shadow-[0_0_30px_rgba(0,0,0,0.2)]`
                                     : `border-white/5 ${!readOnly && 'hover:border-white/20'}`
                                 }
                                 ${readOnly && !isSelected ? 'opacity-50' : 'opacity-100'}
@@ -346,11 +348,11 @@ const MethodSelection: React.FC<{
                                     <i className="bi bi-check-lg font-bold"></i>
                                 </motion.div>
                             )}
-                            
+
                             <p className={`text-xl md:text-2xl font-serif font-bold leading-snug mb-6 transition-colors ${isSelected ? card.color : 'text-gray-300 group-hover:text-white'}`}>
                                 {card.text}
                             </p>
-                            
+
                         </motion.div>
                     );
                 })}
@@ -398,17 +400,17 @@ const MethodStructuring: React.FC<{
     };
 
     // Helper to check if a pillar is complete
-    const isPillarComplete = (p: Pillar) => p.what.length > 5 && p.why.length > 5 && p.how.length > 5;
+    const isPillarComplete = (p: Pillar) => p.what.length >= 3 && p.why.length >= 3 && p.how.length >= 3;
 
     return (
         <div className={`w-full h-full max-w-[1200px] mx-auto flex flex-col items-center pb-12 ${verticalScrollbarStyles}`}>
-            
+
             {/* SEÇÃO 1: NOME DO MÉTODO */}
             <div className="w-full flex justify-center mb-12 mt-4 relative">
-                <input 
-                    type="text" 
+                <input
+                    type="text"
                     value={data.name}
-                    onChange={(e) => onUpdate({...data, name: e.target.value})}
+                    onChange={(e) => onUpdate({ ...data, name: e.target.value })}
                     placeholder="Nome do seu método"
                     maxLength={50}
                     disabled={readOnly}
@@ -423,14 +425,14 @@ const MethodStructuring: React.FC<{
             <div className="w-full max-w-[850px] mb-20 text-center">
                 <h3 className="text-white text-2xl md:text-3xl font-semibold mb-4 font-serif">Que mudança esse método gera?</h3>
                 <p className="text-gray-400 text-base mb-8">Descreva a grande transformação que seu método entrega na vida ou no negócio do mentorado.</p>
-                
+
                 <div className={`w-full min-h-[150px] rounded-[20px] bg-[#081e30] border border-white/5 shadow-[0_4px_20px_rgba(202,154,67,0.1)] p-8 md:p-10 relative group transition-all
                     ${!readOnly && 'hover:shadow-[0_8px_30px_rgba(202,154,67,0.2)] hover:border-[#CA9A43]/30'}
                 `}>
                     <label className="block text-left text-[#CA9A43] font-bold text-base mb-2">A Promessa:</label>
-                    <textarea 
+                    <textarea
                         value={data.transformation}
-                        onChange={(e) => onUpdate({...data, transformation: e.target.value})}
+                        onChange={(e) => onUpdate({ ...data, transformation: e.target.value })}
                         placeholder="Ex: Ajudo donos de pequenas empresas a saírem do caos diário para uma operação previsível e lucrativa."
                         maxLength={250}
                         disabled={readOnly}
@@ -448,7 +450,7 @@ const MethodStructuring: React.FC<{
             <div className="w-full">
                 <h3 className="text-white text-3xl font-semibold text-center mb-4 font-serif">Como o seu método faz essa mudança acontecer?</h3>
                 <p className="text-gray-400 text-center text-sm mb-12 max-w-2xl mx-auto">
-                    Que passos ou pilares sempre aparecem quando você aplica esse método?<br/>
+                    Que passos ou pilares sempre aparecem quando você aplica esse método?<br />
                     Pense em grandes movimentos, não em tarefas pequenas.
                 </p>
 
@@ -456,9 +458,9 @@ const MethodStructuring: React.FC<{
                     {data.pillars.map((pillar, index) => {
                         const isLast = index === data.pillars.length - 1;
                         const complete = isPillarComplete(pillar);
-                        
+
                         return (
-                            <motion.div 
+                            <motion.div
                                 key={pillar.id}
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
@@ -473,7 +475,7 @@ const MethodStructuring: React.FC<{
                                         Pilar {index + 1}
                                     </span>
                                     {!readOnly && data.pillars.length > 3 && (
-                                        <button 
+                                        <button
                                             onClick={() => removePillar(pillar.id)}
                                             className="text-gray-600 hover:text-red-400 transition-colors"
                                         >
@@ -486,7 +488,7 @@ const MethodStructuring: React.FC<{
                                 {/* Campo 1: O Que É */}
                                 <div className="mb-4">
                                     <label className="block text-[11px] font-bold uppercase text-gray-400 mb-2">O que é?</label>
-                                    <textarea 
+                                    <textarea
                                         value={pillar.what}
                                         onChange={(e) => updatePillar(pillar.id, 'what', e.target.value)}
                                         placeholder="Descreva em uma frase..."
@@ -498,7 +500,7 @@ const MethodStructuring: React.FC<{
                                 {/* Campo 2: Por que */}
                                 <div className="mb-4">
                                     <label className="block text-[11px] font-bold uppercase text-gray-400 mb-2">Por que é importante?</label>
-                                    <textarea 
+                                    <textarea
                                         value={pillar.why}
                                         onChange={(e) => updatePillar(pillar.id, 'why', e.target.value)}
                                         placeholder="Por que é indispensável?"
@@ -510,7 +512,7 @@ const MethodStructuring: React.FC<{
                                 {/* Campo 3: Como */}
                                 <div className="flex-1">
                                     <label className="block text-[11px] font-bold uppercase text-gray-400 mb-2">Como acontece?</label>
-                                    <textarea 
+                                    <textarea
                                         value={pillar.how}
                                         onChange={(e) => updatePillar(pillar.id, 'how', e.target.value)}
                                         placeholder="Na prática..."
@@ -532,7 +534,7 @@ const MethodStructuring: React.FC<{
 
                 {!readOnly && data.pillars.length < 8 && (
                     <div className="flex justify-center mb-8">
-                        <button 
+                        <button
                             onClick={addPillar}
                             className="w-full max-w-[380px] h-[80px] rounded-xl border-2 border-dashed border-[#CA9A43]/30 flex flex-col items-center justify-center text-[#CA9A43] hover:bg-[#CA9A43]/5 transition-all group"
                         >
@@ -553,19 +555,19 @@ const MethodPurpose: React.FC<{
     readOnly?: boolean;
 }> = ({ data, onUpdate, readOnly }) => {
     const [activeTooltip, setActiveTooltip] = useState<'pointA' | 'pointB' | null>(null);
-    
+
     const updatePointA = (field: keyof MethodData['purpose']['pointA'], value: string) => {
         if (readOnly) return;
-        onUpdate({ 
-            ...data, 
+        onUpdate({
+            ...data,
             purpose: { ...data.purpose, pointA: { ...data.purpose.pointA, [field]: value } }
         });
     };
 
     const updatePointB = (field: keyof MethodData['purpose']['pointB'], value: string) => {
         if (readOnly) return;
-        onUpdate({ 
-            ...data, 
+        onUpdate({
+            ...data,
             purpose: { ...data.purpose, pointB: { ...data.purpose.pointB, [field]: value } }
         });
     };
@@ -579,12 +581,12 @@ const MethodPurpose: React.FC<{
 
             {/* Container da Jornada */}
             <div className="w-full relative flex flex-col lg:flex-row items-stretch justify-between gap-8 lg:gap-16 px-4 pb-20">
-                
+
                 {/* Linha de Conexão (Desktop) */}
                 <div className="hidden lg:block absolute top-[60px] left-[15%] right-[15%] h-[2px] bg-gradient-to-r from-white/10 via-[#CA9A43] to-white/10 z-0">
-                     <div className="absolute right-0 top-1/2 -translate-x-1/2 text-[#CA9A43] text-xl">
+                    <div className="absolute right-0 top-1/2 -translate-x-1/2 text-[#CA9A43] text-xl">
                         <i className="bi bi-caret-right-fill"></i>
-                     </div>
+                    </div>
                 </div>
 
                 {/* --- PONTO A (START) --- */}
@@ -597,7 +599,7 @@ const MethodPurpose: React.FC<{
                             <div className="w-full bg-[#CA9A43] text-[#031A2B] font-bold py-1 px-4 text-sm uppercase tracking-widest -rotate-2 shadow-lg z-10">START</div>
                             <div className="absolute top-0 w-16 h-10 bg-[url('https://www.transparenttextures.com/patterns/checkered-pattern.png')] opacity-50"></div>
                         </div>
-                        
+
                         <div className="relative flex items-center justify-center gap-2 mb-2">
                             <h3 className="text-[#CA9A43] font-bold uppercase tracking-widest text-sm">Ponto A</h3>
                             <button
@@ -621,7 +623,7 @@ const MethodPurpose: React.FC<{
                                 )}
                             </AnimatePresence>
                         </div>
-                        
+
                         <p className="text-white font-serif text-xl">Por que seu mentorado não aguenta mais?</p>
                     </div>
 
@@ -633,7 +635,7 @@ const MethodPurpose: React.FC<{
                         ].map((field) => (
                             <div key={field.id}>
                                 <label className="block text-gray-400 text-xs uppercase font-bold mb-2">{field.label}</label>
-                                <textarea 
+                                <textarea
                                     value={(data.purpose.pointA as any)[field.id]}
                                     onChange={e => updatePointA(field.id as any, e.target.value)}
                                     disabled={readOnly}
@@ -696,7 +698,7 @@ const MethodPurpose: React.FC<{
                         ].map((field) => (
                             <div key={field.id}>
                                 <label className="block text-gray-400 text-xs uppercase font-bold mb-2">{field.label}</label>
-                                <textarea 
+                                <textarea
                                     value={(data.purpose.pointB as any)[field.id]}
                                     onChange={e => updatePointB(field.id as any, e.target.value)}
                                     disabled={readOnly}
@@ -728,7 +730,7 @@ const MethodJourneyMap: React.FC<{
 
     const updateStep = (id: string, field: keyof JourneyStep, value: string) => {
         if (readOnly) return;
-        const updatedMap = data.journeyMap.map(step => 
+        const updatedMap = data.journeyMap.map(step =>
             step.id === id ? { ...step, [field]: value } : step
         );
         onUpdate({ ...data, journeyMap: updatedMap });
@@ -750,7 +752,7 @@ const MethodJourneyMap: React.FC<{
             </div>
 
             <div className={`flex-1 flex items-center gap-8 px-8 pb-8 w-full ${scrollbarStyles}`}>
-                
+
                 {/* START FLAG */}
                 <div className="flex-shrink-0 flex flex-col items-center me-20 ml-20">
                     <div className="w-1 h-24 bg-white/20 relative">
@@ -770,25 +772,25 @@ const MethodJourneyMap: React.FC<{
 
                         {/* Card */}
                         <div className="w-[300px] min-h-[320px] bg-[#081e30] border border-white/10 hover:border-[#CA9A43]/50 p-6 rounded-sm shadow-xl flex flex-col group relative transition-all duration-300">
-                             {!readOnly && data.journeyMap.length > 3 && (
-                                <button 
+                            {!readOnly && data.journeyMap.length > 3 && (
+                                <button
                                     onClick={() => removeStep(step.id)}
                                     className="absolute top-2 right-2 text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
                                     <i className="bi bi-trash"></i>
                                 </button>
                             )}
-                            
+
                             <div className="mb-4">
                                 <label className="text-[#CA9A43] text-[10px] font-bold uppercase tracking-widest block mb-1">
                                     Etapa {index + 1} - O que é?
                                 </label>
-                                <textarea 
+                                <textarea
                                     value={step.title}
                                     onChange={e => updateStep(step.id, 'title', e.target.value)}
                                     disabled={readOnly}
                                     placeholder="Descreva em uma frase o que precisa ser verdadeiro para considerar essa etapa “cumprida”"
-                                    className="w-full bg-transparent border-b border-white/10 focus:border-[#CA9A43] text-white text-lg font-serif outline-none h-24 resize-none placeholder:text-gray-600 leading-snug"
+                                    className="w-full bg-[#051522] border border-white/20 rounded-lg p-3 focus:border-[#CA9A43] text-white text-lg font-serif outline-none h-24 resize-none placeholder:text-gray-600 leading-snug transition-colors"
                                 />
                             </div>
 
@@ -796,12 +798,12 @@ const MethodJourneyMap: React.FC<{
                                 <label className="text-gray-500 text-[10px] font-bold uppercase tracking-widest block mb-1">
                                     Por que é importante?
                                 </label>
-                                <textarea 
+                                <textarea
                                     value={step.importance}
                                     onChange={e => updateStep(step.id, 'importance', e.target.value)}
                                     disabled={readOnly}
                                     placeholder="Explique por que essa etapa é indispensável para o resultado final."
-                                    className="w-full h-full bg-[#051522]/50 p-3 rounded-sm border border-white/5 text-gray-300 text-sm outline-none resize-none focus:bg-[#051522]"
+                                    className="w-full h-full bg-[#051522] border border-white/20 rounded-lg p-3 text-gray-300 text-sm outline-none resize-none focus:border-[#CA9A43] transition-colors"
                                 />
                             </div>
                         </div>
@@ -812,7 +814,7 @@ const MethodJourneyMap: React.FC<{
                 {!readOnly && (
                     <div className="flex items-center gap-4 flex-shrink-0">
                         <div className="text-white/20 text-4xl"><i className="bi bi-arrow-right"></i></div>
-                        <button 
+                        <button
                             onClick={addStep}
                             className="w-20 h-20 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center text-white/20 hover:text-[#CA9A43] hover:border-[#CA9A43] transition-all"
                         >
@@ -823,7 +825,7 @@ const MethodJourneyMap: React.FC<{
 
                 {/* FINISH FLAG */}
                 <div className="flex-shrink-0 flex flex-col items-center ml-8 mr-24">
-                     <div className="w-1 h-32 bg-white/20 relative">
+                    <div className="w-1 h-32 bg-white/20 relative">
                         <div className="absolute top-0 left-0 w-28 h-20 bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-lg transform skew-y-6 origin-right">
                             <span className="text-white font-bold text-xl tracking-widest">FINISH</span>
                         </div>
@@ -850,38 +852,38 @@ const MethodXRay: React.FC<{
 
     const handleUpdate = (id: string, field: 'problems' | 'solutions', value: string) => {
         if (readOnly) return;
-        const updatedMap = data.journeyMap.map(s => 
+        const updatedMap = data.journeyMap.map(s =>
             s.id === id ? { ...s, [field]: value } : s
         );
         onUpdate({ ...data, journeyMap: updatedMap });
     };
 
-const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id: string, field: 'problems' | 'solutions', currentValue: string) => {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        const newValue = currentValue + '\n• ';
-        handleUpdate(id, field, newValue);
-    }
-    
-    // Adiciona bullet no início se o campo estiver vazio ou sem bullet na primeira linha
-    if (e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') {
-        const textarea = e.target as HTMLTextAreaElement;
-        const cursorPosition = textarea.selectionStart;
-        
-        // Se estiver no início do texto e não houver bullet
-        if (cursorPosition === 0 && (!currentValue || !currentValue.startsWith('•'))) {
+    const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id: string, field: 'problems' | 'solutions', currentValue: string) => {
+        if (e.key === 'Enter') {
             e.preventDefault();
-            const newValue = '• ' + (currentValue || '');
+            const newValue = currentValue + '\n• ';
             handleUpdate(id, field, newValue);
-            
-            // Move o cursor para depois do bullet
-            setTimeout(() => {
-                textarea.selectionStart = 2;
-                textarea.selectionEnd = 2;
-            }, 0);
         }
-    }
-};
+
+        // Adiciona bullet no início se o campo estiver vazio ou sem bullet na primeira linha
+        if (e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') {
+            const textarea = e.target as HTMLTextAreaElement;
+            const cursorPosition = textarea.selectionStart;
+
+            // Se estiver no início do texto e não houver bullet
+            if (cursorPosition === 0 && (!currentValue || !currentValue.startsWith('•'))) {
+                e.preventDefault();
+                const newValue = '• ' + (currentValue || '');
+                handleUpdate(id, field, newValue);
+
+                // Move o cursor para depois do bullet
+                setTimeout(() => {
+                    textarea.selectionStart = 2;
+                    textarea.selectionEnd = 2;
+                }, 0);
+            }
+        }
+    };
     const navigateModal = (direction: 'prev' | 'next') => {
         if (!activeStep) return;
         const newIndex = direction === 'next' ? activeIndex + 1 : activeIndex - 1;
@@ -901,23 +903,23 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
 
             {/* Scroll Horizontal de Cards (Read-only view + Action) */}
             <div className={`flex-1 flex items-center gap-8 px-8 pb-8 w-full ${scrollbarStyles}`}>
-                 
-                 {/* START Marker */}
-                 <div className="flex-shrink-0 w-12 h-12 bg-[#CA9A43] rounded-full flex items-center justify-center text-[#031A2B] font-bold shadow-lg shadow-[#CA9A43]/20">A</div>
 
-                 {data.journeyMap.map((step, index) => {
-                     // Check status
-                     const hasProblems = step.problems && step.problems.length >= 5;
-                     const hasSolutions = step.solutions && step.solutions.length >= 5;
-                     const isComplete = hasProblems && hasSolutions;
+                {/* START Marker */}
+                <div className="flex-shrink-0 w-12 h-12 bg-[#CA9A43] rounded-full flex items-center justify-center text-[#031A2B] font-bold shadow-lg shadow-[#CA9A43]/20">A</div>
 
-                     return (
+                {data.journeyMap.map((step, index) => {
+                    // Check status
+                    const hasProblems = step.problems && step.problems.length >= 5;
+                    const hasSolutions = step.solutions && step.solutions.length >= 5;
+                    const isComplete = hasProblems && hasSolutions;
+
+                    return (
                         <div key={step.id} className="flex items-center gap-4 flex-shrink-0">
                             <div className="text-white/10 text-2xl"><i className="bi bi-chevron-right"></i></div>
-                            
+
                             <div className="w-[340px] bg-[#081e30] border border-white/10 p-6 rounded-sm shadow-xl flex flex-col relative overflow-hidden group">
                                 {isComplete && <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/10 rounded-bl-full flex justify-end p-3"><i className="bi bi-check-lg text-green-500 text-xl"></i></div>}
-                                
+
                                 <div className="mb-4">
                                     <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">Etapa {index + 1}</span>
                                     <h3 className="text-white font-serif text-xl line-clamp-1" title={step.title}>{step.title || 'Sem título'}</h3>
@@ -934,11 +936,11 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
                                     </div>
                                 </div>
 
-                                <button 
+                                <button
                                     onClick={() => setOpenStepId(step.id)}
                                     className={`w-full py-3 rounded-sm font-bold text-sm uppercase tracking-wider transition-all
-                                        ${isComplete 
-                                            ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20' 
+                                        ${isComplete
+                                            ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20'
                                             : 'bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] shadow-lg shadow-[#CA9A43]/20'
                                         }`}
                                 >
@@ -946,28 +948,28 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
                                 </button>
                             </div>
                         </div>
-                     );
-                 })}
+                    );
+                })}
 
-                 {/* FINISH Marker */}
-                 <div className="flex-shrink-0 ml-4 w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg shadow-green-900/20">B</div>
+                {/* FINISH Marker */}
+                <div className="flex-shrink-0 ml-4 w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg shadow-green-900/20">B</div>
             </div>
 
             {/* Observação Bottom */}
             <div className="mt-4 mb-4 text-center max-w-4xl mx-auto px-4 flex-shrink-0">
-                 <div className="bg-[#CA9A43]/5 border border-[#CA9A43]/20 p-4 rounded-lg flex gap-3 items-start text-left">
+                <div className="bg-[#CA9A43]/5 border border-[#CA9A43]/20 p-4 rounded-lg flex gap-3 items-start text-left">
                     <i className="bi bi-info-circle text-[#CA9A43] mt-0.5"></i>
                     <p className="text-[#CA9A43]/80 text-sm italic">
                         "Liste, para cada etapa, os principais problemas que aparecem e as possíveis soluções que você consegue entregar. Quanto mais específico você for aqui, mais sólido e eficiente seu método se torna na prática."
                     </p>
-                 </div>
+                </div>
             </div>
 
             {/* MODAL DE RAIO X */}
             <AnimatePresence>
                 {openStepId && activeStep && (
                     <div className="fixed inset-0 bg-[#031A2B]/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                        <motion.div 
+                        <motion.div
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
@@ -1021,7 +1023,7 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
 
                                     <div className="bg-red-500/5 border border-red-500/20 p-6 rounded-sm h-full min-h-[300px] flex flex-col">
                                         <p className="text-gray-400 text-xs mb-3">O que trava o cliente aqui? (Medos, erros, falta de recursos)</p>
-                                        <textarea 
+                                        <textarea
                                             value={activeStep.problems || ''}
                                             onChange={e => handleUpdate(activeStep.id, 'problems', e.target.value)}
                                             onKeyDown={(e) => handleBulletPointInput(e, activeStep.id, 'problems', activeStep.problems || '')}
@@ -1069,10 +1071,10 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
                                             )}
                                         </AnimatePresence>
                                     </div>
-                                    
+
                                     <div className="bg-green-500/5 border border-green-500/20 p-6 rounded-sm h-full min-h-[300px] flex flex-col">
                                         <p className="text-gray-400 text-xs mb-3">O que você entrega para destravar? (Ferramentas, aulas, suporte)</p>
-                                        <textarea 
+                                        <textarea
                                             value={activeStep.solutions || ''}
                                             onChange={e => handleUpdate(activeStep.id, 'solutions', e.target.value)}
                                             onKeyDown={(e) => handleBulletPointInput(e, activeStep.id, 'solutions', activeStep.solutions || '')}
@@ -1089,15 +1091,15 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
 
                             {/* Modal Footer */}
                             <div className="p-4 border-t border-white/5 bg-[#051522] flex justify-between items-center">
-                                <button 
+                                <button
                                     onClick={() => navigateModal('prev')}
                                     disabled={activeIndex === 0}
                                     className="px-4 py-2 text-sm text-gray-400 hover:text-white disabled:opacity-20 flex items-center gap-2"
                                 >
                                     <i className="bi bi-arrow-left"></i> Etapa Anterior
                                 </button>
-                                
-                                <button 
+
+                                <button
                                     onClick={() => {
                                         if (activeIndex < data.journeyMap.length - 1) {
                                             navigateModal('next');
@@ -1118,24 +1120,35 @@ const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id:
     );
 };
 
-export const MethodModule: React.FC<MethodModuleProps> = ({ 
-    data, 
-    onUpdate, 
+export const MethodModule: React.FC<MethodModuleProps> = ({
+    data,
+    onUpdate,
     onSaveAndExit,
     onComplete,
-    isReadOnly = false
+    isReadOnly = false,
+    savedStep,
+    onStepChange
 }) => {
     const initialStep = getInitialStep(data);
-    
+
     // Logic for dynamic pathing
     const isStructured = data.stage === 'structured';
     const maxSteps = isStructured ? 2 : 4; // Structured: Selection -> Structuring. Standard: Selection -> Purpose -> Journey -> XRay.
-    
+
     const isComplete = initialStep > maxSteps;
 
-    const [currentStep, setCurrentStep] = useState(isComplete ? 1 : initialStep);
+    // Usar savedStep se disponível, caso contrário usar initialStep
+    const startingStep = savedStep !== undefined ? savedStep : (isComplete ? 1 : initialStep);
+    const [currentStep, setCurrentStep] = useState(startingStep);
     const [showIntro, setShowIntro] = useState(!isReadOnly && initialStep === 1 && !data.stage);
     const [showCompletion, setShowCompletion] = useState(isReadOnly || isComplete);
+
+    // Salvar currentStep sempre que ele mudar
+    useEffect(() => {
+        if (onStepChange && !showIntro && !showCompletion) {
+            onStepChange(currentStep);
+        }
+    }, [currentStep, onStepChange, showIntro, showCompletion]);
 
     useEffect(() => {
         if (isReadOnly) {
@@ -1147,16 +1160,21 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
     const handleNext = () => {
         if (canProceed()) {
             if (currentStep < maxSteps) {
-                setCurrentStep(prev => prev + 1);
+                const nextStep = currentStep + 1;
+                setCurrentStep(nextStep);
+                if (onStepChange) onStepChange(nextStep);
             } else {
                 setShowCompletion(true);
+                if (onStepChange) onStepChange(currentStep);
             }
         }
     };
 
     const handlePrev = () => {
         if (currentStep > 1) {
-            setCurrentStep(prev => prev - 1);
+            const prevStep = currentStep - 1;
+            setCurrentStep(prevStep);
+            if (onStepChange) onStepChange(prevStep);
         }
     };
 
@@ -1167,33 +1185,33 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
             case 2:
                 if (isStructured) {
                     // Validations for Structuring (Step 9.1 interface)
-                    return !!data.name && data.name.trim().length >= 5 && 
-                           !!data.transformation && data.transformation.trim().length >= 30 &&
-                           data.pillars.length >= 3 &&
-                           data.pillars.every(p => 
-                               p.what.trim().length >= 10 && 
-                               p.why.trim().length >= 15 && 
-                               p.how.trim().length >= 15
-                           );
+                    return !!data.name && data.name.trim().length >= 5 &&
+                        !!data.transformation && data.transformation.trim().length >= 10 &&
+                        data.pillars.length >= 3 &&
+                        data.pillars.every(p =>
+                            p.what.trim().length >= 3 &&
+                            p.why.trim().length >= 3 &&
+                            p.how.trim().length >= 3
+                        );
                 }
                 // Validations for Purpose (Point A & B) - All fields mandatory
                 const pA = data.purpose.pointA;
                 const pB = data.purpose.pointB;
-                return pA.pain.trim().length > 3 && 
-                       pA.failed.trim().length > 3 && 
-                       pA.limit.trim().length > 3 &&
-                       pB.worth.trim().length > 3 && 
-                       pB.ability.trim().length > 3 && 
-                       pB.feeling.trim().length > 3;
+                return pA.pain.trim().length > 3 &&
+                    pA.failed.trim().length > 3 &&
+                    pA.limit.trim().length > 3 &&
+                    pB.worth.trim().length > 3 &&
+                    pB.ability.trim().length > 3 &&
+                    pB.feeling.trim().length > 3;
 
-            case 3: 
-                 // Journey Map validation
-                 return data.journeyMap.length >= 3 && 
-                        data.journeyMap.every(s => s.title.trim().length > 3 && s.importance.trim().length > 3);
-            case 4: 
+            case 3:
+                // Journey Map validation
+                return data.journeyMap.length >= 3 &&
+                    data.journeyMap.every(s => s.title.trim().length > 3 && s.importance.trim().length > 3);
+            case 4:
                 // Check if all steps have at least some problem/solution content
                 return data.journeyMap.length >= 3 &&
-                       data.journeyMap.every(s => (s.problems?.trim().length || 0) > 5 && (s.solutions?.trim().length || 0) > 5);
+                    data.journeyMap.every(s => (s.problems?.trim().length || 0) > 5 && (s.solutions?.trim().length || 0) > 5);
             default: return true;
         }
     };
@@ -1206,7 +1224,7 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
                 // If Structured -> Show the "Structuring" Interface
                 if (isStructured) {
                     return <MethodStructuring {...props} />;
-                } 
+                }
                 // Else -> Show the standard "Purpose" Interface
                 return <MethodPurpose {...props} />;
             case 3: return <MethodJourneyMap {...props} />;
@@ -1233,7 +1251,7 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
                         </span>
                     </div>
                 </div>
-                
+
                 {!showIntro && (
                     <div className="flex gap-1">
                         {Array.from({ length: maxSteps }).map((_, i) => (
@@ -1257,8 +1275,12 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
                         {showIntro ? (
                             <MethodIntro onStart={() => setShowIntro(false)} />
                         ) : showCompletion ? (
-                            <CompletionView 
-                                onReview={() => { setShowCompletion(false); setCurrentStep(1); }} 
+                            <CompletionView
+                                onReview={() => {
+                                    setShowCompletion(false);
+                                    setCurrentStep(1);
+                                    if (onStepChange) onStepChange(1);
+                                }}
                                 onSend={onComplete}
                                 readOnly={isReadOnly}
                             />
@@ -1271,7 +1293,7 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
 
             {/* Footer */}
             {!showIntro && !showCompletion && (
-                 <div className="bg-[#031A2B] p-4 border-t border-white/5 flex flex-col-reverse sm:flex-row justify-between items-center gap-4">
+                <div className="bg-[#031A2B] p-4 border-t border-white/5 flex flex-col-reverse sm:flex-row justify-between items-center gap-4">
                     <button
                         onClick={handlePrev}
                         disabled={currentStep === 1}
@@ -1284,13 +1306,13 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
                         <button onClick={onSaveAndExit} className="text-gray-400 hover:text-white text-xs uppercase font-bold tracking-widest px-4">
                             Salvar e Sair
                         </button>
-                        
+
                         <button
                             onClick={handleNext}
                             disabled={!canProceed()}
                             className={`font-bold px-6 py-3 rounded-sm flex items-center justify-center gap-2 transition-colors text-sm uppercase tracking-wider w-full sm:w-auto
-                                ${!canProceed() 
-                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed' 
+                                ${!canProceed()
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     : 'bg-[#CA9A43] text-[#031A2B] hover:bg-[#FFE39B]'
                                 }
                             `}
@@ -1298,8 +1320,8 @@ export const MethodModule: React.FC<MethodModuleProps> = ({
                             {currentStep === maxSteps ? 'Concluir' : 'Próxima Etapa'} <i className="bi bi-arrow-right"></i>
                         </button>
                     </div>
-                 </div>
-             )}
+                </div>
+            )}
         </div>
     );
 };

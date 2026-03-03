@@ -1,240 +1,238 @@
-
-
 import React, { useState, useEffect } from 'react';
+import { Modal } from './ui/Modal';
 import { motion } from 'framer-motion';
-import { Logo } from './ui/Logo';
+import axios from 'axios';
+import { calculateProgress } from '../utils/progress';
 
-interface SubmissionSummary {
+interface AdminUser {
     id: string;
-    userEmail: string;
-    userName: string;
-    updatedAt: string;
-    progress: {
-        mentor: boolean;
-        mentee: boolean;
-        method: boolean;
-        delivery: boolean;
+    email: string;
+    name: string;
+    progressPercentage: number;
+    lastUpdated: string;
+    status: string;
+}
+
+interface AdminUserDetails {
+    id: string;
+    email: string;
+    name: string;
+    createdAt: string;
+    progressPercentage: number;
+    lastUpdated: string;
+    status: string;
+    formData: {
+        mentor: Record<string, any>;
+        mentee: Record<string, any>;
+        method: Record<string, any>;
+        delivery: Record<string, any>;
     };
 }
 
-interface AdminPanelProps {
-    onLogout: () => void;
-}
+export const AdminPanel: React.FC<{ token: string; onLogout: () => void }> = ({ token, onLogout }) => {
+    const [users, setUsers] = useState<AdminUser[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedUser, setSelectedUser] = useState<AdminUserDetails | null>(null);
+    const [showDetails, setShowDetails] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
-    const [token, setToken] = useState<string | null>(localStorage.getItem('adminToken'));
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [submissions, setSubmissions] = useState<SubmissionSummary[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-
-const getApiUrl = () => {
-  // 1) Prioriza variável de ambiente (defina NEXT_PUBLIC_API_URL na sua hospedagem/build)
-  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  // 2) Se não existir, monta dinamicamente considerando o subpath onde a app está servida
-  if (typeof window !== 'undefined') {
-    const origin = window.location.origin;
-    // Ajuste aqui para o subpath real
-    const base = '/prosperus-mentor-diagnosis';
-    return `${origin}${base}/api`;
-  }
-  // Fallback para desenvolvimento
-  return '/prosperus-mentor-diagnosis/api';
-};
-const API_URL = getApiUrl();
+    const API_BASE = '/api/admin';
 
     useEffect(() => {
-        if (token) {
-            fetchSubmissions();
-        }
-    }, [token]);
+        fetchUsers();
+    }, []);
 
-    const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        setError('');
+    const fetchUsers = async () => {
         try {
-            const res = await fetch(`${API_URL}/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
+            setLoading(true);
+            const response = await axios.get(`${API_BASE}/users`, {
+                headers: { Authorization: `Bearer ${token}` }
             });
-            const data = await res.json();
-            if (res.ok) {
-                setToken(data.token);
-                localStorage.setItem('adminToken', data.token);
-            } else {
-                setError(data.error || 'Erro ao entrar');
+
+            if (response.data.success) {
+                setUsers(response.data.users);
             }
-        } catch (err) {
-            setError('Erro de conexão com o servidor. Verifique se o backend está rodando.');
+        } catch (error) {
+            console.error('Erro ao buscar usuários:', error);
+            alert('Erro ao carregar usuários.');
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchSubmissions = async () => {
-        setLoading(true);
+    const handleViewDetails = async (userId: string) => {
         try {
-            const res = await fetch(`${API_URL}/admin/submissions`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+            const response = await axios.get(`${API_BASE}/users/${userId}`, {
+                headers: { Authorization: `Bearer ${token}` }
             });
-            if (res.ok) {
-                const data = await res.json();
-                setSubmissions(data);
-            } else {
-                if (res.status === 401 || res.status === 403) {
-                    handleLogoutLocal();
+
+            if (response.data.success) {
+                setSelectedUser(response.data.user);
+                setShowDetails(true);
+            }
+        } catch (error) {
+            console.error('Erro ao buscar detalhes:', error);
+            alert('Erro ao carregar detalhes do usuário.');
+        }
+    };
+
+    const handleDownload = async (userId: string, userName: string) => {
+        try {
+            const response = await axios.get(`${API_BASE}/users/${userId}/download`, {
+                headers: { Authorization: `Bearer ${token}` },
+                responseType: 'blob'
+            });
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `relatorio-${userName.replace(/\s+/g, '-')}.txt`);
+            document.body.appendChild(link);
+            link.click();
+            link.parentElement?.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Erro ao fazer download:', error);
+            alert('Erro ao fazer download do relatório.');
+        }
+    };
+
+    const handleDelete = async (userId: string) => {
+        if (!window.confirm('Tem certeza que deseja deletar este usuário? Esta ação é irreversível.')) {
+            return;
+        }
+
+        try {
+            setDeleting(true);
+            const response = await axios.delete(`${API_BASE}/users/${userId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (response.data.success) {
+                setUsers(users.filter(u => u.id !== userId));
+                if (selectedUser?.id === userId) {
+                    setShowDetails(false);
+                    setSelectedUser(null);
                 }
+                alert('Usuário deletado com sucesso.');
             }
-        } catch (err) {
-            console.error(err);
+        } catch (error) {
+            console.error('Erro ao deletar:', error);
+            alert('Erro ao deletar usuário.');
         } finally {
-            setLoading(false);
+            setDeleting(false);
         }
     };
 
-    const handleDownload = async (userEmail: string, userName: string) => {
-        try {
-            const res = await fetch(`${API_URL}/admin/download/${userEmail}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const blob = await res.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `diagnostico_${userName.replace(/\s+/g, '_')}.txt`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            } else {
-                alert('Erro ao baixar relatório');
-            }
-        } catch (err) {
-            alert('Erro de conexão');
-        }
+    const getProgressColor = (percentage: number) => {
+        if (percentage >= 75) return '#10b981';
+        if (percentage >= 50) return '#f59e0b';
+        if (percentage >= 25) return '#ef4444';
+        return '#6b7280';
     };
 
-    const handleLogoutLocal = () => {
-        localStorage.removeItem('adminToken');
-        setToken(null);
-        onLogout();
+    const getModuleStatus = (formData: any, module: string) => {
+        const data = formData[module];
+        if (!data || Object.keys(data).length === 0) return '❌';
+        return '✅';
     };
-
-    if (!token) {
-        return (
-            <div className="min-h-screen bg-[#031A2B] flex items-center justify-center p-4">
-                <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-[#081e30] border border-white/10 p-8 rounded-xl w-full max-w-md shadow-2xl"
-                >
-                    <div className="flex justify-center mb-8">
-                        <Logo className="w-32" variant="footer" />
-                    </div>
-                    <h2 className="text-2xl font-serif text-white text-center mb-6">Acesso Administrativo</h2>
-                    
-                    <form onSubmit={handleLogin} className="space-y-4">
-                        <div>
-                            <label className="text-gray-400 text-xs font-bold uppercase mb-1 block">Email Admin</label>
-                            <input 
-                                type="email" 
-                                value={email}
-                                onChange={e => setEmail(e.target.value)}
-                                className="w-full bg-[#051522] border border-white/10 p-3 rounded text-white outline-none focus:border-[#CA9A43]"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-gray-400 text-xs font-bold uppercase mb-1 block">Senha</label>
-                            <input 
-                                type="password" 
-                                value={password}
-                                onChange={e => setPassword(e.target.value)}
-                                className="w-full bg-[#051522] border border-white/10 p-3 rounded text-white outline-none focus:border-[#CA9A43]"
-                            />
-                        </div>
-                        
-                        {error && <p className="text-red-400 text-sm text-center">{error}</p>}
-                        
-                        <button 
-                            type="submit" 
-                            disabled={loading}
-                            className="w-full bg-[#CA9A43] text-[#031A2B] font-bold py-3 rounded hover:bg-[#FFE39B] transition-colors disabled:opacity-50"
-                        >
-                            {loading ? 'Entrando...' : 'Acessar Painel'}
-                        </button>
-                    </form>
-                    <button onClick={onLogout} className="w-full mt-4 text-gray-500 text-xs hover:text-white">Voltar ao Site</button>
-                </motion.div>
-            </div>
-        );
-    }
 
     return (
-        <div className="min-h-screen bg-[#031A2B] font-sans">
-            <header className="bg-[#081e30] border-b border-white/5 px-8 py-4 flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                    <Logo className="w-24" variant="footer" />
-                    <div className="h-6 w-[1px] bg-white/10"></div>
-                    <span className="text-[#CA9A43] font-bold uppercase tracking-widest text-xs">Painel Administrativo</span>
-                </div>
-                <div className="flex items-center gap-4">
-                    <button onClick={fetchSubmissions} className="text-gray-400 hover:text-white"><i className="bi bi-arrow-clockwise text-xl"></i></button>
-                    <button onClick={handleLogoutLocal} className="text-red-400 hover:text-red-300 text-sm font-bold uppercase">Sair</button>
-                </div>
-            </header>
-
-            <main className="p-8 max-w-7xl mx-auto">
-                <div className="flex justify-between items-end mb-6">
-                    <div>
-                        <h1 className="text-3xl font-serif text-white mb-2">Relatório de Envios</h1>
-                        <p className="text-gray-400 text-sm">Acompanhe quem está preenchendo o diagnóstico.</p>
+        <div
+            className="min-h-screen bg-prosperus-navy-dark text-white p-4 sm:p-6 md:p-8"
+        >
+            <div className="max-w-7xl mx-auto">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
+                    <div className="flex-1">
+                        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-prosperus-gold mb-1 sm:mb-2">Painel Administrativo</h1>
+                        <p className="text-sm sm:text-base text-gray-300">Acompanhe o diagnóstico de cada mentor(a)</p>
                     </div>
+                    <button
+                        onClick={onLogout}
+                        className="px-4 sm:px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition text-sm sm:text-base w-full sm:w-auto"
+                    >
+                        Sair
+                    </button>
                 </div>
 
-                <div className="bg-[#081e30] border border-white/5 rounded-lg overflow-hidden shadow-xl">
+                {/* Tabela de Usuários - Desktop */}
+                <div className="hidden md:block bg-prosperus-navy rounded-lg overflow-hidden border border-white/10">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-[#051522] text-gray-400 text-xs uppercase font-bold tracking-wider">
-                                <tr>
-                                    <th className="p-4">Nome / Email</th>
-                                    <th className="p-4">Última Atualização</th>
-                                    <th className="p-4 text-center">Progresso</th>
-                                    <th className="p-4 text-right">Ações</th>
+                        <table className="w-full">
+                            <thead>
+                                <tr className="bg-white/5 border-b border-white/10">
+                                    <th className="px-4 lg:px-6 py-3 lg:py-4 text-left font-semibold text-sm lg:text-base">Nome / Email</th>
+                                    <th className="px-4 lg:px-6 py-3 lg:py-4 text-left font-semibold text-sm lg:text-base">Última Atualização</th>
+                                    <th className="px-4 lg:px-6 py-3 lg:py-4 text-left font-semibold text-sm lg:text-base">Progresso</th>
+                                    <th className="px-4 lg:px-6 py-3 lg:py-4 text-left font-semibold text-sm lg:text-base">Ações</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-white/5 text-sm text-gray-300">
-                                {loading && submissions.length === 0 ? (
-                                    <tr><td colSpan={4} className="p-8 text-center text-gray-500">Carregando dados...</td></tr>
-                                ) : submissions.length === 0 ? (
-                                    <tr><td colSpan={4} className="p-8 text-center text-gray-500">Nenhum envio encontrado.</td></tr>
+                            <tbody>
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={4} className="px-4 lg:px-6 py-8 text-center text-gray-400 text-sm">
+                                            Carregando dados...
+                                        </td>
+                                    </tr>
+                                ) : users.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} className="px-4 lg:px-6 py-8 text-center text-gray-400 text-sm">
+                                            Nenhum usuário encontrado.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    submissions.map((sub) => (
-                                        <tr key={sub.id} className="hover:bg-white/5 transition-colors">
-                                            <td className="p-4">
-                                                <div className="font-bold text-white">{sub.userName}</div>
-                                                <div className="text-gray-500 text-xs">{sub.userEmail}</div>
-                                            </td>
-                                            <td className="p-4 text-gray-400">
-                                                {new Date(sub.updatedAt).toLocaleDateString('pt-BR')} <span className="text-[10px]">{new Date(sub.updatedAt).toLocaleTimeString('pt-BR')}</span>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="flex justify-center gap-2">
-                                                    <span title="O Mentor" className={`w-3 h-3 rounded-full ${sub.progress.mentor ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`}></span>
-                                                    <span title="O Mentorado" className={`w-3 h-3 rounded-full ${sub.progress.mentee ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`}></span>
-                                                    <span title="O Método" className={`w-3 h-3 rounded-full ${sub.progress.method ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`}></span>
-                                                    <span title="A Oferta" className={`w-3 h-3 rounded-full ${sub.progress.delivery ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`}></span>
+                                    users.map((user) => (
+                                        <tr key={user.id} className="border-b border-white/5 hover:bg-white/2 transition">
+                                            <td className="px-4 lg:px-6 py-3 lg:py-4">
+                                                <div>
+                                                    <p className="font-semibold text-sm lg:text-base">{user.name}</p>
+                                                    <p className="text-xs lg:text-sm text-gray-400">{user.email}</p>
                                                 </div>
                                             </td>
-                                            <td className="p-4 text-right">
-                                                <button 
-                                                    onClick={() => handleDownload(sub.userEmail, sub.userName)}
-                                                    className="bg-[#CA9A43]/10 text-[#CA9A43] hover:bg-[#CA9A43] hover:text-[#031A2B] border border-[#CA9A43]/50 px-3 py-1.5 rounded text-xs font-bold uppercase transition-all flex items-center gap-2 ml-auto"
-                                                >
-                                                    <i className="bi bi-download"></i> Baixar TXT
-                                                </button>
+                                            <td className="px-4 lg:px-6 py-3 lg:py-4 text-xs lg:text-sm text-gray-300">
+                                                {user.lastUpdated
+                                                    ? new Date(user.lastUpdated).toLocaleDateString('pt-BR') +
+                                                    ' ' +
+                                                    new Date(user.lastUpdated).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                                    : 'Nunca'}
+                                            </td>
+                                            <td className="px-4 lg:px-6 py-3 lg:py-4">
+                                                <div className="flex items-center gap-2 lg:gap-3">
+                                                    <div className="w-24 lg:w-32 bg-gray-700 rounded-full h-2">
+                                                        <div
+                                                            className="h-full rounded-full transition-all"
+                                                            style={{
+                                                                width: `${user.progressPercentage}%`,
+                                                                backgroundColor: getProgressColor(user.progressPercentage)
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <span className="text-xs lg:text-sm font-semibold w-10 lg:w-12">{user.progressPercentage}%</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 lg:px-6 py-3 lg:py-4">
+                                                <div className="flex gap-1 lg:gap-2">
+                                                    <button
+                                                        onClick={() => handleViewDetails(user.id)}
+                                                        className="px-2 lg:px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs lg:text-sm transition"
+                                                    >
+                                                        <i className="bi bi-eye"></i>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDownload(user.id, user.name)}
+                                                        className="px-2 lg:px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs lg:text-sm transition"
+                                                    >
+                                                        <i className="bi bi-download"></i>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(user.id)}
+                                                        disabled={deleting}
+                                                        className="px-2 lg:px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs lg:text-sm transition disabled:opacity-50"
+                                                    >
+                                                        <i className="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))
@@ -243,7 +241,167 @@ const API_URL = getApiUrl();
                         </table>
                     </div>
                 </div>
-            </main>
+
+                {/* Cards de Usuários - Mobile */}
+                <div className="md:hidden space-y-4">
+                    {loading ? (
+                        <div className="bg-prosperus-navy rounded-lg p-6 text-center text-gray-400 text-sm">
+                            Carregando dados...
+                        </div>
+                    ) : users.length === 0 ? (
+                        <div className="bg-prosperus-navy rounded-lg p-6 text-center text-gray-400 text-sm">
+                            Nenhum usuário encontrado.
+                        </div>
+                    ) : (
+                        users.map((user) => (
+                            <div key={user.id} className="bg-prosperus-navy rounded-lg p-4 border border-white/10">
+                                <div className="mb-3">
+                                    <p className="font-semibold text-base">{user.name}</p>
+                                    <p className="text-xs text-gray-400">{user.email}</p>
+                                </div>
+                                <div className="mb-3">
+                                    <p className="text-xs text-gray-400 mb-1">Última Atualização</p>
+                                    <p className="text-xs text-gray-300">
+                                        {user.lastUpdated
+                                            ? new Date(user.lastUpdated).toLocaleDateString('pt-BR') +
+                                            ' ' +
+                                            new Date(user.lastUpdated).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                            : 'Nunca'}
+                                    </p>
+                                </div>
+                                <div className="mb-4">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <p className="text-xs text-gray-400">Progresso</p>
+                                        <span className="text-sm font-semibold">{user.progressPercentage}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-700 rounded-full h-2">
+                                        <div
+                                            className="h-full rounded-full transition-all"
+                                            style={{
+                                                width: `${user.progressPercentage}%`,
+                                                backgroundColor: getProgressColor(user.progressPercentage)
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleViewDetails(user.id)}
+                                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs font-semibold transition"
+                                    >
+                                        Ver Detalhes
+                                    </button>
+                                    <button
+                                        onClick={() => handleDownload(user.id, user.name)}
+                                        className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-xs font-semibold transition"
+                                    >
+                                        <i className="bi bi-download"></i>
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(user.id)}
+                                        disabled={deleting}
+                                        className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded text-xs font-semibold transition disabled:opacity-50"
+                                    >
+                                        <i className="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* Refresh Button */}
+                <div className="mt-6 sm:mt-8 flex justify-center">
+                    <button
+                        onClick={fetchUsers}
+                        disabled={loading}
+                        className="px-4 sm:px-6 py-2 bg-prosperus-gold text-black font-semibold rounded-lg hover:bg-yellow-400 transition disabled:opacity-50 text-sm sm:text-base w-full sm:w-auto"
+                    >
+                        {loading ? 'Atualizando...' : 'Atualizar Lista'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Modal de Detalhes */}
+            <Modal isOpen={showDetails} onClose={() => setShowDetails(false)}>
+                {selectedUser && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-prosperus-navy-dark text-white p-4 sm:p-6 md:p-8 rounded-lg max-h-[90vh] overflow-y-auto mx-4"
+                    >
+                        <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4 text-prosperus-gold">{selectedUser.name}</h2>
+
+                        <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6 text-sm sm:text-base">
+                            <p>
+                                <span className="font-semibold">Email:</span> {selectedUser.email}
+                            </p>
+                            <p>
+                                <span className="font-semibold">Data de Criação:</span>{' '}
+                                {selectedUser.createdAt
+                                    ? new Date(selectedUser.createdAt).toLocaleDateString('pt-BR')
+                                    : 'Não informado'}
+                            </p>
+                            <p>
+                                <span className="font-semibold">Última Atualização:</span>{' '}
+                                {selectedUser.lastUpdated
+                                    ? new Date(selectedUser.lastUpdated).toLocaleDateString('pt-BR') +
+                                    ' ' +
+                                    new Date(selectedUser.lastUpdated).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                    : 'Nunca'}
+                            </p>
+                            <div>
+                                <span className="font-semibold">Progresso:</span>
+                                <div className="w-full bg-gray-700 rounded-full h-2 sm:h-3 mt-2">
+                                    <div
+                                        className="h-full rounded-full transition-all"
+                                        style={{
+                                            // Recalcular localmente para garantir consistência com a nova lógica
+                                            width: `${calculateProgress(selectedUser.formData as any)}%`,
+                                            backgroundColor: getProgressColor(calculateProgress(selectedUser.formData as any))
+                                        }}
+                                    />
+                                </div>
+                                <p className="text-xs sm:text-sm text-gray-300 mt-1">{calculateProgress(selectedUser.formData as any)}%</p>
+                            </div>
+                        </div>
+
+                        {/* Status dos Módulos */}
+                        <div className="bg-white/5 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6">
+                            <h3 className="font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Status dos Módulos:</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
+                                <div className={getModuleStatus(selectedUser.formData, 'mentor') === '✅' ? 'text-green-400' : 'text-gray-400'}>
+                                    {getModuleStatus(selectedUser.formData, 'mentor')} O Mentor
+                                </div>
+                                <div className={getModuleStatus(selectedUser.formData, 'mentee') === '✅' ? 'text-green-400' : 'text-gray-400'}>
+                                    {getModuleStatus(selectedUser.formData, 'mentee')} O Mentorado
+                                </div>
+                                <div className={getModuleStatus(selectedUser.formData, 'method') === '✅' ? 'text-green-400' : 'text-gray-400'}>
+                                    {getModuleStatus(selectedUser.formData, 'method')} O Método
+                                </div>
+                                <div className={getModuleStatus(selectedUser.formData, 'delivery') === '✅' ? 'text-green-400' : 'text-gray-400'}>
+                                    {getModuleStatus(selectedUser.formData, 'delivery')} A Entrega
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:justify-end">
+                            <button
+                                onClick={() => handleDownload(selectedUser.id, selectedUser.name)}
+                                className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-semibold transition text-sm sm:text-base"
+                            >
+                                Download Relatório
+                            </button>
+                            <button
+                                onClick={() => setShowDetails(false)}
+                                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg font-semibold transition text-sm sm:text-base"
+                            >
+                                Fechar
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </Modal>
         </div>
     );
 };

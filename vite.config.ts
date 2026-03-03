@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     // Define a base como raiz absoluta para deploy em VPS
-    base: './',
+    base: '/prosperus-mentor-diagnosis/',
     define: {
       // Injeta apenas a API Key de forma segura
       'process.env.API_KEY': JSON.stringify(env.API_KEY),
@@ -24,7 +24,15 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: 'http://localhost:3005',
+          changeOrigin: true
+        },
+        '/auth': {
+          target: 'http://localhost:3005',
+          changeOrigin: true
+        },
+        '/health': {
+          target: 'http://localhost:3005',
           changeOrigin: true
         }
       }

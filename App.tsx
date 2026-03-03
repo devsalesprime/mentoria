@@ -13,6 +13,7 @@ interface UserData {
   name: string;
   email: string;
   description?: string;
+  token: string;
 }
 
 function App() {
@@ -21,9 +22,13 @@ function App() {
   const [userData, setUserData] = useState<UserData | null>(null);
   // Estado para lembrar qual módulo o usuário queria acessar
   const [targetModule, setTargetModule] = useState<string>('mentor');
-  
+
   // Admin State
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminToken, setAdminToken] = useState<string>('');
+
+  // Auth Mode State
+  const [authMode, setAuthMode] = useState<'member' | 'admin'>('member');
 
   useEffect(() => {
     // Check if user came from Admin login url param (simple demo trick) or similar
@@ -31,23 +36,45 @@ function App() {
   }, []);
 
   const handleLoginSuccess = (data: UserData) => {
-    setUserData({ ...data, description: '' }); 
+    setUserData({
+      ...data,
+      description: '',
+      token: data.token // Garantir que o token seja salvo
+    });
     setIsAuthenticated(true);
     setIsLoginModalOpen(false);
     setIsAdmin(false);
   };
 
-  const handleAdminAccess = () => {
+  const handleAdminLogin = (token?: string) => {
+    console.log('handleAdminLogin called with token:', !!token);
+    if (token) {
+      setAdminToken(token);
       setIsAuthenticated(true);
       setIsAdmin(true);
       setIsLoginModalOpen(false);
+      console.log('Admin state set to TRUE');
+    }
+  };
+
+  // Used by Header to open Admin Login
+  const openLoginModal = () => {
+    setAuthMode('admin');
+    setIsLoginModalOpen(true);
+  };
+
+  const openLoginForModule = (moduleId: string) => {
+    setTargetModule(moduleId);
+    setAuthMode('member');
+    setIsLoginModalOpen(true);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUserData(null);
     setIsAdmin(false);
-    setTargetModule('mentor'); 
+    setAdminToken('');
+    setTargetModule('mentor');
   };
 
   const handleUpdateProfile = (data: { name: string; description: string }) => {
@@ -60,24 +87,20 @@ function App() {
     }
   };
 
-  const openLoginForModule = (moduleId: string) => {
-    setTargetModule(moduleId);
-    setIsLoginModalOpen(true);
-  };
-
   if (isAuthenticated && isAdmin) {
-      return <AdminPanel onLogout={handleLogout} />;
+    return <AdminPanel token={adminToken} onLogout={handleLogout} />;
   }
 
   if (isAuthenticated && userData) {
     return (
-      <Dashboard 
-        userEmail={userData.email} 
+      <Dashboard
+        userEmail={userData.email}
         userName={userData.name}
         userDescription={userData.description || ''}
         onUpdateProfile={handleUpdateProfile}
         onLogout={handleLogout}
         initialModule={targetModule}
+        token={userData.token}
       />
     );
   }
@@ -85,9 +108,9 @@ function App() {
   return (
     <div className="min-h-screen bg-prosperus-navy text-white selection:bg-prosperus-gold selection:text-prosperus-navy-dark" id="hero">
       {/* Área do Membro agora vai para 'overview' (Dashboard) */}
-      <Header 
-        onOpenLogin={() => openLoginForModule('overview')} 
-        onOpenAdmin={handleAdminAccess}
+      <Header
+        onOpenLogin={() => openLoginForModule('overview')}
+        onOpenAdmin={openLoginModal}
       />
       <main>
         {/* Começar Diagnóstico agora vai para 'overview' (Dashboard) */}
@@ -98,12 +121,13 @@ function App() {
         <GoalSection />
       </main>
       <Footer />
-      
-      <LoginModal 
-        isOpen={isLoginModalOpen} 
-        onClose={() => setIsLoginModalOpen(false)} 
+
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
-        onAdminAccess={handleAdminAccess}
+        onAdminAccess={handleAdminLogin}
+        initialAdminMode={authMode === 'admin'}
       />
     </div>
   );

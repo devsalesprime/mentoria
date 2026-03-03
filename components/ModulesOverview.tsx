@@ -43,14 +43,14 @@ interface ModulesOverviewProps {
 
 export const ModulesOverview: React.FC<ModulesOverviewProps> = ({ onStartModule }) => {
   return (
-    <section id="modules" className="py-24 bg-prosperus-navy relative">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="font-serif text-3xl md:text-5xl text-white mb-4">Os 4 Pilares da Mentoria</h2>
-          <p className="font-sans text-prosperus-neutral-grey/60">Um diagnóstico completo para estruturar seu negócio de educação.</p>
+    <section id="modules" className="py-16 sm:py-20 md:py-24 bg-prosperus-navy relative">
+      <div className="container mx-auto px-4 sm:px-6">
+        <div className="text-center mb-12 sm:mb-16">
+          <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl text-white mb-3 sm:mb-4 px-4">Os 4 Pilares da Mentoria</h2>
+          <p className="font-sans text-prosperus-neutral-grey/60 text-sm sm:text-base px-4">Um diagnóstico completo para estruturar seu negócio de educação.</p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {modules.map((mod, index) => (
             <motion.div
               key={mod.id}
@@ -58,32 +58,32 @@ export const ModulesOverview: React.FC<ModulesOverviewProps> = ({ onStartModule 
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="group relative bg-[#061e33] p-8 hover:bg-[#08243b] transition-colors duration-300 border border-white/5 hover:border-prosperus-gold-dark/50 flex flex-col"
+              className="group relative bg-[#061e33] p-6 sm:p-8 hover:bg-[#08243b] transition-colors duration-300 border border-white/5 hover:border-prosperus-gold-dark/50 flex flex-col"
             >
-              <div className="absolute top-6 right-6 font-serif text-4xl text-white/5 group-hover:text-prosperus-gold/20 transition-colors">
+              <div className="absolute top-4 sm:top-6 right-4 sm:right-6 font-serif text-3xl sm:text-4xl text-white/5 group-hover:text-prosperus-gold/20 transition-colors">
                 {mod.id}
               </div>
 
               <div className="flex-1">
-                <div className="mb-6">
-                  <h3 className="font-serif text-2xl text-white mb-1 group-hover:text-prosperus-gold-light transition-colors">{mod.title}</h3>
-                  <span className="font-sans text-xs text-prosperus-gold uppercase tracking-widest">{mod.question}</span>
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="font-serif text-xl sm:text-2xl text-white mb-1 group-hover:text-prosperus-gold-light transition-colors">{mod.title}</h3>
+                  <span className="font-sans text-[10px] sm:text-xs text-prosperus-gold uppercase tracking-widest">{mod.question}</span>
                 </div>
 
-                <p className="font-sans text-prosperus-neutral-grey/70 text-sm leading-relaxed mb-8">
+                <p className="font-sans text-prosperus-neutral-grey/70 text-xs sm:text-sm leading-relaxed mb-6 sm:mb-8">
                   {mod.desc}
                 </p>
               </div>
 
-              <div className="mt-auto pt-4 border-t border-prosperus-gold/30">
+              <div className="mt-auto pt-3 sm:pt-4 border-t border-prosperus-gold/30">
                 <button
                   onClick={() => onStartModule(mod.dashboardId)}
                   className="w-full text-left flex items-center justify-between group/btn transition-all duration-300 hover:bg-prosperus-gold/10 -mx-2 px-2 py-2 rounded"
                 >
-                  <span className="text-xs font-bold font-sans uppercase transition-colors text-prosperus-gold group-hover/btn:text-prosperus-gold-light">
+                  <span className="text-[10px] sm:text-xs font-bold font-sans uppercase transition-colors text-prosperus-gold group-hover/btn:text-prosperus-gold-light">
                     Iniciar Módulo
                   </span>
-                  <span className="text-lg leading-none transition-transform duration-300 group-hover/btn:translate-x-1 text-prosperus-gold pe-2">→</span>
+                  <span className="text-base sm:text-lg leading-none transition-transform duration-300 group-hover/btn:translate-x-1 text-prosperus-gold pe-2">→</span>
                 </button>
               </div>
             </motion.div>
