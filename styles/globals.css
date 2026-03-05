@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/* ── Design Tokens (migrated from index.html CDN config) ─────────────── */
+@theme {
+  --color-prosperus-gold-light: #FFE39B;
+  --color-prosperus-gold: #FFDA71;
+  --color-prosperus-gold-dark: #CA9A43;
+  --color-prosperus-gold-hover: #D4B050;
+
+  --color-prosperus-navy-panel: #0A2540;
+  --color-prosperus-navy-light: #123F5B;
+  --color-prosperus-navy-mid: #051522;
+  --color-prosperus-navy: #031A2B;
+  --color-prosperus-navy-dark: #020f19;
+
+  --color-prosperus-neutral-white: #FCF7F0;
+  --color-prosperus-neutral-grey: #EDF4F7;
+  --color-prosperus-neutral-black: #080808;
+
+  --color-whatsapp: #25D366;
+  --color-email: #4A9BD9;
+
+  --color-medal-gold: #FFD700;
+  --color-medal-silver: #C0C0C0;
+  --color-medal-bronze: #CD7F32;
+
+  --font-serif: "EB Garamond", serif;
+  --font-sans: "Manrope", sans-serif;
+}
+
+/* ── Base body styles ─────────────────────────────────────────────────── */
+body {
+  background-color: var(--color-prosperus-navy);
+  color: var(--color-prosperus-neutral-white);
+}
+
+/* ── Custom gradient utilities (migrated from index.html <style> block) ─ */
+@utility text-gold-gradient {
+  background: linear-gradient(135deg, #FFE39B 0%, #CA9A43 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  padding-right: 0.06em;
+  box-decoration-break: clone;
+}
+
+@utility bg-gold-gradient {
+  background: linear-gradient(135deg, #FFE39B 0%, #CA9A43 100%);
+}
+
+@utility border-gold-gradient {
+  border-image: linear-gradient(to right, #FFE39B, #CA9A43) 1;
+}

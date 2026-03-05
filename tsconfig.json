@@ -24,6 +24,25 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/**/*",
+    "components/**/*",
+    "hooks/**/*",
+    "types/**/*",
+    "utils/**/*.ts",
+    "vite.config.ts",
+    "vite-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "data",
+    "routes",
+    "*.cjs"
+  ]
 }

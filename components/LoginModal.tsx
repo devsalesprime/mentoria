@@ -252,7 +252,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <div className="flex-1 w-full">
                     <p className="text-red-200 text-sm font-sans font-bold mb-2">Acesso Negado</p>
 
-                    <p className="text-red-100 font-sans text-xs mb-3 font-semibold">
+                    <p className="text-red-100 font-sans text-sm mb-3 font-semibold">
                       {errorMessage}
                     </p>
 
@@ -262,17 +262,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       <p className="text-red-200/70 text-[10px] font-sans leading-relaxed mb-1 uppercase tracking-wider">
                         Já é membro?
                       </p>
-                      <p className="text-red-100 text-xs font-sans mb-2">
+                      <p className="text-red-100 text-sm font-sans mb-2">
                         Verifique se o e-mail é o mesmo do contrato.
                       </p>
-                      <p className="text-red-100 text-xs font-sans mb-2">
+                      <p className="text-red-100 text-sm font-sans mb-2">
                         Ou contate nosso suporte:
                       </p>
                       <a
                         href="https://wa.me/5511956663958"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center w-full py-2 bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-[#25D366] text-xs font-bold rounded transition-colors group"
+                        className="flex items-center justify-center w-full py-2 bg-whatsapp/10 hover:bg-whatsapp/20 border border-whatsapp/30 text-whatsapp text-xs font-bold rounded transition-colors group"
                       >
                         <WhatsAppIcon />
                         Suporte
@@ -296,13 +296,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </div>
                 </div>
 
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   onClick={tryAgain}
-                  className="mt-4 w-full py-2 bg-transparent hover:bg-red-500/10 text-red-300 text-[10px] uppercase tracking-wider transition-colors"
+                  className="mt-4 !text-red-300 hover:!bg-red-500/10 !text-[10px] uppercase tracking-wider"
+                  fullWidth
                 >
                   ← Tentar outro e-mail
-                </button>
+                </Button>
               </motion.div>
             )}
 
@@ -317,13 +320,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             <div className="flex justify-between items-center text-xs text-prosperus-neutral-grey/30 pt-4 border-t border-white/5">
               <p>Ambiente Seguro <i className="bi bi-lock-fill"></i></p>
               {onAdminAccess && (
-                <button
+                <Button
+                  variant="link"
+                  size="xs"
                   type="button"
                   onClick={toggleAdminMode}
-                  className={`transition-colors ${isAdminMode ? 'text-prosperus-gold font-bold' : 'hover:text-prosperus-gold'}`}
+                  className={`${isAdminMode ? '!text-prosperus-gold !font-bold' : 'hover:!text-prosperus-gold'}`}
                 >
                   {isAdminMode ? 'Voltar para Login de Membro' : 'Sou Admin'}
-                </button>
+                </Button>
               )}
             </div>
           </form>

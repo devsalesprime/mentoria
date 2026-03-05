@@ -1,1327 +1,1019 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import type { MethodData, Pillar, MethodStep, ObstacleMap, ObstaclePair } from '../../types/diagnostic';
+import { TextOrAudioInput } from '../shared/TextOrAudioInput';
+import { StepTransition } from '../shared/StepTransition';
+import { CelebrationOverlay } from '../shared/CelebrationOverlay';
+import { Button } from '../ui/Button';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+// ─────────────────────────────────────────
+// Types & constants
+// ─────────────────────────────────────────
 
-// --- TYPES ---
-
-export interface Pillar {
-    id: string;
-    what: string;
-    why: string;
-    how: string;
+interface MethodEdges {
+  pointA: { internal: string; external: string };
+  pointB: { internal: string; external: string };
 }
-
-export interface JourneyStep {
-    id: string;
-    title: string;
-    importance: string;
-    problems?: string;
-    solutions?: string;
-}
-
-export interface MethodData {
-    stage: 'none' | 'idea' | 'structured' | null;
-    name: string;
-    transformation: string;
-    pillars: Pillar[];
-    // Campos para a Jornada (Propósito)
-    purpose: {
-        pointA: {
-            pain: string;
-            failed: string;
-            limit: string;
-        };
-        pointB: {
-            worth: string;
-            ability: string;
-            feeling: string;
-        };
-    };
-    // Novo campo para Mapa da Jornada
-    journeyMap: JourneyStep[];
-}
-
-export const INITIAL_METHOD_DATA: MethodData = {
-    stage: null,
-    name: '',
-    transformation: '',
-    pillars: [
-        { id: '1', what: '', why: '', how: '' },
-        { id: '2', what: '', why: '', how: '' },
-        { id: '3', what: '', why: '', how: '' }
-    ],
-    purpose: {
-        pointA: { pain: '', failed: '', limit: '' },
-        pointB: { worth: '', ability: '', feeling: '' }
-    },
-    journeyMap: [
-        { id: '1', title: '', importance: '', problems: '', solutions: '' },
-        { id: '2', title: '', importance: '', problems: '', solutions: '' },
-        { id: '3', title: '', importance: '', problems: '', solutions: '' }
-    ]
-};
 
 interface MethodModuleProps {
-    data: MethodData;
-    onUpdate: (newData: MethodData) => void;
-    onSaveAndExit: () => void;
-    onComplete?: () => void;
-    isReadOnly?: boolean;
-    savedStep?: number; // Etapa salva anteriormente
-    onStepChange?: (step: number) => void; // Callback quando a etapa muda
+  data: MethodData;
+  onUpdate: (data: Partial<MethodData>) => void;
+  token: string;
+  edges: MethodEdges;
+  onModuleComplete?: () => void;
 }
 
-// --- STYLES FOR SCROLLBARS ---
-const scrollbarStyles = "overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-[#031A2B] [&::-webkit-scrollbar-thumb]:bg-[#CA9A43]/50 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#CA9A43]";
-const verticalScrollbarStyles = "overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-[#031A2B] [&::-webkit-scrollbar-thumb]:bg-[#CA9A43]/50 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#CA9A43]";
+// Task 4: Updated from 2 to 3 steps — 'Nível de Maturidade' added as Step 0 (AC 13, 14)
+const STEPS = [
+  { title: 'Nível de Maturidade', icon: '🌱' },
+  { title: 'A Transformação', icon: '🌉' },
+  { title: 'Mapa de Obstáculos', icon: '🧱' },
+];
 
-const getInitialStep = (data: MethodData): number => {
-    if (!data.stage) return 1;
+const STEP_TRANSITIONS: Record<number, string> = {
+  1: 'Ótima estrutura! Agora os obstáculos...',
+};
 
-    // Structured Path logic (Short Flow)
-    if (data.stage === 'structured') {
-        // Step 2 for structured is MethodStructuring (Name, Trans, Pillars)
-        // Check strict validation for pillars (3 mins, fields length > 3)
-        const hasValidPillars = data.pillars.length >= 3 && data.pillars.every(p =>
-            p.what.length >= 3 && p.why.length >= 3 && p.how.length >= 3
-        );
+// Animation variants
+const stepVariants = {
+  enter: (direction: number) => ({ x: direction > 0 ? 80 : -80, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (direction: number) => ({ x: direction > 0 ? -80 : 80, opacity: 0 }),
+};
 
-        if (!data.name || data.name.length < 5 ||
-            !data.transformation || data.transformation.length < 10 ||
-            !hasValidPillars) return 2;
+const reducedMotionVariants = {
+  enter: () => ({ opacity: 0 }),
+  center: { opacity: 1 },
+  exit: () => ({ opacity: 0 }),
+};
 
-        return 3; // Completed (Structured flow has 2 steps)
+const generateId = () => Math.random().toString(36).substring(2, 9);
+const truncate = (str: string, maxLen: number) =>
+  str && str.length > maxLen ? str.substring(0, maxLen) + '...' : str || '';
+
+// Helper to get pairs from an ObstacleMap (with migration from legacy single-pair format)
+const getPairs = (entry: ObstacleMap | undefined): ObstaclePair[] => {
+  if (!entry) return [{ obstacle: '', solution: '' }];
+  if (entry.pairs?.length) return entry.pairs;
+  // Migrate legacy format
+  return [{ obstacle: entry.obstacle || '', solution: entry.solution || '' }];
+};
+
+// ─────────────────────────────────────────
+// Bridge Visual component
+// ─────────────────────────────────────────
+const BridgeVisual: React.FC<{ edges: MethodEdges }> = ({ edges }) => {
+  const hasData =
+    edges.pointA.internal || edges.pointA.external ||
+    edges.pointB.internal || edges.pointB.external;
+
+  if (!hasData) {
+    return (
+      <div className="p-4 bg-white/5 border border-white/10 rounded-lg text-center" aria-hidden="true">
+        <p className="text-white/50 text-sm font-sans italic">
+          Complete o módulo 'O Mentorado' para ver a transformação do seu cliente aqui.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-stretch mb-6"
+      aria-hidden="true"
+    >
+      {/* Point A */}
+      <div className="p-4 rounded-xl border bg-red-500/10 border-red-500/30 space-y-2">
+        <p className="text-xs font-bold font-sans text-red-400 uppercase tracking-wide">
+          Ponto A — Antes
+        </p>
+        {edges.pointA.internal && (
+          <div className="space-y-0.5">
+            <p className="text-[11px] text-white/50 font-sans">❤️ Interno:</p>
+            <p className="text-xs text-white/70 font-sans leading-relaxed">
+              {truncate(edges.pointA.internal, 100)}
+            </p>
+          </div>
+        )}
+        {edges.pointA.external && (
+          <div className="space-y-0.5">
+            <p className="text-[11px] text-white/50 font-sans">📊 Externo:</p>
+            <p className="text-xs text-white/70 font-sans leading-relaxed">
+              {truncate(edges.pointA.external, 100)}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Bridge center */}
+      <div className="hidden sm:flex flex-col items-center justify-center gap-1 px-3">
+        <div className="w-px flex-1 bg-gradient-to-b from-red-500/30 via-prosperus-gold-dark/40 to-emerald-500/30" />
+        <span className="text-[10px] font-bold text-prosperus-gold-dark/60 font-sans uppercase tracking-wider whitespace-nowrap rotate-0">
+          Seu Método
+        </span>
+        <div className="w-px flex-1 bg-gradient-to-b from-prosperus-gold-dark/40 via-emerald-500/30 to-emerald-500/20" />
+      </div>
+
+      {/* Mobile connector */}
+      <div className="sm:hidden flex items-center justify-center gap-2 py-1">
+        <div className="flex-1 h-px bg-gradient-to-r from-red-500/30 to-prosperus-gold-dark/40" />
+        <span className="text-[10px] font-bold text-prosperus-gold-dark/60 font-sans uppercase tracking-wider">
+          Seu Método
+        </span>
+        <div className="flex-1 h-px bg-gradient-to-r from-prosperus-gold-dark/40 to-emerald-500/30" />
+      </div>
+
+      {/* Point B */}
+      <div className="p-4 rounded-xl border bg-emerald-500/10 border-emerald-500/30 space-y-2">
+        <p className="text-xs font-bold font-sans text-emerald-400 uppercase tracking-wide">
+          Ponto B — Depois
+        </p>
+        {edges.pointB.internal && (
+          <div className="space-y-0.5">
+            <p className="text-[11px] text-white/50 font-sans">❤️ Interno:</p>
+            <p className="text-xs text-white/70 font-sans leading-relaxed">
+              {truncate(edges.pointB.internal, 100)}
+            </p>
+          </div>
+        )}
+        {edges.pointB.external && (
+          <div className="space-y-0.5">
+            <p className="text-[11px] text-white/50 font-sans">📊 Externo:</p>
+            <p className="text-xs text-white/70 font-sans leading-relaxed">
+              {truncate(edges.pointB.external, 100)}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────
+export const MethodModule: React.FC<MethodModuleProps> = ({ data, onUpdate, token, edges, onModuleComplete }) => {
+  const prefersReduced = useReducedMotion();
+  const [currentStep, setCurrentStep] = useState(0);
+  const [direction, setDirection] = useState(0);
+  const [transitioning, setTransitioning] = useState(false);
+  const [transitionMsg, setTransitionMsg] = useState('');
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [moduleComplete, setModuleComplete] = useState(false);
+  const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Horizontal builder selected item
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [selectedPillarId, setSelectedPillarId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+    };
+  }, []);
+
+  // ── Navigation ──
+  const triggerTransitionAndAdvance = (fromStep: number) => {
+    const msg = STEP_TRANSITIONS[fromStep];
+    if (msg) {
+      setTransitionMsg(msg);
+      setTransitioning(true);
+    } else {
+      setDirection(1);
+      setCurrentStep(fromStep + 1);
     }
+  };
 
-    // Idea/None Path Logic (Long Flow)
-    const pA = data.purpose.pointA;
-    const pB = data.purpose.pointB;
-    const hasPurpose = pA.pain.length > 3 && pA.failed.length > 3 && pA.limit.length > 3 &&
-        pB.worth.length > 3 && pB.ability.length > 3 && pB.feeling.length > 3;
+  const handleTransitionComplete = () => {
+    setTransitioning(false);
+    setTransitionMsg('');
+    setDirection(1);
+    setCurrentStep((s) => s + 1);
+  };
 
-    if (!hasPurpose) return 2; // Purpose
+  // Task 4: Updated for 3-step flow (step 2 is now the last step)
+  const goNext = () => {
+    if (currentStep < 2 && !transitioning) {
+      triggerTransitionAndAdvance(currentStep);
+    } else if (currentStep === 2 && !transitioning && !moduleComplete) {
+      setShowCelebration(true);
+      setModuleComplete(true);
+    }
+  };
 
-    const hasJourney = data.journeyMap.length >= 3 &&
-        data.journeyMap.every(s => s.title.length > 3 && s.importance.length > 3);
+  const goPrev = () => {
+    if (currentStep > 0 && !transitioning) {
+      setDirection(-1);
+      setCurrentStep(currentStep - 1);
+    }
+  };
 
-    if (!hasJourney) return 3; // Journey
+  const jumpToStep = (i: number) => {
+    if (i === currentStep || transitioning) return;
+    setTransitioning(false);
+    setTransitionMsg('');
+    setDirection(i > currentStep ? 1 : -1);
+    setCurrentStep(i);
+  };
 
-    // XRay Check
-    const hasXRay = hasJourney && data.journeyMap.every(s => (s.problems?.length || 0) > 5 && (s.solutions?.length || 0) > 5);
-    if (!hasXRay) return 4; // XRay
+  // ── Derived data ──
+  const pillars: Pillar[] = data.pillars || [];
+  const steps: MethodStep[] = data.steps || [];
+  const obstacles: ObstacleMap[] = data.obstacles || [];
+  // Task 8: Fixed — removed overly strict guard; now simply checks maturity === 'structured' (AC 16)
+  const isStructured = data.maturity === 'structured';
 
-    return 5; // Completed (Standard flow has 4 steps)
-}
+  // Next button disabled logic — updated for 3-step flow
+  const isNextDisabled = (): boolean => {
+    if (transitioning) return true;
+    if (currentStep === 2 && moduleComplete) return true;
+    if (currentStep === 0) {
+      // Task 4: Maturity selection required to advance past Step 0 (AC 8)
+      return !data.maturity;
+    }
+    if (currentStep === 1) {
+      // Unified: both paths require name + promise + 3 items (pillars or steps)
+      if (!data.name?.trim() || !data.promise?.trim()) return true;
+      if (isStructured) return pillars.filter(p => p.what?.trim()).length < 3;
+      return steps.filter(s => s.title?.trim()).length < 3;
+    }
+    return false;
+  };
 
-// --- SUB-COMPONENTS ---
+  // ── Pillar helpers ──
+  const addPillar = useCallback(() => {
+    if (pillars.length >= 8) return;
+    onUpdate({ pillars: [...pillars, { id: generateId(), what: '', why: '', how: '' }] });
+  }, [pillars, onUpdate]);
 
-const MethodIntro: React.FC<{ onStart: () => void }> = ({ onStart }) => {
-    return (
-        <div className="h-full overflow-y-auto custom-scrollbar">
-            <div className="min-h-full flex flex-col items-center justify-start md:justify-center text-center p-4 md:p-16 animate-fadeIn py-12 md:py-0">
-                <div className="w-16 h-16 md:w-20 md:h-20 bg-[#CA9A43]/10 rounded-full flex items-center justify-center mb-6 md:mb-8 border border-[#CA9A43]/30 flex-shrink-0">
-                    <i className="bi bi-diagram-3 text-3xl md:text-4xl text-[#CA9A43]"></i>
-                </div>
+  const updatePillar = useCallback((id: string, field: keyof Omit<Pillar, 'id'>, value: string) => {
+    onUpdate({ pillars: pillars.map(p => p.id === id ? { ...p, [field]: value } : p) });
+  }, [pillars, onUpdate]);
 
-                <h2 className="font-serif text-3xl md:text-5xl text-white mb-6 md:mb-8">
-                    O Método
-                </h2>
+  const deletePillar = useCallback((id: string) => {
+    if (pillars.length <= 3) return;
+    onUpdate({ pillars: pillars.filter(p => p.id !== id) });
+    if (selectedPillarId === id) setSelectedPillarId(null);
+  }, [pillars, onUpdate, selectedPillarId]);
 
-                <p className="text-gray-300 font-sans text-base md:text-lg mb-8 md:mb-10 max-w-2xl leading-relaxed">
-                    Método vem do grego de “caminho até a meta”.<br />
-                    É só isso: um jeito claro de sair do ponto A e chegar no ponto B.
-                </p>
+  // ── Step helpers ──
+  const addStep = useCallback(() => {
+    onUpdate({ steps: [...steps, { id: generateId(), title: '', description: '' }] });
+  }, [steps, onUpdate]);
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 w-full max-w-5xl mb-8 md:mb-10 text-left">
-                    <div className="bg-[#081e30] p-6 rounded border border-white/5 hover:border-[#CA9A43]/30 transition-colors">
-                        <h3 className="text-[#CA9A43] font-bold text-xs md:text-sm uppercase tracking-widest mb-3">1. Cria Autoridade Real</h3>
-                        <p className="text-gray-400 text-sm leading-relaxed">
-                            Um método mostra que o que você faz não é sorte. É um processo: tem começo, meio e fim.
-                            Você deixa claro: “Eu fiz. Aprendi. Refinei. Agora ensino.”
-                            Isso tira você da multidão e te coloca como referência.
-                        </p>
-                    </div>
+  const updateStep = useCallback((id: string, field: keyof Omit<MethodStep, 'id'>, value: string) => {
+    onUpdate({ steps: steps.map(s => s.id === id ? { ...s, [field]: value } : s) });
+  }, [steps, onUpdate]);
 
-                    <div className="bg-[#081e30] p-6 rounded border border-white/5 hover:border-[#CA9A43]/30 transition-colors">
-                        <h3 className="text-[#CA9A43] font-bold text-xs md:text-sm uppercase tracking-widest mb-3">2. Mostra que é Autêntico</h3>
-                        <p className="text-gray-400 text-sm leading-relaxed">
-                            Método próprio = história própria. Ninguém copia sua jornada com os mesmos passos.
-                            Quando você ensina com base no que viveu, soa verdadeiro.
-                            Isso atrai quem busca mais do que teoria: busca prova viva.
-                        </p>
-                    </div>
+  const deleteStep = useCallback((id: string) => {
+    if (steps.length <= 3) return;
+    onUpdate({
+      steps: steps.filter(s => s.id !== id),
+      obstacles: obstacles.filter(o => o.referenceId !== id),
+    });
+    if (selectedStepId === id) setSelectedStepId(null);
+  }, [steps, obstacles, onUpdate, selectedStepId]);
 
-                    <div className="bg-[#081e30] p-6 rounded border border-white/5 hover:border-[#CA9A43]/30 transition-colors">
-                        <h3 className="text-[#CA9A43] font-bold text-xs md:text-sm uppercase tracking-widest mb-3">3. Simples é Poderoso</h3>
-                        <p className="text-gray-400 text-sm leading-relaxed">
-                            Gente confusa não toma decisão.
-                            Quando você pega algo difícil e quebra em etapas simples, você vira um guia confiável.
-                            A pessoa pensa: “Se ele explica assim, imagina como resolve.”
-                            Você mostra que entende mais do problema do que ela mesma. E por isso, está pronto pra levar ela à solução.
-                        </p>
-                    </div>
-                </div>
+  // ── Obstacle helpers (multi-pair) ──
+  const updateObstaclePair = useCallback(
+    (referenceId: string, pairIndex: number, field: 'obstacle' | 'solution', value: string) => {
+      const existing = obstacles.find(o => o.referenceId === referenceId);
+      if (existing) {
+        const currentPairs = getPairs(existing);
+        const newPairs = currentPairs.map((p, i) => i === pairIndex ? { ...p, [field]: value } : p);
+        onUpdate({ obstacles: obstacles.map(o => o.referenceId === referenceId ? { ...o, pairs: newPairs } : o) });
+      } else {
+        const referenceName = isStructured
+          ? (pillars.find(p => p.id === referenceId)?.what || '')
+          : (steps.find(s => s.id === referenceId)?.title || '');
+        const newPairs: ObstaclePair[] = [{ obstacle: field === 'obstacle' ? value : '', solution: field === 'solution' ? value : '' }];
+        onUpdate({ obstacles: [...obstacles, { referenceId, referenceName, pairs: newPairs }] });
+      }
+    },
+    [obstacles, pillars, steps, isStructured, onUpdate]
+  );
 
-                <p className="text-gray-400 text-sm max-w-2xl mb-8 md:mb-10 italic leading-relaxed">
-                    Quando você entende isso, fica fácil ver porquê um mentor precisa de um.
-                    No fim, ter um método é mostrar que você sabe o caminho e pode levar alguém junto. Isso cria confiança. E confiança é o que faz uma pessoa dizer: “Quero que você seja meu mentor.”
-                </p>
+  const addObstaclePair = useCallback(
+    (referenceId: string) => {
+      const existing = obstacles.find(o => o.referenceId === referenceId);
+      const newPair: ObstaclePair = { obstacle: '', solution: '' };
+      if (existing) {
+        const currentPairs = getPairs(existing);
+        onUpdate({ obstacles: obstacles.map(o => o.referenceId === referenceId ? { ...o, pairs: [...currentPairs, newPair] } : o) });
+      } else {
+        const referenceName = isStructured
+          ? (pillars.find(p => p.id === referenceId)?.what || '')
+          : (steps.find(s => s.id === referenceId)?.title || '');
+        onUpdate({ obstacles: [...obstacles, { referenceId, referenceName, pairs: [newPair] }] });
+      }
+    },
+    [obstacles, pillars, steps, isStructured, onUpdate]
+  );
 
-                <button
-                    onClick={onStart}
-                    className="bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] font-bold py-3 px-8 md:py-4 md:px-10 rounded-sm uppercase tracking-widest transition-all shadow-lg hover:shadow-[#CA9A43]/20 flex-shrink-0 text-sm md:text-base mb-8 md:mb-0"
-                >
-                    Começar Diagnóstico
-                </button>
-            </div>
-        </div>
-    );
-};
+  const removeObstaclePair = useCallback(
+    (referenceId: string, pairIndex: number) => {
+      const existing = obstacles.find(o => o.referenceId === referenceId);
+      if (!existing) return;
+      const currentPairs = getPairs(existing);
+      if (currentPairs.length <= 1) return;
+      onUpdate({ obstacles: obstacles.map(o => o.referenceId === referenceId ? { ...o, pairs: currentPairs.filter((_, i) => i !== pairIndex) } : o) });
+    },
+    [obstacles, onUpdate]
+  );
 
-// Completion View (Tela de Sucesso/Envio)
-const CompletionView: React.FC<{ onReview: () => void; onSend?: () => void; readOnly?: boolean }> = ({ onReview, onSend, readOnly }) => {
-    return (
-        <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.5, type: "spring" }}
-                className={`w-24 h-24 rounded-full border flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,0,0,0.2)]
-                    ${readOnly
-                        ? 'bg-blue-500/10 border-blue-500/50 shadow-blue-500/20'
-                        : 'bg-green-500/10 border-green-500/50 shadow-green-500/20'
-                    }`}
-            >
-                {readOnly ? (
-                    <i className="bi bi-file-earmark-lock text-5xl text-blue-500"></i>
-                ) : (
-                    <i className="bi bi-check-lg text-5xl text-green-500"></i>
-                )}
-            </motion.div>
-
-            <motion.h2
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.2 }}
-                className="font-serif text-4xl text-white mb-4"
-            >
-                {readOnly ? 'Módulo em Análise' : 'Módulo Concluído!'}
-            </motion.h2>
-
-            <motion.p
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                className="text-gray-400 max-w-md font-sans text-lg mb-8 leading-relaxed"
-            >
-                {readOnly
-                    ? 'Suas respostas foram enviadas e estão sendo analisadas pela nossa equipe.'
-                    : 'Parabéns! Você estruturou seu método. Deseja enviar agora para avaliação ou apenas salvar?'
-                }
-            </motion.p>
-
-            <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                className="flex flex-col md:flex-row gap-4"
-            >
-                <button
-                    onClick={onReview}
-                    className="px-6 py-3 border border-white/10 hover:bg-white/5 text-gray-300 rounded-sm font-bold text-sm uppercase tracking-wider transition-colors"
-                >
-                    {readOnly ? 'Visualizar Respostas' : 'Revisar Respostas'}
-                </button>
-
-                {!readOnly && onSend && (
-                    <button
-                        onClick={onSend}
-                        className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-sm text-sm uppercase tracking-wider shadow-lg hover:shadow-green-500/30 transition-all flex items-center justify-center gap-2"
-                    >
-                        Enviar para Avaliação <i className="bi bi-send-fill"></i>
-                    </button>
-                )}
-            </motion.div>
-        </div>
-    );
-};
-
-// ETAPA 1: SELEÇÃO DO ESTÁGIO
-const MethodSelection: React.FC<{
-    data: MethodData;
-    onUpdate: (d: MethodData) => void;
-    readOnly?: boolean;
-}> = ({ data, onUpdate, readOnly }) => {
-    const [showTooltip, setShowTooltip] = useState(false);
-
-    const handleSelect = (stage: MethodData['stage']) => {
-        if (readOnly) return;
-        onUpdate({ ...data, stage });
-    };
-
-    const cards = [
-        {
-            id: 'none',
-            color: 'text-red-500',
-            borderColor: 'border-red-500',
-            bgSelected: 'bg-red-500/10',
-            glow: 'shadow-red-900/40',
-            text: 'Ainda não tenho um método definido.',
-            feedback: 'Perfeito! Vamos construir seu método do zero juntos. 🚀',
-        },
-        {
-            id: 'idea',
-            color: 'text-orange-500',
-            borderColor: 'border-orange-500',
-            bgSelected: 'bg-orange-500/10',
-            glow: 'shadow-orange-900/40',
-            text: 'Tenho um método na cabeça, mas nunca coloquei no papel.',
-            feedback: 'Ótimo! Vamos estruturar e documentar o que está na sua cabeça. 📝',
-        },
-        {
-            id: 'structured',
-            color: 'text-emerald-500',
-            borderColor: 'border-emerald-500',
-            bgSelected: 'bg-emerald-500/10',
-            glow: 'shadow-emerald-900/40',
-            text: 'Sim, tenho um método estruturado e já usei com clientes.',
-            feedback: 'Excelente! Vamos refinar e otimizar seu método testado. ✨',
+  // ── Initialize on mount ──
+  // Task 4: Removed auto-maturity — user must explicitly choose in Step 0 (AC 8)
+  // Existing users who already have maturity set retain their value (backward compat)
+  // Steps initialized for non-structured flow; pillars initialized for structured
+  useEffect(() => {
+    const updates: Partial<MethodData> = {};
+    if (data.maturity === 'structured') {
+      if (pillars.length < 3) {
+        const existing = [...pillars];
+        while (existing.length < 3) {
+          existing.push({ id: generateId(), what: '', why: '', how: '' });
         }
+        updates.pillars = existing;
+      }
+    } else if (data.maturity && steps.length === 0) {
+      updates.steps = [
+        { id: generateId(), title: '', description: '' },
+        { id: generateId(), title: '', description: '' },
+        { id: generateId(), title: '', description: '' },
+      ];
+    } else if (!data.maturity && steps.length === 0) {
+      // Pre-initialize steps for when user picks a non-structured maturity
+      updates.steps = [
+        { id: generateId(), title: '', description: '' },
+        { id: generateId(), title: '', description: '' },
+        { id: generateId(), title: '', description: '' },
+      ];
+    }
+    if (Object.keys(updates).length > 0) {
+      onUpdate(updates);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Task 7: Maturity switch with confirmation dialog when data already exists (AC 12)
+  const handleMaturityChange = useCallback((newMaturity: 'not_yet' | 'in_head' | 'structured') => {
+    if (data.maturity === newMaturity) return;
+    const hasData = steps.some(s => s.title) || pillars.some(p => p.what);
+    if (data.maturity && hasData) {
+      const confirmed = window.confirm('Trocar o nível de maturidade irá reiniciar as etapas. Deseja continuar?');
+      if (!confirmed) return;
+      if (newMaturity === 'structured') {
+        onUpdate({ maturity: newMaturity, steps: [], pillars: [
+          { id: generateId(), what: '', why: '', how: '' },
+          { id: generateId(), what: '', why: '', how: '' },
+          { id: generateId(), what: '', why: '', how: '' },
+        ], obstacles: [] });
+      } else {
+        onUpdate({
+          maturity: newMaturity,
+          pillars: [],
+          steps: [
+            { id: generateId(), title: '', description: '' },
+            { id: generateId(), title: '', description: '' },
+            { id: generateId(), title: '', description: '' },
+          ],
+          obstacles: [],
+        });
+      }
+    } else {
+      if (newMaturity === 'structured' && pillars.length < 3) {
+        const existing = [...pillars];
+        while (existing.length < 3) {
+          existing.push({ id: generateId(), what: '', why: '', how: '' });
+        }
+        onUpdate({ maturity: newMaturity, pillars: existing });
+      } else if (newMaturity !== 'structured' && steps.length === 0) {
+        onUpdate({
+          maturity: newMaturity,
+          steps: [
+            { id: generateId(), title: '', description: '' },
+            { id: generateId(), title: '', description: '' },
+            { id: generateId(), title: '', description: '' },
+          ],
+        });
+      } else {
+        onUpdate({ maturity: newMaturity });
+      }
+    }
+  }, [data.maturity, steps, pillars, onUpdate]);
+
+  // ─────────────────────────────────────
+  // STEP 0 — Maturity Selector (Task 4)
+  // ─────────────────────────────────────
+  const renderStepMaturity = () => {
+    const maturityOptions = [
+      { value: 'not_yet' as const, icon: '🌱', label: 'Ainda não tenho um método' },
+      { value: 'in_head' as const, icon: '💭', label: 'Tenho na cabeça, mas não está escrito' },
+      { value: 'structured' as const, icon: '📋', label: 'Já tenho um método estruturado' },
     ];
-
-    const selectedCard = cards.find(c => c.id === data.stage);
-
     return (
-        <div className={`max-w-6xl mx-auto h-full flex flex-col ${verticalScrollbarStyles}`}>
-            <div className="text-center mb-12 relative flex-shrink-0">
-                <h2 className="font-serif text-3xl md:text-4xl text-white font-bold leading-tight mb-4 inline-block relative">
-                    Você já tem um método claro para entregar a transformação que os seus mentorados buscam?
-                    <button
-                        onMouseEnter={() => setShowTooltip(true)}
-                        onMouseLeave={() => setShowTooltip(false)}
-                        className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-white/20 text-white/50 text-sm ml-3 hover:text-white hover:border-white transition-colors cursor-help align-middle font-sans"
-                    >
-                        ?
-                    </button>
-                    <AnimatePresence>
-                        {showTooltip && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: 10 }}
-                                className="absolute left-1/2 -translate-x-1/2 top-full mt-4 w-72 bg-[#031A2B] border border-[#CA9A43]/30 text-gray-300 text-sm font-sans font-normal p-4 rounded-sm shadow-xl text-left z-50 pointer-events-none"
-                            >
-                                <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#031A2B] border-t border-l border-[#CA9A43]/30 rotate-45"></div>
-                                Seu método é o caminho estruturado que você usa para levar seus clientes de onde estão até onde querem chegar.
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </h2>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8 flex-shrink-0 px-2">
-                {cards.map((card, index) => {
-                    const isSelected = data.stage === card.id;
-                    return (
-                        <motion.div
-                            key={card.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1, duration: 0.4 }}
-                            whileHover={!readOnly ? { y: -4 } : {}}
-                            onClick={() => handleSelect(card.id as MethodData['stage'])}
-                            className={`relative bg-[#081e30] border rounded-sm p-8 min-h-[280px] flex flex-col items-center justify-center text-center transition-all duration-300 group
-                                ${readOnly ? 'cursor-default' : 'cursor-pointer'}
-                                ${isSelected
-                                    ? `${card.borderColor} ${card.bgSelected} shadow-[0_0_30px_rgba(0,0,0,0.2)]`
-                                    : `border-white/5 ${!readOnly && 'hover:border-white/20'}`
-                                }
-                                ${readOnly && !isSelected ? 'opacity-50' : 'opacity-100'}
-                            `}
-                        >
-                            {isSelected && (
-                                <motion.div
-                                    initial={{ scale: 0, rotate: -90 }}
-                                    animate={{ scale: 1, rotate: 0 }}
-                                    className={`absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 border-[#031A2B] bg-[#031A2B] ${card.color}`}
-                                >
-                                    <i className="bi bi-check-lg font-bold"></i>
-                                </motion.div>
-                            )}
-
-                            <p className={`text-xl md:text-2xl font-serif font-bold leading-snug mb-6 transition-colors ${isSelected ? card.color : 'text-gray-300 group-hover:text-white'}`}>
-                                {card.text}
-                            </p>
-
-                        </motion.div>
-                    );
-                })}
-            </div>
-
-            <AnimatePresence mode="wait">
-                {selectedCard && (
-                    <motion.div
-                        key={selectedCard.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="text-center mb-8"
-                    >
-                        <p className={`text-lg md:text-xl font-medium ${selectedCard.color}`}>{selectedCard.feedback}</p>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+      <div className="space-y-6">
+        <div className="text-center">
+          <span className="text-5xl block mb-4">🌱</span>
+          <h3 className="font-serif text-xl text-white mb-1">Nível de Maturidade do Método</h3>
+          <p className="text-sm text-white/50 font-sans">
+            Qual é o estado atual do seu método? Isso define como vamos estruturá-lo.
+          </p>
         </div>
-    );
-};
-
-// ETAPA 2 (FLUXO STRUCTURED): ESTRUTURAÇÃO DO MÉTODO
-const MethodStructuring: React.FC<{
-    data: MethodData;
-    onUpdate: (d: MethodData) => void;
-    readOnly?: boolean;
-}> = ({ data, onUpdate, readOnly }) => {
-
-    const updatePillar = (id: string, field: keyof Pillar, value: string) => {
-        if (readOnly) return;
-        const newPillars = data.pillars.map(p => p.id === id ? { ...p, [field]: value } : p);
-        onUpdate({ ...data, pillars: newPillars });
-    };
-
-    const addPillar = () => {
-        if (readOnly || data.pillars.length >= 8) return;
-        const newPillar: Pillar = { id: Date.now().toString(), what: '', why: '', how: '' };
-        onUpdate({ ...data, pillars: [...data.pillars, newPillar] });
-    };
-
-    const removePillar = (id: string) => {
-        if (readOnly || data.pillars.length <= 3) return;
-        onUpdate({ ...data, pillars: data.pillars.filter(p => p.id !== id) });
-    };
-
-    // Helper to check if a pillar is complete
-    const isPillarComplete = (p: Pillar) => p.what.length >= 3 && p.why.length >= 3 && p.how.length >= 3;
-
-    return (
-        <div className={`w-full h-full max-w-[1200px] mx-auto flex flex-col items-center pb-12 ${verticalScrollbarStyles}`}>
-
-            {/* SEÇÃO 1: NOME DO MÉTODO */}
-            <div className="w-full flex justify-center mb-12 mt-4 relative">
-                <input
-                    type="text"
-                    value={data.name}
-                    onChange={(e) => onUpdate({ ...data, name: e.target.value })}
-                    placeholder="Nome do seu método"
-                    maxLength={50}
-                    disabled={readOnly}
-                    className={`w-[300px] h-[48px] rounded-full px-8 text-center text-lg font-semibold bg-[#031A2B] border border-[#CA9A43]/20 shadow-[0_4px_12px_rgba(202,154,67,0.25)] text-white placeholder:text-[#CA9A43]/40 outline-none transition-all
-                        ${!readOnly && 'focus:shadow-[0_0_0_4px_rgba(202,154,67,0.2)] focus:border-[#CA9A43]'}
-                        ${readOnly ? 'opacity-80 cursor-not-allowed' : ''}
-                    `}
-                />
-            </div>
-
-            {/* SEÇÃO 2: TRANSFORMAÇÃO */}
-            <div className="w-full max-w-[850px] mb-20 text-center">
-                <h3 className="text-white text-2xl md:text-3xl font-semibold mb-4 font-serif">Que mudança esse método gera?</h3>
-                <p className="text-gray-400 text-base mb-8">Descreva a grande transformação que seu método entrega na vida ou no negócio do mentorado.</p>
-
-                <div className={`w-full min-h-[150px] rounded-[20px] bg-[#081e30] border border-white/5 shadow-[0_4px_20px_rgba(202,154,67,0.1)] p-8 md:p-10 relative group transition-all
-                    ${!readOnly && 'hover:shadow-[0_8px_30px_rgba(202,154,67,0.2)] hover:border-[#CA9A43]/30'}
-                `}>
-                    <label className="block text-left text-[#CA9A43] font-bold text-base mb-2">A Promessa:</label>
-                    <textarea
-                        value={data.transformation}
-                        onChange={(e) => onUpdate({ ...data, transformation: e.target.value })}
-                        placeholder="Ex: Ajudo donos de pequenas empresas a saírem do caos diário para uma operação previsível e lucrativa."
-                        maxLength={250}
-                        disabled={readOnly}
-                        className="w-full bg-transparent border-none text-center text-xl md:text-2xl font-medium text-white placeholder:text-gray-600 outline-none resize-none h-[100px] leading-relaxed"
-                    />
-                    {!readOnly && (
-                        <div className="absolute bottom-4 right-6 text-xs font-mono text-gray-500">
-                            {data.transformation.length}/250
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* SEÇÃO 3: PILARES */}
-            <div className="w-full">
-                <h3 className="text-white text-3xl font-semibold text-center mb-4 font-serif">Como o seu método faz essa mudança acontecer?</h3>
-                <p className="text-gray-400 text-center text-sm mb-12 max-w-2xl mx-auto">
-                    Que passos ou pilares sempre aparecem quando você aplica esse método?<br />
-                    Pense em grandes movimentos, não em tarefas pequenas.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10 px-4">
-                    {data.pillars.map((pillar, index) => {
-                        const isLast = index === data.pillars.length - 1;
-                        const complete = isPillarComplete(pillar);
-
-                        return (
-                            <motion.div
-                                key={pillar.id}
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={`relative min-h-[350px] bg-[#081e30] border-2 rounded-2xl p-6 flex flex-col shadow-lg transition-all
-                                    ${complete ? 'border-[#CA9A43]/50' : 'border-white/5'}
-                                    ${!readOnly && 'hover:-translate-y-1 hover:shadow-2xl hover:border-[#CA9A43]/30'}
-                                `}
-                            >
-                                {/* Header / Delete */}
-                                <div className="flex justify-between items-center mb-6">
-                                    <span className="text-xs font-bold uppercase tracking-widest text-[#CA9A43] bg-[#CA9A43]/10 px-2 py-1 rounded">
-                                        Pilar {index + 1}
-                                    </span>
-                                    {!readOnly && data.pillars.length > 3 && (
-                                        <button
-                                            onClick={() => removePillar(pillar.id)}
-                                            className="text-gray-600 hover:text-red-400 transition-colors"
-                                        >
-                                            <i className="bi bi-trash"></i>
-                                        </button>
-                                    )}
-                                    {complete && <i className="bi bi-check-circle-fill text-green-500 absolute top-6 right-6"></i>}
-                                </div>
-
-                                {/* Campo 1: O Que É */}
-                                <div className="mb-4">
-                                    <label className="block text-[11px] font-bold uppercase text-gray-400 mb-2">O que é?</label>
-                                    <textarea
-                                        value={pillar.what}
-                                        onChange={(e) => updatePillar(pillar.id, 'what', e.target.value)}
-                                        placeholder="Descreva em uma frase..."
-                                        disabled={readOnly}
-                                        className="w-full bg-[#051522] border border-white/10 rounded-lg p-3 text-sm text-white resize-none h-[70px] outline-none focus:border-[#CA9A43] transition-colors"
-                                    />
-                                </div>
-
-                                {/* Campo 2: Por que */}
-                                <div className="mb-4">
-                                    <label className="block text-[11px] font-bold uppercase text-gray-400 mb-2">Por que é importante?</label>
-                                    <textarea
-                                        value={pillar.why}
-                                        onChange={(e) => updatePillar(pillar.id, 'why', e.target.value)}
-                                        placeholder="Por que é indispensável?"
-                                        disabled={readOnly}
-                                        className="w-full bg-[#051522] border border-white/10 rounded-lg p-3 text-sm text-white resize-none h-[70px] outline-none focus:border-[#CA9A43] transition-colors"
-                                    />
-                                </div>
-
-                                {/* Campo 3: Como */}
-                                <div className="flex-1">
-                                    <label className="block text-[11px] font-bold uppercase text-gray-400 mb-2">Como acontece?</label>
-                                    <textarea
-                                        value={pillar.how}
-                                        onChange={(e) => updatePillar(pillar.id, 'how', e.target.value)}
-                                        placeholder="Na prática..."
-                                        disabled={readOnly}
-                                        className="w-full bg-[#051522] border border-white/10 rounded-lg p-3 text-sm text-white resize-none h-[70px] outline-none focus:border-[#CA9A43] transition-colors"
-                                    />
-                                </div>
-
-                                {/* Arrow Connector (Desktop only, between cards) */}
-                                {!isLast && (
-                                    <div className="hidden lg:flex absolute -right-[26px] top-1/2 -translate-y-1/2 w-6 h-6 bg-[#051522] border border-[#CA9A43]/50 rounded-full items-center justify-center z-10 text-[#CA9A43]">
-                                        <i className="bi bi-chevron-right text-xs"></i>
-                                    </div>
-                                )}
-                            </motion.div>
-                        );
-                    })}
-                </div>
-
-                {!readOnly && data.pillars.length < 8 && (
-                    <div className="flex justify-center mb-8">
-                        <button
-                            onClick={addPillar}
-                            className="w-full max-w-[380px] h-[80px] rounded-xl border-2 border-dashed border-[#CA9A43]/30 flex flex-col items-center justify-center text-[#CA9A43] hover:bg-[#CA9A43]/5 transition-all group"
-                        >
-                            <i className="bi bi-plus text-3xl mb-1 group-hover:scale-110 transition-transform"></i>
-                            <span className="text-sm font-medium">+ Adicionar outro pilar</span>
-                        </button>
-                    </div>
-                )}
-            </div>
+        <div className="space-y-3">
+          {maturityOptions.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => handleMaturityChange(opt.value)}
+              className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${
+                data.maturity === opt.value
+                  ? 'border-prosperus-gold-dark bg-prosperus-gold-dark/10'
+                  : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+              }`}
+            >
+              <span className="text-3xl flex-shrink-0">{opt.icon}</span>
+              <span className={`text-sm font-semibold font-sans ${data.maturity === opt.value ? 'text-white' : 'text-white/70'}`}>
+                {opt.label}
+              </span>
+              {data.maturity === opt.value && (
+                <span className="ml-auto text-prosperus-gold-dark text-xs font-bold font-sans flex-shrink-0">✓</span>
+              )}
+            </button>
+          ))}
         </div>
+      </div>
     );
-};
+  };
 
-// ETAPA 2 (FLUXO A/B): PROPÓSITO DO MÉTODO (Jornada)
-const MethodPurpose: React.FC<{
-    data: MethodData;
-    onUpdate: (d: MethodData) => void;
-    readOnly?: boolean;
-}> = ({ data, onUpdate, readOnly }) => {
-    const [activeTooltip, setActiveTooltip] = useState<'pointA' | 'pointB' | null>(null);
+  // ─────────────────────────────────────
+  // STEP 1 — Method Structure (steps or pillars builder)
+  // ─────────────────────────────────────
+  const renderStepTransformation = () => {
+    const subtitle = isStructured
+      ? 'Defina o nome, a promessa e os pilares do seu método estruturado.'
+      : data.maturity === 'not_yet'
+      ? 'Vamos construir juntos o passo a passo da transformação que você entrega.'
+      : 'Hora de tirar da cabeça! Descreva o caminho que seus mentorados percorrem.';
 
-    const updatePointA = (field: keyof MethodData['purpose']['pointA'], value: string) => {
-        if (readOnly) return;
-        onUpdate({
-            ...data,
-            purpose: { ...data.purpose, pointA: { ...data.purpose.pointA, [field]: value } }
-        });
-    };
-
-    const updatePointB = (field: keyof MethodData['purpose']['pointB'], value: string) => {
-        if (readOnly) return;
-        onUpdate({
-            ...data,
-            purpose: { ...data.purpose, pointB: { ...data.purpose.pointB, [field]: value } }
-        });
-    };
+    const namePlaceholder = isStructured
+      ? 'Ex: Método SCALE, Framework 3P...'
+      : 'Ex: Jornada Clarity, Caminho da Transformação...';
 
     return (
-        <div className={`w-full h-full max-w-6xl mx-auto flex flex-col items-center pb-8 overflow-x-hidden ${verticalScrollbarStyles}`}>
-            <h2 className="font-serif text-3xl md:text-4xl text-white font-bold mb-4 text-center flex-shrink-0 mt-4 px-4">
-                Propósito do Método
-            </h2>
-            <p className="text-gray-400 text-center text-sm mb-10 w-4/5">Ninguém compra 'método' ou 'aulas'; as pessoas compram uma nova realidade. Para que sua oferta tenha alto valor, precisamos mapear a jornada completa:</p>
-
-            {/* Container da Jornada */}
-            <div className="w-full relative flex flex-col lg:flex-row items-stretch justify-between gap-8 lg:gap-16 px-4 pb-20">
-
-                {/* Linha de Conexão (Desktop) */}
-                <div className="hidden lg:block absolute top-[60px] left-[15%] right-[15%] h-[2px] bg-gradient-to-r from-white/10 via-[#CA9A43] to-white/10 z-0">
-                    <div className="absolute right-0 top-1/2 -translate-x-1/2 text-[#CA9A43] text-xl">
-                        <i className="bi bi-caret-right-fill"></i>
-                    </div>
-                </div>
-
-                {/* --- PONTO A (START) --- */}
-                <div className="flex-1 z-10 flex flex-col w-full">
-                    <div className="flex flex-col items-center text-center mb-8">
-                        <div className="w-32 h-24 mb-4 relative flex items-center justify-center">
-                            {/* Ilustração Start: Bandeiras Xadrez */}
-                            <div className="absolute bottom-0 w-1 h-16 bg-white/20 -left-4 rotate-[-10deg]"></div>
-                            <div className="absolute bottom-0 w-1 h-16 bg-white/20 -right-4 rotate-[10deg]"></div>
-                            <div className="w-full bg-[#CA9A43] text-[#031A2B] font-bold py-1 px-4 text-sm uppercase tracking-widest -rotate-2 shadow-lg z-10">START</div>
-                            <div className="absolute top-0 w-16 h-10 bg-[url('https://www.transparenttextures.com/patterns/checkered-pattern.png')] opacity-50"></div>
-                        </div>
-
-                        <div className="relative flex items-center justify-center gap-2 mb-2">
-                            <h3 className="text-[#CA9A43] font-bold uppercase tracking-widest text-sm">Ponto A</h3>
-                            <button
-                                onMouseEnter={() => setActiveTooltip('pointA')}
-                                onMouseLeave={() => setActiveTooltip(null)}
-                                className="text-[#CA9A43]/50 hover:text-[#CA9A43] transition-colors"
-                            >
-                                <i className="bi bi-info-circle"></i>
-                            </button>
-                            <AnimatePresence>
-                                {activeTooltip === 'pointA' && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: 10 }}
-                                        className="absolute bottom-full mb-2 w-64 bg-[#031A2B] border border-[#CA9A43]/30 text-gray-300 text-xs p-3 rounded shadow-xl z-50 pointer-events-none"
-                                    >
-                                        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#031A2B] border-b border-r border-[#CA9A43]/30 rotate-45"></div>
-                                        Conhecer a motivação que faz essa pessoa topar esforço para mudar.
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-
-                        <p className="text-white font-serif text-xl">Por que seu mentorado não aguenta mais?</p>
-                    </div>
-
-                    <div className="bg-[#081e30] border border-white/5 p-4 md:p-6 rounded-sm space-y-6 shadow-xl w-full">
-                        {[
-                            { id: 'pain', label: 'O que incomoda, irrita ou pesa no dia a dia?', ph: 'Ex: Sente que trabalha 14h e não vê o dinheiro sobrar...' },
-                            { id: 'failed', label: 'O que ele sente que já tentou e não funcionou?', ph: 'Ex: Já contratou agência, já fez curso online...' },
-                            { id: 'limit', label: 'O que faz ele pensar "assim não dá mais"?', ph: 'Ex: Perdeu o aniversário do filho por causa da empresa...' }
-                        ].map((field) => (
-                            <div key={field.id}>
-                                <label className="block text-gray-400 text-xs uppercase font-bold mb-2">{field.label}</label>
-                                <textarea
-                                    value={(data.purpose.pointA as any)[field.id]}
-                                    onChange={e => updatePointA(field.id as any, e.target.value)}
-                                    disabled={readOnly}
-                                    placeholder={field.ph}
-                                    className={`w-full bg-[#051522] border border-white/10 p-3 text-white text-sm rounded-sm resize-none h-24 outline-none focus:border-[#CA9A43] transition-colors
-                                        ${readOnly ? 'cursor-not-allowed opacity-70' : ''}
-                                    `}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Mobile Connector Arrow */}
-                <div className="lg:hidden flex items-center justify-center text-white/20 text-3xl py-4">
-                    <i className="bi bi-arrow-down"></i>
-                </div>
-
-                {/* --- PONTO B (FINISH) --- */}
-                <div className="flex-1 z-10 flex flex-col w-full">
-                    <div className="flex flex-col items-center text-center mb-8">
-                        <div className="w-32 h-24 mb-4 relative flex items-center justify-center">
-                            {/* Ilustração Finish */}
-                            <div className="w-full bg-red-600 text-white font-bold py-1 px-4 text-sm uppercase tracking-widest rotate-2 shadow-lg z-10">FINISH</div>
-                            <div className="absolute -right-6 top-0 text-4xl">🏁</div>
-                        </div>
-
-                        <div className="relative flex items-center justify-center gap-2 mb-2">
-                            <h3 className="text-green-500 font-bold uppercase tracking-widest text-sm">Ponto B</h3>
-                            <button
-                                onMouseEnter={() => setActiveTooltip('pointB')}
-                                onMouseLeave={() => setActiveTooltip(null)}
-                                className="text-green-500/50 hover:text-green-500 transition-colors"
-                            >
-                                <i className="bi bi-info-circle"></i>
-                            </button>
-                            <AnimatePresence>
-                                {activeTooltip === 'pointB' && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: 10 }}
-                                        className="absolute bottom-full mb-2 w-64 bg-[#031A2B] border border-green-500/30 text-gray-300 text-xs p-3 rounded shadow-xl z-50 pointer-events-none"
-                                    >
-                                        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#031A2B] border-b border-r border-green-500/30 rotate-45"></div>
-                                        Entender o que é “vitória” na cabeça desse cliente, além de resultado frio.
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-
-                        <p className="text-white font-serif text-xl">O que ele quer conquistar?</p>
-                    </div>
-
-                    <div className="bg-[#081e30] border border-white/5 p-4 md:p-6 rounded-sm space-y-6 shadow-xl w-full">
-                        {[
-                            { id: 'worth', label: 'O que faz ele pensar: "Valeu a pena"?', ph: 'Ex: Ter tempo livre e a conta cheia...' },
-                            { id: 'ability', label: 'O que ele consegue fazer agora que não conseguia?', ph: 'Ex: Tirar férias sem o negócio parar...' },
-                            { id: 'feeling', label: 'Como ele quer se sentir (emocional)?', ph: 'Ex: Orgulhoso, seguro, reconhecido...' }
-                        ].map((field) => (
-                            <div key={field.id}>
-                                <label className="block text-gray-400 text-xs uppercase font-bold mb-2">{field.label}</label>
-                                <textarea
-                                    value={(data.purpose.pointB as any)[field.id]}
-                                    onChange={e => updatePointB(field.id as any, e.target.value)}
-                                    disabled={readOnly}
-                                    placeholder={field.ph}
-                                    className={`w-full bg-[#051522] border border-white/10 p-3 text-white text-sm rounded-sm resize-none h-24 outline-none focus:border-green-500 transition-colors
-                                        ${readOnly ? 'cursor-not-allowed opacity-70' : ''}
-                                    `}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="text-center">
+          <span className="text-5xl block mb-4">🌉</span>
+          <h3 className="font-serif text-xl text-white mb-1">A Transformação</h3>
+          <p className="text-sm text-white/50 font-sans">{subtitle}</p>
         </div>
-    );
-};
 
-// ETAPA 3 (FLUXO A/B): MAPA DA JORNADA (Timeline Horizontal)
-const MethodJourneyMap: React.FC<{
-    data: MethodData;
-    onUpdate: (d: MethodData) => void;
-    readOnly?: boolean;
-}> = ({ data, onUpdate, readOnly }) => {
+        {/* Bridge Visual — always shown */}
+        <BridgeVisual edges={edges} />
 
-    const addStep = () => {
-        const newStep: JourneyStep = { id: Date.now().toString(), title: '', importance: '' };
-        onUpdate({ ...data, journeyMap: [...data.journeyMap, newStep] });
-    };
-
-    const updateStep = (id: string, field: keyof JourneyStep, value: string) => {
-        if (readOnly) return;
-        const updatedMap = data.journeyMap.map(step =>
-            step.id === id ? { ...step, [field]: value } : step
-        );
-        onUpdate({ ...data, journeyMap: updatedMap });
-    };
-
-    const removeStep = (id: string) => {
-        if (readOnly) return;
-        if (data.journeyMap.length <= 3) return; // Mínimo de 3
-        onUpdate({ ...data, journeyMap: data.journeyMap.filter(s => s.id !== id) });
-    };
-
-    return (
-        <div className="flex flex-col h-full">
-            <div className="text-center mb-8 flex-shrink-0">
-                <h2 className="font-serif text-3xl md:text-4xl text-white font-bold mb-2">Como vocês vencem?</h2>
-                <p className="text-gray-400 font-sans max-w-2xl mx-auto">
-                    Desenhe os "degraus" que o mentorado precisa subir para sair do Ponto A e chegar na Vitória. Pense em etapas grandes, na ordem em que as coisas precisam acontecer para dar certo.
-                </p>
-            </div>
-
-            <div className={`flex-1 flex items-center gap-8 px-8 pb-8 w-full ${scrollbarStyles}`}>
-
-                {/* START FLAG */}
-                <div className="flex-shrink-0 flex flex-col items-center me-20 ml-20">
-                    <div className="w-1 h-24 bg-white/20 relative">
-                        <div className="absolute top-0 left-0 w-24 h-16 bg-[#CA9A43] flex items-center justify-center shadow-lg transform -skew-y-6 origin-left">
-                            <span className="text-[#031A2B] font-bold text-xl tracking-widest">START</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* STEPS */}
-                {data.journeyMap.map((step, index) => (
-                    <div key={step.id} className="flex items-center gap-4 flex-shrink-0">
-                        {/* Connector Arrow */}
-                        <div className="text-white/20 text-4xl">
-                            <i className="bi bi-arrow-right"></i>
-                        </div>
-
-                        {/* Card */}
-                        <div className="w-[300px] min-h-[320px] bg-[#081e30] border border-white/10 hover:border-[#CA9A43]/50 p-6 rounded-sm shadow-xl flex flex-col group relative transition-all duration-300">
-                            {!readOnly && data.journeyMap.length > 3 && (
-                                <button
-                                    onClick={() => removeStep(step.id)}
-                                    className="absolute top-2 right-2 text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <i className="bi bi-trash"></i>
-                                </button>
-                            )}
-
-                            <div className="mb-4">
-                                <label className="text-[#CA9A43] text-[10px] font-bold uppercase tracking-widest block mb-1">
-                                    Etapa {index + 1} - O que é?
-                                </label>
-                                <textarea
-                                    value={step.title}
-                                    onChange={e => updateStep(step.id, 'title', e.target.value)}
-                                    disabled={readOnly}
-                                    placeholder="Descreva em uma frase o que precisa ser verdadeiro para considerar essa etapa “cumprida”"
-                                    className="w-full bg-transparent border-b border-white/10 focus:border-[#CA9A43] text-white text-lg font-serif outline-none h-24 resize-none placeholder:text-gray-600 leading-snug"
-                                />
-                            </div>
-
-                            <div className="flex-1">
-                                <label className="text-gray-500 text-[10px] font-bold uppercase tracking-widest block mb-1">
-                                    Por que é importante?
-                                </label>
-                                <textarea
-                                    value={step.importance}
-                                    onChange={e => updateStep(step.id, 'importance', e.target.value)}
-                                    disabled={readOnly}
-                                    placeholder="Explique por que essa etapa é indispensável para o resultado final."
-                                    className="w-full h-full bg-[#051522]/50 p-3 rounded-sm border border-white/5 text-gray-300 text-sm outline-none resize-none focus:bg-[#051522]"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ))}
-
-                {/* ADD BUTTON */}
-                {!readOnly && (
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                        <div className="text-white/20 text-4xl"><i className="bi bi-arrow-right"></i></div>
-                        <button
-                            onClick={addStep}
-                            className="w-20 h-20 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center text-white/20 hover:text-[#CA9A43] hover:border-[#CA9A43] transition-all"
-                        >
-                            <i className="bi bi-plus-lg text-3xl"></i>
-                        </button>
-                    </div>
-                )}
-
-                {/* FINISH FLAG */}
-                <div className="flex-shrink-0 flex flex-col items-center ml-8 mr-24">
-                    <div className="w-1 h-32 bg-white/20 relative">
-                        <div className="absolute top-0 left-0 w-28 h-20 bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-lg transform skew-y-6 origin-right">
-                            <span className="text-white font-bold text-xl tracking-widest">FINISH</span>
-                        </div>
-                        <div className="absolute top-0 right-full mr-2 text-4xl">🏁</div>
-                    </div>
-                </div>
-
-            </div>
+        {/* Method Name — required for all paths */}
+        <div className="space-y-1.5">
+          <label className="block text-sm font-sans text-white/60" htmlFor="method-name">
+            Nome do seu método <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="method-name"
+            type="text"
+            value={data.name || ''}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            placeholder={namePlaceholder}
+            className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50"
+          />
         </div>
-    );
-};
 
-// ETAPA 4 (FLUXO A/B): RAIO X (Problemas e Soluções)
-const MethodXRay: React.FC<{
-    data: MethodData;
-    onUpdate: (d: MethodData) => void;
-    readOnly?: boolean;
-}> = ({ data, onUpdate, readOnly }) => {
-    const [openStepId, setOpenStepId] = useState<string | null>(null);
-    const [activeTooltip, setActiveTooltip] = useState<'problems' | 'solutions' | null>(null);
-
-    const activeStep = data.journeyMap.find(s => s.id === openStepId);
-    const activeIndex = data.journeyMap.findIndex(s => s.id === openStepId);
-
-    const handleUpdate = (id: string, field: 'problems' | 'solutions', value: string) => {
-        if (readOnly) return;
-        const updatedMap = data.journeyMap.map(s =>
-            s.id === id ? { ...s, [field]: value } : s
-        );
-        onUpdate({ ...data, journeyMap: updatedMap });
-    };
-
-    const handleBulletPointInput = (e: React.KeyboardEvent<HTMLTextAreaElement>, id: string, field: 'problems' | 'solutions', currentValue: string) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const newValue = currentValue + '\n• ';
-            handleUpdate(id, field, newValue);
-        }
-
-        // Adiciona bullet no início se o campo estiver vazio ou sem bullet na primeira linha
-        if (e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') {
-            const textarea = e.target as HTMLTextAreaElement;
-            const cursorPosition = textarea.selectionStart;
-
-            // Se estiver no início do texto e não houver bullet
-            if (cursorPosition === 0 && (!currentValue || !currentValue.startsWith('•'))) {
-                e.preventDefault();
-                const newValue = '• ' + (currentValue || '');
-                handleUpdate(id, field, newValue);
-
-                // Move o cursor para depois do bullet
-                setTimeout(() => {
-                    textarea.selectionStart = 2;
-                    textarea.selectionEnd = 2;
-                }, 0);
-            }
-        }
-    };
-    const navigateModal = (direction: 'prev' | 'next') => {
-        if (!activeStep) return;
-        const newIndex = direction === 'next' ? activeIndex + 1 : activeIndex - 1;
-        if (newIndex >= 0 && newIndex < data.journeyMap.length) {
-            setOpenStepId(data.journeyMap[newIndex].id);
-        }
-    };
-
-    return (
-        <div className="flex flex-col h-full">
-            <div className="text-center mb-8 flex-shrink-0">
-                <h2 className="font-serif text-3xl md:text-4xl text-white font-bold mb-2">Raio X de Cada Etapa</h2>
-                <p className="text-gray-400 font-sans max-w-2xl mx-auto">
-                    Vamos olhar uma etapa por vez, mapear tudo o que pode travar o avanço e tudo o que você pode oferecer para destravar.
-                </p>
-            </div>
-
-            {/* Scroll Horizontal de Cards (Read-only view + Action) */}
-            <div className={`flex-1 flex items-center gap-8 px-8 pb-8 w-full ${scrollbarStyles}`}>
-
-                {/* START Marker */}
-                <div className="flex-shrink-0 w-12 h-12 bg-[#CA9A43] rounded-full flex items-center justify-center text-[#031A2B] font-bold shadow-lg shadow-[#CA9A43]/20">A</div>
-
-                {data.journeyMap.map((step, index) => {
-                    // Check status
-                    const hasProblems = step.problems && step.problems.length >= 5;
-                    const hasSolutions = step.solutions && step.solutions.length >= 5;
-                    const isComplete = hasProblems && hasSolutions;
-
-                    return (
-                        <div key={step.id} className="flex items-center gap-4 flex-shrink-0">
-                            <div className="text-white/10 text-2xl"><i className="bi bi-chevron-right"></i></div>
-
-                            <div className="w-[340px] bg-[#081e30] border border-white/10 p-6 rounded-sm shadow-xl flex flex-col relative overflow-hidden group">
-                                {isComplete && <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/10 rounded-bl-full flex justify-end p-3"><i className="bi bi-check-lg text-green-500 text-xl"></i></div>}
-
-                                <div className="mb-4">
-                                    <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">Etapa {index + 1}</span>
-                                    <h3 className="text-white font-serif text-xl line-clamp-1" title={step.title}>{step.title || 'Sem título'}</h3>
-                                </div>
-
-                                <div className="space-y-3 mb-6 flex-1">
-                                    <div className={`p-3 rounded border text-xs ${hasProblems ? 'bg-red-500/10 border-red-500/30 text-red-200' : 'bg-[#051522] border-white/5 text-gray-500'}`}>
-                                        <i className="bi bi-exclamation-triangle mr-2"></i>
-                                        {hasProblems ? 'Problemas mapeados' : 'Problemas pendentes'}
-                                    </div>
-                                    <div className={`p-3 rounded border text-xs ${hasSolutions ? 'bg-green-500/10 border-green-500/30 text-green-200' : 'bg-[#051522] border-white/5 text-gray-500'}`}>
-                                        <i className="bi bi-key mr-2"></i>
-                                        {hasSolutions ? 'Soluções definidas' : 'Soluções pendentes'}
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={() => setOpenStepId(step.id)}
-                                    className={`w-full py-3 rounded-sm font-bold text-sm uppercase tracking-wider transition-all
-                                        ${isComplete
-                                            ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20'
-                                            : 'bg-[#CA9A43] hover:bg-[#FFE39B] text-[#031A2B] shadow-lg shadow-[#CA9A43]/20'
-                                        }`}
-                                >
-                                    {isComplete ? 'Ver Raio X' : 'Fazer Raio X'}
-                                </button>
-                            </div>
-                        </div>
-                    );
-                })}
-
-                {/* FINISH Marker */}
-                <div className="flex-shrink-0 ml-4 w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg shadow-green-900/20">B</div>
-            </div>
-
-            {/* Observação Bottom */}
-            <div className="mt-4 mb-4 text-center max-w-4xl mx-auto px-4 flex-shrink-0">
-                <div className="bg-[#CA9A43]/5 border border-[#CA9A43]/20 p-4 rounded-lg flex gap-3 items-start text-left">
-                    <i className="bi bi-info-circle text-[#CA9A43] mt-0.5"></i>
-                    <p className="text-[#CA9A43]/80 text-sm italic">
-                        "Liste, para cada etapa, os principais problemas que aparecem e as possíveis soluções que você consegue entregar. Quanto mais específico você for aqui, mais sólido e eficiente seu método se torna na prática."
-                    </p>
-                </div>
-            </div>
-
-            {/* MODAL DE RAIO X */}
-            <AnimatePresence>
-                {openStepId && activeStep && (
-                    <div className="fixed inset-0 bg-[#031A2B]/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-[#081e30] w-full max-w-4xl max-h-[90vh] rounded-lg border border-white/10 shadow-2xl flex flex-col"
-                        >
-                            {/* Modal Header */}
-                            <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                                <div>
-                                    <span className="text-gray-500 text-xs font-bold uppercase tracking-widest">Raio X - Etapa {activeIndex + 1}</span>
-                                    <h3 className="text-2xl text-white font-serif">{activeStep.title}</h3>
-                                </div>
-                                <button onClick={() => setOpenStepId(null)} className="text-gray-400 hover:text-white"><i className="bi bi-x-lg text-2xl"></i></button>
-                            </div>
-
-                            {/* Modal Content */}
-                            <div className={`flex-1 overflow-y-auto p-8 grid md:grid-cols-2 gap-8 ${verticalScrollbarStyles}`}>
-                                {/* Problemas (Red) */}
-                                <div>
-                                    <div className="flex items-center gap-2 mb-4 relative">
-                                        <label className="text-red-400 font-bold uppercase tracking-widest text-xs flex items-center gap-2">
-                                            <i className="bi bi-exclamation-octagon-fill"></i> Principais Obstáculos
-                                        </label>
-                                        <button
-                                            onMouseEnter={() => setActiveTooltip('problems')}
-                                            onMouseLeave={() => setActiveTooltip(null)}
-                                            className="text-red-400/50 hover:text-red-400 transition-colors"
-                                        >
-                                            <i className="bi bi-info-circle"></i>
-                                        </button>
-                                        <AnimatePresence>
-                                            {activeTooltip === 'problems' && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, y: 10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: 10 }}
-                                                    className="absolute top-full left-0 mt-2 w-72 bg-[#031A2B] border border-red-500/30 text-gray-300 text-xs p-4 rounded shadow-xl z-50 pointer-events-none"
-                                                >
-                                                    <div className="absolute -top-2 left-4 w-4 h-4 bg-[#031A2B] border-t border-l border-red-500/30 rotate-45"></div>
-                                                    <p className="font-bold mb-2 text-red-400">Considere as 4 travas universais:</p>
-                                                    <ul className="list-disc pl-4 space-y-1 mb-2 text-gray-400">
-                                                        <li>Conhecimento (não sabe como fazer);</li>
-                                                        <li>Tempo/Preguiça (acha trabalhoso);</li>
-                                                        <li>Dificuldade Técnica (falta habilidade);</li>
-                                                        <li>Crença (acha impossível).</li>
-                                                    </ul>
-                                                    <p className="italic text-[10px] text-gray-500">Vá além do óbvio. É medo de errar? É a sensação de que 'dá muito trabalho'? Ou falta de saber o passo técnico?</p>
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </div>
-
-                                    <div className="bg-red-500/5 border border-red-500/20 p-6 rounded-sm h-full min-h-[300px] flex flex-col">
-                                        <p className="text-gray-400 text-xs mb-3">O que trava o cliente aqui? (Medos, erros, falta de recursos)</p>
-                                        <textarea
-                                            value={activeStep.problems || ''}
-                                            onChange={e => handleUpdate(activeStep.id, 'problems', e.target.value)}
-                                            onKeyDown={(e) => handleBulletPointInput(e, activeStep.id, 'problems', activeStep.problems || '')}
-                                            disabled={readOnly}
-                                            placeholder="• Ex: Cliente tem medo de investir..."
-                                            className="flex-1 w-full bg-[#031A2B]/50 border border-red-500/10 p-4 text-white text-sm outline-none resize-none focus:border-red-500/50 rounded-sm"
-                                        />
-                                        <div className="text-right mt-2 text-[10px] text-red-400/50">
-                                            {(activeStep.problems?.length || 0)} caracteres (mín 5)
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Soluções (Green) */}
-                                <div>
-                                    <div className="flex items-center gap-2 mb-4 relative">
-                                        <label className="text-green-400 font-bold uppercase tracking-widest text-xs flex items-center gap-2">
-                                            <i className="bi bi-key-fill"></i> Suas Soluções
-                                        </label>
-                                        <button
-                                            onMouseEnter={() => setActiveTooltip('solutions')}
-                                            onMouseLeave={() => setActiveTooltip(null)}
-                                            className="text-green-400/50 hover:text-green-400 transition-colors"
-                                        >
-                                            <i className="bi bi-info-circle"></i>
-                                        </button>
-                                        <AnimatePresence>
-                                            {activeTooltip === 'solutions' && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, y: 10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: 10 }}
-                                                    className="absolute top-full left-0 mt-2 w-72 bg-[#031A2B] border border-green-500/30 text-gray-300 text-xs p-4 rounded shadow-xl z-50 pointer-events-none"
-                                                >
-                                                    <div className="absolute -top-2 left-4 w-4 h-4 bg-[#031A2B] border-t border-l border-green-500/30 rotate-45"></div>
-                                                    <p className="font-bold mb-2 text-green-400">Considere os 4 aceleradores:</p>
-                                                    <ul className="list-disc pl-4 space-y-1 mb-2 text-gray-400">
-                                                        <li>Ferramental (templates, scripts);</li>
-                                                        <li>Processual (checklists, mapas);</li>
-                                                        <li>Acesso (análise, suporte VIP);</li>
-                                                        <li>Ambiental (networking, exemplos).</li>
-                                                    </ul>
-                                                    <p className="italic text-[10px] text-gray-500">Vá além do 'ensinar'. Se é preguiça, o que você entrega pronto? Se é medo, como você valida?</p>
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </div>
-
-                                    <div className="bg-green-500/5 border border-green-500/20 p-6 rounded-sm h-full min-h-[300px] flex flex-col">
-                                        <p className="text-gray-400 text-xs mb-3">O que você entrega para destravar? (Ferramentas, aulas, suporte)</p>
-                                        <textarea
-                                            value={activeStep.solutions || ''}
-                                            onChange={e => handleUpdate(activeStep.id, 'solutions', e.target.value)}
-                                            onKeyDown={(e) => handleBulletPointInput(e, activeStep.id, 'solutions', activeStep.solutions || '')}
-                                            disabled={readOnly}
-                                            placeholder="• Ex: Planilha de cálculo de ROI..."
-                                            className="flex-1 w-full bg-[#031A2B]/50 border border-green-500/10 p-4 text-white text-sm outline-none resize-none focus:border-green-500/50 rounded-sm"
-                                        />
-                                        <div className="text-right mt-2 text-[10px] text-green-400/50">
-                                            {(activeStep.solutions?.length || 0)} caracteres (mín 5)
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Modal Footer */}
-                            <div className="p-4 border-t border-white/5 bg-[#051522] flex justify-between items-center">
-                                <button
-                                    onClick={() => navigateModal('prev')}
-                                    disabled={activeIndex === 0}
-                                    className="px-4 py-2 text-sm text-gray-400 hover:text-white disabled:opacity-20 flex items-center gap-2"
-                                >
-                                    <i className="bi bi-arrow-left"></i> Etapa Anterior
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        if (activeIndex < data.journeyMap.length - 1) {
-                                            navigateModal('next');
-                                        } else {
-                                            setOpenStepId(null);
-                                        }
-                                    }}
-                                    className="px-6 py-2 bg-[#CA9A43] text-[#031A2B] font-bold text-sm uppercase tracking-wider rounded-sm shadow-lg hover:bg-[#FFE39B]"
-                                >
-                                    {activeIndex < data.journeyMap.length - 1 ? 'Próxima Etapa' : 'Concluir Raio X'}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+        {/* Method Promise — required for all paths */}
+        <div className="space-y-1.5">
+          <label className="block text-sm font-sans text-white/60" htmlFor="method-promise">
+            Promessa do método — que transformação ele entrega? <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="method-promise"
+            type="text"
+            value={data.promise || ''}
+            onChange={(e) => onUpdate({ promise: e.target.value })}
+            placeholder="Ex: Escalar mentoria de 10k para 100k em 6 meses"
+            maxLength={250}
+            className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50"
+          />
+          <p className="text-[11px] text-white/50 font-sans text-right">
+            {(data.promise || '').length}/250
+          </p>
         </div>
-    );
-};
 
-export const MethodModule: React.FC<MethodModuleProps> = ({
-    data,
-    onUpdate,
-    onSaveAndExit,
-    onComplete,
-    isReadOnly = false,
-    savedStep,
-    onStepChange
-}) => {
-    const initialStep = getInitialStep(data);
+        {/* ── Path-specific "meat" ── */}
+        <div className="border-t border-white/10 pt-6">
+          {isStructured ? (
+            /* ── Structured: Pillars builder ── */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-white font-sans">Pilares do Método</h4>
+                <span className="text-xs px-2.5 py-1 rounded-full font-semibold font-sans bg-white/10 text-white/50 border border-white/10">
+                  Mín. 3 · Máx. 8
+                </span>
+              </div>
 
-    // Logic for dynamic pathing
-    const isStructured = data.stage === 'structured';
-    const maxSteps = isStructured ? 2 : 4; // Structured: Selection -> Structuring. Standard: Selection -> Purpose -> Journey -> XRay.
-
-    const isComplete = initialStep > maxSteps;
-
-    // Usar savedStep se disponível, caso contrário usar initialStep
-    const startingStep = savedStep !== undefined ? savedStep : (isComplete ? 1 : initialStep);
-    const [currentStep, setCurrentStep] = useState(startingStep);
-    const [showIntro, setShowIntro] = useState(!isReadOnly && initialStep === 1 && !data.stage);
-    const [showCompletion, setShowCompletion] = useState(isReadOnly || isComplete);
-
-    // Salvar currentStep sempre que ele mudar
-    useEffect(() => {
-        if (onStepChange && !showIntro && !showCompletion) {
-            onStepChange(currentStep);
-        }
-    }, [currentStep, onStepChange, showIntro, showCompletion]);
-
-    useEffect(() => {
-        if (isReadOnly) {
-            setShowIntro(false);
-            setShowCompletion(true);
-        }
-    }, [isReadOnly]);
-
-    const handleNext = () => {
-        if (canProceed()) {
-            if (currentStep < maxSteps) {
-                const nextStep = currentStep + 1;
-                setCurrentStep(nextStep);
-                if (onStepChange) onStepChange(nextStep);
-            } else {
-                setShowCompletion(true);
-                if (onStepChange) onStepChange(currentStep);
-            }
-        }
-    };
-
-    const handlePrev = () => {
-        if (currentStep > 1) {
-            const prevStep = currentStep - 1;
-            setCurrentStep(prevStep);
-            if (onStepChange) onStepChange(prevStep);
-        }
-    };
-
-    const canProceed = () => {
-        if (isReadOnly) return true;
-        switch (currentStep) {
-            case 1: return !!data.stage;
-            case 2:
-                if (isStructured) {
-                    // Validations for Structuring (Step 9.1 interface)
-                    return !!data.name && data.name.trim().length >= 5 &&
-                        !!data.transformation && data.transformation.trim().length >= 10 &&
-                        data.pillars.length >= 3 &&
-                        data.pillars.every(p =>
-                            p.what.trim().length >= 3 &&
-                            p.why.trim().length >= 3 &&
-                            p.how.trim().length >= 3
-                        );
-                }
-                // Validations for Purpose (Point A & B) - All fields mandatory
-                const pA = data.purpose.pointA;
-                const pB = data.purpose.pointB;
-                return pA.pain.trim().length > 3 &&
-                    pA.failed.trim().length > 3 &&
-                    pA.limit.trim().length > 3 &&
-                    pB.worth.trim().length > 3 &&
-                    pB.ability.trim().length > 3 &&
-                    pB.feeling.trim().length > 3;
-
-            case 3:
-                // Journey Map validation
-                return data.journeyMap.length >= 3 &&
-                    data.journeyMap.every(s => s.title.trim().length > 3 && s.importance.trim().length > 3);
-            case 4:
-                // Check if all steps have at least some problem/solution content
-                return data.journeyMap.length >= 3 &&
-                    data.journeyMap.every(s => (s.problems?.trim().length || 0) > 5 && (s.solutions?.trim().length || 0) > 5);
-            default: return true;
-        }
-    };
-
-    const renderStep = () => {
-        const props = { data, onUpdate, readOnly: isReadOnly };
-        switch (currentStep) {
-            case 1: return <MethodSelection {...props} />;
-            case 2:
-                // If Structured -> Show the "Structuring" Interface
-                if (isStructured) {
-                    return <MethodStructuring {...props} />;
-                }
-                // Else -> Show the standard "Purpose" Interface
-                return <MethodPurpose {...props} />;
-            case 3: return <MethodJourneyMap {...props} />;
-            case 4: return <MethodXRay {...props} />;
-            default: return null;
-        }
-    };
-
-    return (
-        <div className="bg-[#051522] border border-white/5 rounded-lg h-[800px] shadow-2xl relative overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="bg-[#081e30] p-6 border-b border-white/5 flex items-center justify-between">
-                <div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={onSaveAndExit} className="text-gray-400 hover:text-white transition-colors">
-                            <i className="bi bi-arrow-left"></i>
-                        </button>
-                        <span className="text-[#CA9A43] text-xs font-bold uppercase tracking-widest">Módulo: O Método</span>
-                        {isReadOnly && <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded border border-blue-500/30">EM ANÁLISE</span>}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 pl-6">
-                        <span className="text-white font-serif text-xl">
-                            {showIntro ? 'Introdução' : (showCompletion ? 'Visão Geral' : `Etapa ${currentStep} de ${maxSteps}`)}
+              {/* Horizontal scrollable pillar cards */}
+              <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                <div className="flex items-start gap-0 min-w-max">
+                  {pillars.map((pillar, index) => (
+                    <React.Fragment key={pillar.id}>
+                      {index > 0 && (
+                        <div className="flex items-center flex-shrink-0 h-16 px-1">
+                          <span className="text-white/50 text-sm">+</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPillarId(selectedPillarId === pillar.id ? null : pillar.id)}
+                        className={`snap-start flex-shrink-0 w-40 p-3 rounded-lg border transition-all text-left ${
+                          selectedPillarId === pillar.id
+                            ? 'border-prosperus-gold-dark bg-prosperus-gold-dark/10'
+                            : pillar.what
+                            ? 'border-green-500/30 bg-green-500/5'
+                            : 'border-white/10 bg-white/5 hover:border-white/20'
+                        }`}
+                      >
+                        <span className="w-6 h-6 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold font-sans flex items-center justify-center mb-2">
+                          {index + 1}
                         </span>
-                    </div>
+                        <p className="text-xs text-white/70 font-sans truncate">
+                          {pillar.what || <span className="text-white/50 italic">Sem nome</span>}
+                        </p>
+                      </button>
+                    </React.Fragment>
+                  ))}
+                  {/* Add pillar */}
+                  {pillars.length < 8 && (
+                    <>
+                      <div className="flex items-center flex-shrink-0 h-16 px-1">
+                        <span className="text-white/50 text-sm">+</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addPillar}
+                        aria-label="Adicionar pilar"
+                        className="snap-start flex-shrink-0 w-40 h-16 rounded-lg border-2 border-dashed border-white/20 hover:border-prosperus-gold-dark/40 text-white/50 hover:text-prosperus-gold-dark transition-colors flex items-center justify-center text-sm font-semibold"
+                      >
+                        + Pilar
+                      </button>
+                    </>
+                  )}
                 </div>
+              </div>
 
-                {!showIntro && (
-                    <div className="flex gap-1">
-                        {Array.from({ length: maxSteps }).map((_, i) => (
-                            <div key={i} className={`h-1 w-8 rounded-full transition-all duration-300 ${i + 1 <= currentStep || showCompletion ? 'bg-[#CA9A43]' : 'bg-white/10'}`}></div>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 p-8 overflow-hidden">
-                <AnimatePresence mode="wait">
+              {/* Edit panel for selected pillar */}
+              <AnimatePresence>
+                {selectedPillarId && (() => {
+                  const pillar = pillars.find(p => p.id === selectedPillarId);
+                  const index = pillars.findIndex(p => p.id === selectedPillarId);
+                  if (!pillar) return null;
+                  return (
                     <motion.div
-                        key={showIntro ? 'intro' : (showCompletion ? 'complete' : currentStep)}
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        transition={{ duration: 0.3 }}
-                        className="h-full"
+                      key={selectedPillarId}
+                      initial={prefersReduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={prefersReduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-4 bg-white/5 border border-prosperus-gold-dark/30 rounded-lg space-y-3"
                     >
-                        {showIntro ? (
-                            <MethodIntro onStart={() => setShowIntro(false)} />
-                        ) : showCompletion ? (
-                            <CompletionView
-                                onReview={() => {
-                                    setShowCompletion(false);
-                                    setCurrentStep(1);
-                                    if (onStepChange) onStepChange(1);
-                                }}
-                                onSend={onComplete}
-                                readOnly={isReadOnly}
-                            />
-                        ) : (
-                            renderStep()
-                        )}
-                    </motion.div>
-                </AnimatePresence>
-            </div>
-
-            {/* Footer */}
-            {!showIntro && !showCompletion && (
-                <div className="bg-[#031A2B] p-4 border-t border-white/5 flex flex-col-reverse sm:flex-row justify-between items-center gap-4">
-                    <button
-                        onClick={handlePrev}
-                        disabled={currentStep === 1}
-                        className="text-gray-400 hover:text-white disabled:opacity-30 flex items-center gap-2 px-4 py-2 text-sm uppercase tracking-wider w-full sm:w-auto justify-center"
-                    >
-                        <i className="bi bi-arrow-left"></i> Anterior
-                    </button>
-
-                    <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                        <button onClick={onSaveAndExit} className="text-gray-400 hover:text-white text-xs uppercase font-bold tracking-widest px-4">
-                            Salvar e Sair
-                        </button>
-
-                        <button
-                            onClick={handleNext}
-                            disabled={!canProceed()}
-                            className={`font-bold px-6 py-3 rounded-sm flex items-center justify-center gap-2 transition-colors text-sm uppercase tracking-wider w-full sm:w-auto
-                                ${!canProceed()
-                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                    : 'bg-[#CA9A43] text-[#031A2B] hover:bg-[#FFE39B]'
-                                }
-                            `}
+                      <div className="flex items-center justify-between">
+                        <span className="w-6 h-6 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold font-sans flex items-center justify-center">
+                          {index + 1}
+                        </span>
+                        <Button
+                          variant="icon"
+                          onClick={() => deletePillar(pillar.id)}
+                          disabled={pillars.length <= 3}
+                          aria-label={`Remover pilar ${index + 1}`}
+                          className={`text-base ${pillars.length <= 3 ? 'text-white/20' : 'text-white/50 hover:text-red-400'}`}
                         >
-                            {currentStep === maxSteps ? 'Concluir' : 'Próxima Etapa'} <i className="bi bi-arrow-right"></i>
-                        </button>
+                          🗑️
+                        </Button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-sans text-white/60" htmlFor={`pillar-what-${pillar.id}`}>
+                          Nome do pilar <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          id={`pillar-what-${pillar.id}`}
+                          type="text"
+                          value={pillar.what}
+                          onChange={(e) => updatePillar(pillar.id, 'what', e.target.value)}
+                          placeholder="Ex: Diagnóstico, Posicionamento, Escala..."
+                          className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-sans text-white/60" htmlFor={`pillar-why-${pillar.id}`}>
+                          Por que importa
+                        </label>
+                        <textarea
+                          id={`pillar-why-${pillar.id}`}
+                          value={pillar.why}
+                          onChange={(e) => updatePillar(pillar.id, 'why', e.target.value)}
+                          placeholder="Por que este pilar é essencial no método?"
+                          rows={2}
+                          className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50 resize-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-sans text-white/60" htmlFor={`pillar-how-${pillar.id}`}>
+                          Como funciona
+                        </label>
+                        <textarea
+                          id={`pillar-how-${pillar.id}`}
+                          value={pillar.how}
+                          onChange={(e) => updatePillar(pillar.id, 'how', e.target.value)}
+                          placeholder="Como você aplica este pilar na prática?"
+                          rows={2}
+                          className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50 resize-none"
+                        />
+                      </div>
+                    </motion.div>
+                  );
+                })()}
+              </AnimatePresence>
+            </div>
+          ) : (
+            /* ── Non-structured: Steps builder ── */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-white font-sans">Etapas da Transformação</h4>
+                <span className="text-xs px-2.5 py-1 rounded-full font-semibold font-sans bg-white/10 text-white/50 border border-white/10">
+                  Mín. 3
+                </span>
+              </div>
+
+              {/* Horizontal scrollable row */}
+              <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                <div className="flex items-start gap-0 min-w-max">
+                  {steps.map((step, index) => (
+                    <React.Fragment key={step.id}>
+                      {index > 0 && (
+                        <div className="flex items-center flex-shrink-0 h-16 px-1">
+                          <span className="text-white/50 text-sm">→</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStepId(selectedStepId === step.id ? null : step.id)}
+                        className={`snap-start flex-shrink-0 w-40 p-3 rounded-lg border transition-all text-left ${
+                          selectedStepId === step.id
+                            ? 'border-prosperus-gold-dark bg-prosperus-gold-dark/10'
+                            : step.title
+                            ? 'border-green-500/30 bg-green-500/5'
+                            : 'border-white/10 bg-white/5 hover:border-white/20'
+                        }`}
+                      >
+                        <span className="w-6 h-6 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold font-sans flex items-center justify-center mb-2">
+                          {index + 1}
+                        </span>
+                        <p className="text-xs text-white/70 font-sans truncate">
+                          {step.title || <span className="text-white/50 italic">Sem título</span>}
+                        </p>
+                      </button>
+                    </React.Fragment>
+                  ))}
+                  {/* Add step */}
+                  <>
+                    <div className="flex items-center flex-shrink-0 h-16 px-1">
+                      <span className="text-white/50 text-sm">→</span>
                     </div>
+                    <button
+                      type="button"
+                      onClick={addStep}
+                      aria-label="Adicionar etapa"
+                      className="snap-start flex-shrink-0 w-40 h-16 rounded-lg border-2 border-dashed border-white/20 hover:border-prosperus-gold-dark/40 text-white/50 hover:text-prosperus-gold-dark transition-colors flex items-center justify-center text-sm font-semibold"
+                    >
+                      + Etapa
+                    </button>
+                  </>
                 </div>
-            )}
+              </div>
+
+              {/* Edit panel for selected step */}
+              <AnimatePresence>
+                {selectedStepId && (() => {
+                  const step = steps.find(s => s.id === selectedStepId);
+                  const index = steps.findIndex(s => s.id === selectedStepId);
+                  if (!step) return null;
+                  return (
+                    <motion.div
+                      key={selectedStepId}
+                      initial={prefersReduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={prefersReduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-4 bg-white/5 border border-prosperus-gold-dark/30 rounded-lg space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="w-6 h-6 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold font-sans flex items-center justify-center">
+                          {index + 1}
+                        </span>
+                        <Button
+                          variant="icon"
+                          onClick={() => deleteStep(step.id)}
+                          disabled={steps.length <= 3}
+                          aria-label={`Remover etapa ${index + 1}`}
+                          className={`text-base ${steps.length <= 3 ? 'text-white/20' : 'text-white/50 hover:text-red-400'}`}
+                        >
+                          🗑️
+                        </Button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-sans text-white/60" htmlFor={`step-title-${step.id}`}>
+                          Nome da etapa <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          id={`step-title-${step.id}`}
+                          type="text"
+                          value={step.title}
+                          onChange={(e) => updateStep(step.id, 'title', e.target.value)}
+                          placeholder="Ex: Diagnóstico Inicial"
+                          className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50"
+                        />
+                      </div>
+
+                      <TextOrAudioInput
+                        label="Descreva o que acontece nessa etapa"
+                        value={step.description}
+                        onChange={(value) => updateStep(step.id, 'description', value)}
+                        onInputTypeChange={(type) => { if (type !== 'link') updateStep(step.id, 'inputType', type); }}
+                        initialInputType={step.inputType}
+                        maxAudioDuration={180}
+                        required={false}
+                        questionId={`method-step-${step.id}`}
+                        token={token}
+                        module="method"
+                      />
+                    </motion.div>
+                  );
+                })()}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
+      </div>
     );
+  };
+
+  // ─────────────────────────────────────
+  // STEP 2 — Key Obstacles Map (multi-pair)
+  // Task 6: obstacles mapped to pillars when isStructured, to steps otherwise (AC 9, 10)
+  // ─────────────────────────────────────
+  const renderStepObstacles = () => {
+    const rows = isStructured
+      ? pillars.filter(p => p.what).map(p => ({ id: p.id, name: p.what }))
+      : steps.filter(s => s.title).map((s, i) => ({ id: s.id, name: s.title || `Etapa ${i + 1}` }));
+
+    const emptyMessage = isStructured
+      ? 'Complete os pilares no passo anterior para ver o mapa de obstáculos.'
+      : 'Complete o passo anterior para ver o mapa de obstáculos.';
+
+    const descriptionText = isStructured
+      ? 'Para cada pilar do seu método, qual é o principal obstáculo? E qual é a SUA solução?'
+      : 'Para cada etapa do seu método, qual é o principal obstáculo que trava as pessoas? E qual é a SUA solução?';
+
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <span className="text-5xl block mb-4">🧱</span>
+          <div className="flex justify-center mb-3">
+            <span className="text-xs px-2.5 py-1 rounded-full font-semibold font-sans bg-white/10 text-white/50 border border-white/10">
+              Opcional
+            </span>
+          </div>
+          <h3 className="font-serif text-xl text-white mb-1">Mapa de Obstáculos</h3>
+          <p className="text-sm text-white/50 font-sans">
+            {descriptionText}
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          {rows.length === 0 ? (
+            <p className="text-white/50 text-sm font-sans text-center py-4 italic">
+              {emptyMessage}
+            </p>
+          ) : (
+            rows.map((row, index) => {
+              const entry = obstacles.find(o => o.referenceId === row.id);
+              const pairs = getPairs(entry);
+
+              return (
+                <div
+                  key={row.id}
+                  className="p-4 bg-white/5 border border-white/10 rounded-lg space-y-4"
+                >
+                  <p className="text-xs font-bold text-prosperus-gold-dark/80 font-sans">
+                    {index + 1}. {row.name}
+                  </p>
+
+                  {pairs.map((pair, pairIndex) => (
+                    <div key={pairIndex} className="space-y-3 pl-3 border-l-2 border-white/10">
+                      {pairs.length > 1 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] text-white/50 font-sans">Par {pairIndex + 1}</span>
+                          <Button
+                            variant="icon"
+                            onClick={() => removeObstaclePair(row.id, pairIndex)}
+                            aria-label={`Remover par ${pairIndex + 1}`}
+                            className="text-red-400/40 hover:text-red-400 text-xs"
+                          >
+                            🗑️
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-sans text-white/60" htmlFor={`obstacle-${row.id}-${pairIndex}`}>
+                          🧱 Obstáculo:
+                        </label>
+                        <input
+                          id={`obstacle-${row.id}-${pairIndex}`}
+                          type="text"
+                          value={pair.obstacle}
+                          onChange={(e) => updateObstaclePair(row.id, pairIndex, 'obstacle', e.target.value)}
+                          placeholder="O que trava as pessoas nessa etapa?"
+                          aria-label={`Obstáculo para ${row.name} par ${pairIndex + 1}`}
+                          className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-sans text-white/60" htmlFor={`solution-${row.id}-${pairIndex}`}>
+                          🪜 Solução:
+                        </label>
+                        <input
+                          id={`solution-${row.id}-${pairIndex}`}
+                          type="text"
+                          value={pair.solution}
+                          onChange={(e) => updateObstaclePair(row.id, pairIndex, 'solution', e.target.value)}
+                          placeholder="Como você resolve isso?"
+                          aria-label={`Solução para ${row.name} par ${pairIndex + 1}`}
+                          className="w-full p-2.5 bg-prosperus-navy-mid border border-white/10 rounded text-white/90 text-sm font-sans placeholder:text-white/50 focus:outline-none focus:border-prosperus-gold-dark/50"
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  <Button
+                    variant="ghost"
+                    fullWidth
+                    onClick={() => addObstaclePair(row.id)}
+                    className="py-2 border border-dashed border-white/20 hover:border-prosperus-gold-dark/30 text-white/50 hover:text-prosperus-gold-dark text-xs"
+                  >
+                    + Adicionar Obstáculo
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <p className="text-sm text-white/50 font-sans text-center">
+          Esses obstáculos e soluções alimentam diretamente a arquitetura da sua oferta.
+        </p>
+      </div>
+    );
+  };
+
+  // Task 4: Added renderStepMaturity at index 0 (AC 13)
+  const stepRenderers = [renderStepMaturity, renderStepTransformation, renderStepObstacles];
+  const activeVariants = prefersReduced ? reducedMotionVariants : stepVariants;
+
+  return (
+    <div className="bg-prosperus-navy-mid border border-white/5 rounded-lg p-4 sm:p-6 md:p-8 shadow-2xl">
+
+      {/* Module celebration overlay */}
+      <AnimatePresence>
+        {showCelebration && (
+          <CelebrationOverlay
+            message="Método mapeado!"
+            subMessage="Agora a Brand Brain sabe COMO você transforma seus clientes."
+            variant="module"
+            duration={2000}
+            onComplete={() => {
+              setShowCelebration(false);
+              onModuleComplete?.();
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {!showCelebration && (
+        <>
+          {/* Step indicator */}
+          <div className="flex items-center justify-between mb-6">
+            <div
+              className="flex items-center gap-3"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <span className="text-xs font-semibold text-prosperus-gold-dark bg-prosperus-gold-dark/10 px-3 py-1 rounded-full">
+                Passo {currentStep + 1} de 3
+              </span>
+              <span className="text-sm text-white/60 font-sans">
+                {STEPS[currentStep].title}
+              </span>
+            </div>
+            <div className="flex gap-0">
+              {STEPS.map((step, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => jumpToStep(i)}
+                  title={step.title}
+                  aria-label={`Ir para: ${step.title}`}
+                  aria-current={i === currentStep ? 'step' : undefined}
+                  className={`flex items-center justify-center w-11 h-11 rounded-full transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-prosperus-gold-dark ${
+                    i === currentStep
+                      ? 'cursor-default'
+                      : 'cursor-pointer'
+                  }`}
+                >
+                  <span className={`w-2.5 h-2.5 rounded-full transition-all ${
+                    i === currentStep
+                      ? 'bg-prosperus-gold-dark scale-125'
+                      : i < currentStep
+                      ? 'bg-prosperus-gold-dark/40 hover:bg-prosperus-gold-dark/70'
+                      : 'bg-white/10 hover:bg-white/20'
+                  }`} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Step content */}
+          <div className="min-h-[400px]">
+            <AnimatePresence mode="wait" custom={direction}>
+              {transitioning ? (
+                <motion.div
+                  key="transition"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <StepTransition
+                    message={transitionMsg}
+                    duration={900}
+                    onComplete={handleTransitionComplete}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={currentStep}
+                  custom={direction}
+                  variants={activeVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{
+                    duration: prefersReduced ? 0 : 0.25,
+                    ease: 'easeInOut',
+                  }}
+                >
+                  {stepRenderers[currentStep]()}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Navigation */}
+          <div className="flex justify-between items-center mt-8 pt-4 border-t border-white/10">
+            <button
+              onClick={goPrev}
+              disabled={currentStep === 0 || transitioning}
+              className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition ${
+                currentStep === 0 || transitioning
+                  ? 'bg-white/5 text-white/50 cursor-not-allowed'
+                  : 'bg-white/10 hover:bg-white/20 text-white'
+              }`}
+            >
+              Anterior
+            </button>
+            <button
+              onClick={goNext}
+              disabled={isNextDisabled()}
+              className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition ${
+                isNextDisabled()
+                  ? 'bg-prosperus-gold-dark/30 text-prosperus-gold-dark/50 cursor-not-allowed'
+                  : 'bg-prosperus-gold-dark hover:bg-prosperus-gold-hover text-black'
+              }`}
+            >
+              {currentStep === 2 ? 'Concluir' : 'Próximo'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 };
