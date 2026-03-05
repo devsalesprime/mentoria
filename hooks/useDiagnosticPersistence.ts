@@ -235,7 +235,9 @@ export const useDiagnosticPersistence = (token: string) => {
   const persistData = useCallback(async (s: DiagnosticState) => {
     try {
       setLastSaveError(null);
-      const progress = calculateProgress(s.preModule, s.mentor, s.mentee, s.method, s.offer);
+      const calculatedProgress = calculateProgress(s.preModule, s.mentor, s.mentee, s.method, s.offer);
+      // Legacy users keep 100% unless they actually fill new data (progress > 0 from real input)
+      const progress = s.isLegacy && calculatedProgress === 0 ? 100 : calculatedProgress;
 
       await axios.post('/api/diagnostic', {
         pre_module: s.preModule,

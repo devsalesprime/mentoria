@@ -84,6 +84,7 @@ export const Button: React.FC<ButtonProps> = ({
       whileHover={disabled || loading ? undefined : { scale: 1.02 }}
       whileTap={disabled || loading ? undefined : { scale: 0.98 }}
       className={`${base} ${className || ''}`}
+      type="button"
       disabled={disabled || loading}
       {...props}
     >
