@@ -12,9 +12,17 @@ module.exports = function createBrandBrainRoutes({ db, dbGet, dbRun, dbAll, auth
 
       const row = await dbGet('SELECT brand_brain, brand_brain_status, research_status, section_approvals, review_notes, expert_notes FROM pipeline WHERE user_id = ?', [userId]);
 
-      const VISIBLE_STATUSES = ['mentor_review', 'approved'];
-      if (!row || !VISIBLE_STATUSES.includes(row.brand_brain_status)) {
+      if (!row) {
         return res.json({ success: true, data: null });
+      }
+
+      const VISIBLE_STATUSES = ['mentor_review', 'approved'];
+      if (!VISIBLE_STATUSES.includes(row.brand_brain_status)) {
+        // Brand Brain not ready yet — still return pipeline progress info
+        return res.json({ success: true, data: {
+          brandBrainStatus: row.brand_brain_status || 'pending',
+          researchStatus: row.research_status || 'pending',
+        }});
       }
 
       res.json({

@@ -31,7 +31,7 @@ const LoadingSkeleton: React.FC = () => (
 
 // ─── Main component ─────────────────────────────────────────────────────────
 
-export const BrandBrainViewer: React.FC<BrandBrainViewerProps> = ({ token }) => {
+export const BrandBrainViewer: React.FC<BrandBrainViewerProps> = ({ token, onPipelineRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<BrandBrainApiData | null>(null);
@@ -169,6 +169,7 @@ export const BrandBrainViewer: React.FC<BrandBrainViewerProps> = ({ token }) => 
       });
       setApproveAllSuccess(true);
       setData((prev) => prev ? { ...prev, brandBrainStatus: 'approved' } : prev);
+      onPipelineRefresh?.();
     } catch (e: any) {
       const msg = e.response?.data?.message || e.message || 'Erro ao aprovar Brand Brain';
       setApproveAllError(msg);

@@ -20,6 +20,7 @@ export interface BrandBrainApiData {
 
 export interface BrandBrainViewerProps {
   token: string;
+  onPipelineRefresh?: () => void;
 }
 
 // ─── Section config ─────────────────────────────────────────────────────────

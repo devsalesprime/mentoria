@@ -431,6 +431,19 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     </div>
                 )}
 
+                {/* Mentor review notes (always visible when present) */}
+                {detail.reviewNotes && BB_SECTION_ORDER.some(s => detail.reviewNotes?.[s]?.trim()) && (
+                    <div className="space-y-2">
+                        <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold">Observações do mentor:</p>
+                        {BB_SECTION_ORDER.filter(s => detail.reviewNotes?.[s]?.trim()).map((s) => (
+                            <div key={s} className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2">
+                                <p className="text-[10px] font-semibold text-blue-400 mb-0.5">{SECTION_LABELS[s]}</p>
+                                <p className="text-sm text-white/70 italic">{detail.reviewNotes[s]}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Section revision editor */}
                 {detail.sectionApprovals && BB_SECTION_ORDER.some(s => detail.sectionApprovals[s] === 'editing') && (
                     <div className="space-y-3">

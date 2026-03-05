@@ -97,8 +97,8 @@ const getSidebarMenu = (
 
     const bbItems: MenuItem[] = [{ id: 'brand_brain_review', label: 'Brand Brain', statusDot: bbDot }];
 
-    // Show Entregáveis sub-item when assets are available or BB is approved
-    if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating' || brandBrainStatus === 'approved') {
+    // Show Entregáveis sub-item only when assets are actually available
+    if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') {
       const assetDot: 'green' | 'yellow' | 'gray' =
         assetsStatus === 'delivered' ? 'green' :
         assetsStatus === 'ready' || assetsStatus === 'generating' ? 'yellow' : 'gray';
@@ -193,6 +193,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     submitDiagnostic,
     // Pipeline status
     pipelineStatus, brandBrainStatus, assetsStatus, researchStatus,
+    refreshPipelineStatus,
   } = useDiagnosticPersistence(token);
 
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
@@ -458,7 +459,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     if (activeItem === 'brand_brain_review') {
       return (
         <ModuleErrorBoundary moduleName="Brand Brain">
-          <BrandBrainViewer token={token} />
+          <BrandBrainViewer token={token} onPipelineRefresh={refreshPipelineStatus} />
         </ModuleErrorBoundary>
       );
     }
