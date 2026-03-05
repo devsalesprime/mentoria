@@ -12,6 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy (Nginx)
 const PORT = process.env.PORT || 3005;
 const VERSION = '1.2.0-DEBUG';
 
