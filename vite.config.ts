@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   // Define a base como raiz absoluta para deploy em VPS
-  base: '/mentoria/',
+  base: '/prosperus-mentor-diagnosis/',
   // SEC-08: No API keys injected into frontend bundle
   build: {
     outDir: 'dist',
