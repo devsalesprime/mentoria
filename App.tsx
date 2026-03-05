@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Header } from './components/Header';
-import { Hero } from './components/Hero';
-import { ModulesOverview } from './components/ModulesOverview';
-import { ImportantInfo } from './components/ImportantInfo';
-import { GoalSection } from './components/GoalSection';
-import { Footer } from './components/Footer';
-import { LoginModal } from './components/LoginModal';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './components/Dashboard';
 import { AdminPanel } from './components/AdminPanel';
+import { AuthGuard } from './components/routing/AuthGuard';
+import { AdminGuard } from './components/routing/AdminGuard';
+import { NotFound } from './components/routing/NotFound';
+import { LandingPage } from './components/routing/LandingPage';
+import { LoginPage } from './components/routing/LoginPage';
 
 interface UserData {
   name: string;
@@ -17,119 +16,169 @@ interface UserData {
 }
 
 function App() {
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
-  // Estado para lembrar qual módulo o usuário queria acessar
-  const [targetModule, setTargetModule] = useState<string>('mentor');
-
-  // Admin State
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminToken, setAdminToken] = useState<string>('');
 
-  // Auth Mode State
-  const [authMode, setAuthMode] = useState<'member' | 'admin'>('member');
-
+  // Restore member session from localStorage on mount
   useEffect(() => {
-    // Check if user came from Admin login url param (simple demo trick) or similar
-    // For now, it is handled via Login Modal callback
+    const savedToken = localStorage.getItem('memberToken');
+    if (savedToken) {
+      try {
+        const payload = JSON.parse(atob(savedToken.split('.')[1]));
+        if (payload.exp && payload.exp * 1000 > Date.now()) {
+          setUserData({
+            name: payload.name || 'Membro',
+            email: payload.user || '',
+            description: '',
+            token: savedToken,
+          });
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem('memberToken');
+        }
+      } catch {
+        localStorage.removeItem('memberToken');
+      }
+    }
+
+    // Restore admin session from localStorage
+    const savedAdminToken = localStorage.getItem('adminToken');
+    if (savedAdminToken) {
+      try {
+        const payload = JSON.parse(atob(savedAdminToken.split('.')[1]));
+        if (payload.exp && payload.exp * 1000 > Date.now()) {
+          setAdminToken(savedAdminToken);
+          setIsAuthenticated(true);
+          setIsAdmin(true);
+        } else {
+          localStorage.removeItem('adminToken');
+        }
+      } catch {
+        localStorage.removeItem('adminToken');
+      }
+    }
   }, []);
 
   const handleLoginSuccess = (data: UserData) => {
-    setUserData({
-      ...data,
-      description: '',
-      token: data.token // Garantir que o token seja salvo
-    });
+    setUserData({ ...data, description: '' });
     setIsAuthenticated(true);
-    setIsLoginModalOpen(false);
     setIsAdmin(false);
   };
 
-  const handleAdminLogin = (token?: string) => {
-    console.log('handleAdminLogin called with token:', !!token);
-    if (token) {
-      setAdminToken(token);
-      setIsAuthenticated(true);
-      setIsAdmin(true);
-      setIsLoginModalOpen(false);
-      console.log('Admin state set to TRUE');
-    }
-  };
-
-  // Used by Header to open Admin Login
-  const openLoginModal = () => {
-    setAuthMode('admin');
-    setIsLoginModalOpen(true);
-  };
-
-  const openLoginForModule = (moduleId: string) => {
-    setTargetModule(moduleId);
-    setAuthMode('member');
-    setIsLoginModalOpen(true);
+  const handleAdminLogin = (token: string) => {
+    setAdminToken(token);
+    localStorage.setItem('adminToken', token);
+    setIsAuthenticated(true);
+    setIsAdmin(true);
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('memberToken');
+    localStorage.removeItem('adminToken');
     setIsAuthenticated(false);
     setUserData(null);
     setIsAdmin(false);
     setAdminToken('');
-    setTargetModule('mentor');
   };
 
   const handleUpdateProfile = (data: { name: string; description: string }) => {
     if (userData) {
-      setUserData({
-        ...userData,
-        name: data.name,
-        description: data.description
-      });
+      setUserData({ ...userData, name: data.name, description: data.description });
     }
   };
 
-  if (isAuthenticated && isAdmin) {
-    return <AdminPanel token={adminToken} onLogout={handleLogout} />;
-  }
-
-  if (isAuthenticated && userData) {
-    return (
-      <Dashboard
-        userEmail={userData.email}
-        userName={userData.name}
-        userDescription={userData.description || ''}
-        onUpdateProfile={handleUpdateProfile}
-        onLogout={handleLogout}
-        initialModule={targetModule}
-        token={userData.token}
-      />
-    );
-  }
+  // Determine if member (non-admin) is authenticated
+  const isMemberAuthenticated = isAuthenticated && !isAdmin && !!userData;
 
   return (
-    <div className="min-h-screen bg-prosperus-navy text-white selection:bg-prosperus-gold selection:text-prosperus-navy-dark" id="hero">
-      {/* Área do Membro agora vai para 'overview' (Dashboard) */}
-      <Header
-        onOpenLogin={() => openLoginForModule('overview')}
-        onOpenAdmin={openLoginModal}
-      />
-      <main>
-        {/* Começar Diagnóstico agora vai para 'overview' (Dashboard) */}
-        <Hero onStartDiagnosis={() => openLoginForModule('overview')} />
-        <ImportantInfo />
-        {/* Módulos individuais continuam enviando seus IDs, a lógica de redirecionamento fica no Dashboard */}
-        <ModulesOverview onStartModule={openLoginForModule} />
-        <GoalSection />
-      </main>
-      <Footer />
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
+      <Routes>
+        {/* Landing page */}
+        <Route path="/" element={
+          isMemberAuthenticated ? <Navigate to="/dashboard" replace /> :
+          isAdmin ? <Navigate to="/admin" replace /> :
+          <LandingPage />
+        } />
 
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
-        onAdminAccess={handleAdminLogin}
-        initialAdminMode={authMode === 'admin'}
-      />
-    </div>
+        {/* Login */}
+        <Route path="/login" element={
+          <LoginPage
+            onLoginSuccess={handleLoginSuccess}
+            onAdminLogin={handleAdminLogin}
+            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
+          />
+        } />
+
+        {/* Dashboard routes (member auth required) */}
+        <Route path="/dashboard" element={
+          <AuthGuard isAuthenticated={isMemberAuthenticated}>
+            <Dashboard
+              userEmail={userData?.email || ''}
+              userName={userData?.name || 'Membro'}
+              userDescription={userData?.description || ''}
+              onUpdateProfile={handleUpdateProfile}
+              onLogout={handleLogout}
+              token={userData?.token || ''}
+            />
+          </AuthGuard>
+        } />
+        <Route path="/dashboard/:module" element={
+          <AuthGuard isAuthenticated={isMemberAuthenticated}>
+            <Dashboard
+              userEmail={userData?.email || ''}
+              userName={userData?.name || 'Membro'}
+              userDescription={userData?.description || ''}
+              onUpdateProfile={handleUpdateProfile}
+              onLogout={handleLogout}
+              token={userData?.token || ''}
+            />
+          </AuthGuard>
+        } />
+
+        {/* Brand Brain (member auth required) */}
+        <Route path="/brand-brain" element={
+          <AuthGuard isAuthenticated={isMemberAuthenticated}>
+            <Dashboard
+              userEmail={userData?.email || ''}
+              userName={userData?.name || 'Membro'}
+              userDescription={userData?.description || ''}
+              onUpdateProfile={handleUpdateProfile}
+              onLogout={handleLogout}
+              token={userData?.token || ''}
+              initialModule="brand_brain_review"
+            />
+          </AuthGuard>
+        } />
+
+        {/* Assets (member auth required) */}
+        <Route path="/assets" element={
+          <AuthGuard isAuthenticated={isMemberAuthenticated}>
+            <Dashboard
+              userEmail={userData?.email || ''}
+              userName={userData?.name || 'Membro'}
+              userDescription={userData?.description || ''}
+              onUpdateProfile={handleUpdateProfile}
+              onLogout={handleLogout}
+              token={userData?.token || ''}
+              initialModule="deliverables"
+            />
+          </AuthGuard>
+        } />
+
+        {/* Admin panel (admin auth required) */}
+        <Route path="/admin" element={
+          <AdminGuard isAdmin={isAdmin} isAuthenticated={isAuthenticated}>
+            <AdminPanel token={adminToken} onLogout={handleLogout} />
+          </AdminGuard>
+        } />
+
+        {/* 404 */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

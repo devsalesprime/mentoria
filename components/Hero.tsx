@@ -21,19 +21,19 @@ export const Hero: React.FC<HeroProps> = ({ onStartDiagnosis }) => {
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
           <h1 className="font-serif text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl leading-tight mb-4 sm:mb-6 px-2">
-            Construa Sua <br />
-            <span className="text-gold-gradient italic">Mentoria High-Ticket</span>
+            Você Sabe Ensinar. <br />
+            <span className="text-gold-gradient italic">Mas Sabe Vender Sua Mentoria?</span>
           </h1>
           <p className="font-sans text-prosperus-neutral-grey text-base sm:text-lg md:text-xl max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed font-light px-4">
-            Seu conhecimento vale muito. O caminho para seus primeiros 30 mentorados e entrada na MLS começa com esse diagnóstico.
+            Te ajudamos a construir seu <strong className="text-white">posicionamento de marca</strong> e <strong className="text-white">6 ativos de venda</strong>. Tudo a partir das suas respostas.
           </p>
 
           <div className="flex flex-col items-center justify-center px-4">
             <Button onClick={onStartDiagnosis}>
               Começar Diagnóstico
             </Button>
-            <p className="text-xs text-prosperus-neutral-grey/50 mt-4 max-w-xs text-center px-2">
-              *Responda antes da primeira mentoria individual.
+            <p className="text-sm text-prosperus-neutral-grey/50 mt-4 max-w-xs text-center px-2">
+              ~40 min de respostas. Dias, não meses, para ter tudo em mãos.
             </p>
           </div>
         </motion.div>
@@ -47,9 +47,9 @@ export const Hero: React.FC<HeroProps> = ({ onStartDiagnosis }) => {
         transition={{ delay: 1, duration: 1 }}
       >
         <div className="flex flex-col items-center gap-2">
-          <div className="w-[26px] h-[42px] border-2 border-[#CA9A43]/60 rounded-full flex justify-center p-2 box-border">
+          <div className="w-[26px] h-[42px] border-2 border-prosperus-gold-dark/60 rounded-full flex justify-center p-2 box-border">
             <motion.div
-              className="w-1 h-1.5 bg-[#CA9A43] rounded-full"
+              className="w-1 h-1.5 bg-prosperus-gold-dark rounded-full"
               animate={{
                 y: [0, 8, 0],
                 opacity: [0, 1, 0]
