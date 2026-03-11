@@ -87,14 +87,21 @@ function splitCadenceContent(content: string): { cadenceRaw: string; reasoningRa
 
 /** Detect channel type from text content */
 const detectChannel = (text: string, isLabel = false): ChannelType => {
+  // For body content: strip blockquote lines ("> ...") before detection.
+  // Blockquotes are explanatory context (e.g. "> Quantas ligações? ... WhatsApp + email apenas")
+  // and should not trigger channel classification.
+  const effectiveText = isLabel
+    ? text
+    : text.split('\n').filter(l => !l.trim().startsWith('>')).join('\n');
+
   // "balão" only counts as WhatsApp in labels (e.g. "### Balão 1"), not in body text
   // where it can appear in explanatory context (e.g. "envie 3 balões de mensagem")
   const whatsappPattern = isLabel
     ? /whatsapp|wpp|zap|bal[aã]o|mensagem\s+de\s+texto/i
     : /whatsapp|wpp|zap|mensagem\s+de\s+texto/i;
-  if (whatsappPattern.test(text)) return 'whatsapp';
-  if (/e[-\s]?mail|assunto:|subject:/i.test(text)) return 'email';
-  if (/liga[çc][aã]o|ligacao|call|telefonema|telefone|voz|double.?dial|aircall/i.test(text)) return 'call';
+  if (whatsappPattern.test(effectiveText)) return 'whatsapp';
+  if (/e[-\s]?mail|assunto:|subject:/i.test(effectiveText)) return 'email';
+  if (/liga[çc][aã]o|ligacao|call|telefonema|telefone|voz|double.?dial|aircall/i.test(effectiveText)) return 'call';
   return 'other';
 };
 
