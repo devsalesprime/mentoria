@@ -526,7 +526,7 @@ const EditSection: React.FC<{
   const bracketMatches = useMemo(() => {
     const matches: Array<{ full: string; inner: string; fieldKey: string }> = [];
     let match: RegExpExecArray | null;
-    const re = new RegExp(BRACKET_REGEX.source, 'gi');
+    const re = new RegExp(BRACKET_REGEX.source, 'g');
     while ((match = re.exec(section.content)) !== null) {
       matches.push({
         full: match[0],

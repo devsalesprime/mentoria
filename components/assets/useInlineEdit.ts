@@ -33,17 +33,21 @@ export interface UseInlineEditReturn {
 
 // ─── Bracket detection ────────────────────────────────────────────────────────
 
-/** Regex to match insertion brackets like [INSERIR NOME], [INSERÇÃO DE PROVA: ...] */
-export const BRACKET_REGEX = /\[([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]+(?:DE|DO|DA|DOS|DAS|:)[^\]]*)\]/i;
+/** Regex to match insertion brackets like [INSERIR NOME DO PRODUTO], [HISTÓRIA DE SUCESSO].
+ * Requires ALL-CAPS opening words (not mixed-case prose like [Valida — ...]).
+ * No `i` flag — the leading segment enforces uppercase A-Z + accented uppercase only.
+ * Prepositions match both cases (DE/de, DO/do, DA/da, DOS/dos, DAS/das) for robustness. */
+export const BRACKET_REGEX = /\[([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ][A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]*(?:DE|DO|DA|DOS|DAS|de|do|da|dos|das|:)[^\]]*)\]/g;
 
 /** Check if text contains fillable brackets */
 export function hasBrackets(text: string): boolean {
-  return BRACKET_REGEX.test(text);
+  // Use a fresh regex instance to avoid lastIndex issues with global flag
+  return new RegExp(BRACKET_REGEX.source, 'g').test(text);
 }
 
 /** Extract bracket placeholders from text */
 export function extractBrackets(text: string): string[] {
-  const regex = new RegExp(BRACKET_REGEX.source, 'gi');
+  const regex = new RegExp(BRACKET_REGEX.source, 'g');
   const matches = text.match(regex);
   return matches ? matches.map((m) => m.slice(1, -1)) : [];
 }

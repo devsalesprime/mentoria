@@ -276,7 +276,7 @@ interface BracketHighlightProps {
 }
 
 // Pre-compiled bracket regex for rendering (avoids re-creation per render)
-const BRACKET_GLOBAL_REGEX = new RegExp(BRACKET_REGEX.source, 'gi');
+const BRACKET_GLOBAL_REGEX = new RegExp(BRACKET_REGEX.source, 'g');
 
 const BracketHighlight: React.FC<BracketHighlightProps> = ({ text, fieldPrefix, editHook }) => {
   const { getValue, setValue, isEdited: fieldIsEdited } = editHook;

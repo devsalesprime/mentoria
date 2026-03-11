@@ -145,7 +145,7 @@ function applyBracketEdits(
   text: string,
   getValue: (fieldId: string, original: string) => string
 ): string {
-  const regex = new RegExp(BRACKET_REGEX.source, 'gi');
+  const regex = new RegExp(BRACKET_REGEX.source, 'g');
   return text.replace(regex, (match) => {
     const fieldId = `bracket_${match.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
     const edited = getValue(fieldId, match);
@@ -196,7 +196,7 @@ const StageContentEditable: React.FC<{
   if (!editing) {
     // Render markdown with bracket highlights (non-editable)
     const highlighted = content.replace(
-      new RegExp(BRACKET_REGEX.source, 'gi'),
+      new RegExp(BRACKET_REGEX.source, 'g'),
       (match) => {
         const fieldId = `bracket_${match.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
         const edited = isEdited(fieldId);
@@ -232,7 +232,7 @@ const StageContentEditable: React.FC<{
   }
 
   // Editing mode: split content into text chunks and bracket inputs
-  const regex = new RegExp(BRACKET_REGEX.source, 'gi');
+  const regex = new RegExp(BRACKET_REGEX.source, 'g');
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let m;
@@ -366,7 +366,7 @@ const TeleprompterView: React.FC<{
 
   const showUnfilledWarning = useMemo(() => {
     for (const stage of stages) {
-      const regex = new RegExp(BRACKET_REGEX.source, 'gi');
+      const regex = new RegExp(BRACKET_REGEX.source, 'g');
       let m;
       while ((m = regex.exec(stage.content)) !== null) {
         const original = m[0];

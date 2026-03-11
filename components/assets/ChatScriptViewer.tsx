@@ -15,8 +15,11 @@ interface ParsedMessage {
   content: string;
   tone?: string;
   alternatives?: string[];
+  alternativeLabels?: string[];
   stageLabel?: string;
   id: string;
+  // Objection variant group: array of message groups (each group = one objection's messages)
+  objectionGroups?: ParsedMessage[][];
 }
 
 interface StageInfo {
@@ -70,7 +73,7 @@ const STAGE_REGEX = /^#{2,3}\s+.*(?:ETAPA|Etapa|\d+[A-Za-z]?\s*[.)\-:\u2013\u201
 const MENTOR_REGEX = /\*\*(?:Vendedor|Mentor|Você|Consultor|Closer)\s*:\*\*/i;
 const PROSPECT_REGEX = /\*\*(?:Prospect|Cliente|Lead|Comprador|Contato)\s*:\*\*/i;
 const TONE_REGEX = /^\s*\*?\(([^)]+)\)\*?\s*$/;
-const BRACKET_INLINE_REGEX = /\[([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ][A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]*(?:DE|DO|DA|DOS|DAS|:)[^\]]*)\]/gi;
+const BRACKET_INLINE_REGEX = /\[([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ][A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\s]*(?:DE|DO|DA|DOS|DAS|de|do|da|dos|das|:)[^\]]*)\]/g;
 
 function isStageHeader(line: string): boolean {
   return STAGE_REGEX.test(line);
@@ -309,6 +312,88 @@ function extractStages(messages: ParsedMessage[]): StageInfo[] {
   return stages;
 }
 
+// ─── Objection variant grouping ───────────────────────────────────────────────
+
+const SUB_STAGE_REGEX = /(\d+)([A-Za-z])/;
+
+function extractObjectionTitle(label: string): string {
+  // "ETAPA 4A — Objeção: Preço / Investimento" → "Preço / Investimento"
+  const objMatch = label.match(/Obje[çc][aã]o\s*[:\-\u2013\u2014]\s*(.+)/i);
+  if (objMatch) {
+    const title = objMatch[1].trim();
+    return title.length > 20 ? title.slice(0, 18) + '\u2026' : title;
+  }
+  // Fallback: use the stage name after ETAPA 4A:
+  const stageMatch = label.match(/(?:ETAPA|Etapa)\s*\d+[A-Za-z]\s*[:\-\u2013\u2014]\s*(.+)/i);
+  if (stageMatch) {
+    const title = stageMatch[1].trim();
+    return title.length > 20 ? title.slice(0, 18) + '\u2026' : title;
+  }
+  return label;
+}
+
+/**
+ * Post-processes parsed messages to group consecutive sub-stage blocks (4A, 4B, 4C...)
+ * into a single "objection group" message with variant buttons.
+ * Each variant shows as a selectable pill button; only the selected variant's chat messages render.
+ */
+function groupObjectionVariants(messages: ParsedMessage[]): ParsedMessage[] {
+  const result: ParsedMessage[] = [];
+  let i = 0;
+
+  while (i < messages.length) {
+    const msg = messages[i];
+
+    // Check if this is a sub-stage header (e.g., ETAPA 4A)
+    if (msg.stageLabel && SUB_STAGE_REGEX.test(msg.stageLabel)) {
+      // Collect all consecutive sub-stage groups
+      const groups: { label: string; title: string; content: ParsedMessage[] }[] = [];
+      let j = i;
+
+      while (j < messages.length) {
+        const current = messages[j];
+        if (current.stageLabel && SUB_STAGE_REGEX.test(current.stageLabel)) {
+          const title = extractObjectionTitle(current.stageLabel);
+          const content: ParsedMessage[] = [];
+          j++;
+          // Collect all messages until the next stage header
+          while (j < messages.length && !messages[j].stageLabel) {
+            content.push(messages[j]);
+            j++;
+          }
+          groups.push({ label: current.stageLabel, title, content });
+        } else {
+          break; // Non-sub-stage header encountered
+        }
+      }
+
+      if (groups.length > 1) {
+        // Insert an objection group message — renders variant buttons + selected group's chat
+        // No stageLabel so it doesn't appear in stage nav (it's a sub-part of the parent stage)
+        result.push({
+          type: 'system',
+          content: '',
+          alternativeLabels: groups.map(g => g.title),
+          objectionGroups: groups.map(g => g.content),
+          id: `objgroup-${msg.id}`,
+        });
+      } else {
+        // Only one sub-stage — render normally
+        for (let k = i; k < j; k++) {
+          result.push(messages[k]);
+        }
+      }
+
+      i = j;
+    } else {
+      result.push(msg);
+      i++;
+    }
+  }
+
+  return result;
+}
+
 // ─── Bracket-highlighted text rendering ────────────────────────────────────────
 
 interface BracketTextProps {
@@ -322,7 +407,7 @@ const BracketText: React.FC<BracketTextProps> = ({ text, messageId, getValue, se
   // Split text on bracket patterns — uses controlled inputs (not contentEditable)
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  const regex = new RegExp(BRACKET_INLINE_REGEX.source, 'gi');
+  const regex = new RegExp(BRACKET_INLINE_REGEX.source, 'g');
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(text)) !== null) {
@@ -604,7 +689,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                   : 'bg-white/5 border-white/10 text-white/50 hover:text-white/60'
               }`}
             >
-              Original
+              {message.alternativeLabels ? message.alternativeLabels[0] : 'Original'}
             </button>
             {message.alternatives.map((_, altIdx) => (
               <button
@@ -616,7 +701,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                     : 'bg-white/5 border-white/10 text-white/50 hover:text-white/60'
                 }`}
               >
-                Variante {altIdx + 1}
+                {message.alternativeLabels ? message.alternativeLabels[altIdx + 1] : `Variante ${altIdx + 1}`}
               </button>
             ))}
           </div>
@@ -1113,6 +1198,97 @@ const ReasoningView: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
+// ─── Objection variant group ──────────────────────────────────────────────────
+
+interface ObjectionGroupProps {
+  message: ParsedMessage;
+  assetId: string;
+  getValue: (id: string, original: string) => string;
+  setValue: (id: string, value: string) => void;
+  isEdited: (id: string) => boolean;
+  restoreField: (id: string) => void;
+  stageRef: (el: HTMLDivElement | null) => void;
+}
+
+const ObjectionGroup: React.FC<ObjectionGroupProps> = ({
+  message,
+  assetId,
+  getValue,
+  setValue,
+  isEdited,
+  restoreField,
+  stageRef,
+}) => {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const labels = message.alternativeLabels || [];
+  const groups = message.objectionGroups || [];
+
+  const currentGroup = groups[selectedIdx] || [];
+
+  return (
+    <div ref={stageRef} className="scroll-mt-32">
+      {/* Stage separator */}
+      <div className="w-full py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-white/10" />
+          <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-full">
+            <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">
+              Objeções
+            </span>
+          </div>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
+      </div>
+
+      {/* Variant pill buttons */}
+      <div className="flex flex-wrap gap-1.5 justify-center mb-4 px-4">
+        {labels.map((label, idx) => (
+          <button
+            key={idx}
+            onClick={() => setSelectedIdx(idx)}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition border ${
+              selectedIdx === idx
+                ? 'bg-prosperus-gold-dark/20 border-prosperus-gold-dark/40 text-prosperus-gold-dark'
+                : 'bg-white/5 border-white/10 text-white/50 hover:text-white/60'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Render the selected group's chat messages */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={selectedIdx}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.15 }}
+          className="space-y-3"
+        >
+          {currentGroup.map((m) => {
+            if (m.type === 'system') {
+              return <SystemMessage key={m.id} content={m.content} />;
+            }
+            return (
+              <ChatBubble
+                key={m.id}
+                message={m}
+                assetId={assetId}
+                getValue={getValue}
+                setValue={setValue}
+                isEdited={isEdited}
+                restoreField={restoreField}
+              />
+            );
+          })}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
@@ -1140,8 +1316,8 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(false);
 
-  // Parse only the script part (not reasoning)
-  const messages = useMemo(() => parseMarkdownContent(scriptRaw), [scriptRaw]);
+  // Parse only the script part (not reasoning), then group objection sub-stages as variants
+  const messages = useMemo(() => groupObjectionVariants(parseMarkdownContent(scriptRaw)), [scriptRaw]);
   const stages = useMemo(() => extractStages(messages), [messages]);
   const isFallback = messages.length === 0;
 
@@ -1331,6 +1507,28 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
           <div className="relative">
           <div ref={chatAreaRef} className="px-4 py-4 space-y-3 max-h-[75vh] overflow-y-auto">
             {messages.map((msg) => {
+              // Objection variant group
+              if (msg.objectionGroups) {
+                const currentStageIdx = stageIndexMap.get(msg.id) ?? 0;
+                return (
+                  <ObjectionGroup
+                    key={msg.id}
+                    message={msg}
+                    assetId={assetId}
+                    getValue={getValue}
+                    setValue={setValue}
+                    isEdited={isEdited}
+                    restoreField={restoreField}
+                    stageRef={(el) => {
+                      if (el) {
+                        el.setAttribute('data-stage-idx', String(currentStageIdx));
+                        stageRefs.current.set(currentStageIdx, el);
+                      }
+                    }}
+                  />
+                );
+              }
+
               // Stage separator
               if (msg.stageLabel) {
                 const currentStageIdx = stageIndexMap.get(msg.id) ?? 0;

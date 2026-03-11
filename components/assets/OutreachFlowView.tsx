@@ -31,6 +31,9 @@ interface ChatMessage {
   text: string;
   isRep?: boolean;
   alternatives?: string[];
+  alternativeLabels?: string[];
+  // Objection variant group: array of message groups (each group = one objection's messages)
+  objectionGroups?: ChatMessage[][];
 }
 
 // ─── Flow node types ─────────────────────────────────────────────────────────
@@ -317,6 +320,68 @@ function parseChatMessages(raw: string): ChatMessage[] {
   return messages;
 }
 
+// ─── Objection variant grouping ───────────────────────────────────────────────
+
+const OBJECTION_STAGE_REGEX = /Obje[çc][aã]o\s*[\u2013\u2014\-:]\s*(?:Fase\s*\d+\s*[:\u2013\u2014\-]\s*)?(.+)/i;
+
+function groupOutreachObjectionVariants(messages: ChatMessage[]): ChatMessage[] {
+  const result: ChatMessage[] = [];
+  let i = 0;
+
+  while (i < messages.length) {
+    const msg = messages[i];
+
+    // Check if this is an objection stage divider
+    if (msg.sender === 'stage' && OBJECTION_STAGE_REGEX.test(msg.text)) {
+      // Collect all consecutive objection stage groups
+      const groups: { label: string; title: string; content: ChatMessage[] }[] = [];
+      let j = i;
+
+      while (j < messages.length) {
+        const current = messages[j];
+        if (current.sender === 'stage' && OBJECTION_STAGE_REGEX.test(current.text)) {
+          const titleMatch = current.text.match(OBJECTION_STAGE_REGEX);
+          let title = titleMatch ? titleMatch[1].trim() : current.text;
+          if (title.length > 20) title = title.slice(0, 18) + '\u2026';
+          const content: ChatMessage[] = [];
+          j++;
+          // Collect all messages until the next stage divider
+          while (j < messages.length && messages[j].sender !== 'stage') {
+            content.push(messages[j]);
+            j++;
+          }
+          groups.push({ label: current.text, title, content });
+        } else {
+          break;
+        }
+      }
+
+      if (groups.length > 1) {
+        // Insert an objection group message
+        result.push({
+          id: `objgroup-${msg.id}`,
+          sender: 'stage',
+          text: 'Objeções',
+          alternativeLabels: groups.map(g => g.title),
+          objectionGroups: groups.map(g => g.content),
+        });
+      } else {
+        // Only one objection — render normally
+        for (let k = i; k < j; k++) {
+          result.push(messages[k]);
+        }
+      }
+
+      i = j;
+    } else {
+      result.push(msg);
+      i++;
+    }
+  }
+
+  return result;
+}
+
 // ─── Blueprint parser ────────────────────────────────────────────────────────
 
 function parseBlueprintNodes(raw: string): FlowNode[] {
@@ -454,7 +519,7 @@ function renderTextWithBrackets(
   setValue: (id: string, value: string) => void,
   isEdited: (id: string) => boolean
 ): React.ReactNode {
-  const regex = new RegExp(BRACKET_REGEX.source, 'gi');
+  const regex = new RegExp(BRACKET_REGEX.source, 'g');
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -732,7 +797,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                 : 'bg-white/5 border-white/10 text-white/50 hover:text-white/60'
             }`}
           >
-            Original
+            {message.alternativeLabels ? message.alternativeLabels[0] : 'Original'}
           </button>
           {message.alternatives.map((_, altIdx) => (
             <button
@@ -744,7 +809,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                   : 'bg-white/5 border-white/10 text-white/50 hover:text-white/60'
               }`}
             >
-              Variante {altIdx + 1}
+              {message.alternativeLabels ? message.alternativeLabels[altIdx + 1] : `Variante ${altIdx + 1}`}
             </button>
           ))}
         </div>
@@ -1300,6 +1365,91 @@ const OutreachStageNav: React.FC<{
   );
 };
 
+// ─── Objection variant group ──────────────────────────────────────────────────
+
+interface OutreachObjectionGroupProps {
+  message: ChatMessage;
+  fieldPrefix: string;
+  getValue: (id: string, original: string) => string;
+  setValue: (id: string, value: string) => void;
+  isEdited: (id: string) => boolean;
+  restoreField: (id: string) => void;
+  stageRef: (el: HTMLDivElement | null) => void;
+}
+
+const OutreachObjectionGroup: React.FC<OutreachObjectionGroupProps> = ({
+  message,
+  fieldPrefix,
+  getValue,
+  setValue,
+  isEdited,
+  restoreField,
+  stageRef,
+}) => {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const labels = message.alternativeLabels || [];
+  const groups = message.objectionGroups || [];
+  const currentGroup = groups[selectedIdx] || [];
+
+  return (
+    <div ref={stageRef} className="scroll-mt-16">
+      {/* Stage separator */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="flex items-center gap-3 my-6"
+      >
+        <div className="flex-1 h-px bg-prosperus-gold-dark/30" />
+        <span className="text-prosperus-gold-dark text-xs font-bold uppercase tracking-wider px-3">
+          Objeções
+        </span>
+        <div className="flex-1 h-px bg-prosperus-gold-dark/30" />
+      </motion.div>
+
+      {/* Variant pill buttons */}
+      <div className="flex flex-wrap gap-1.5 justify-center mb-4 px-4">
+        {labels.map((label, idx) => (
+          <button
+            key={idx}
+            onClick={() => setSelectedIdx(idx)}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition border ${
+              selectedIdx === idx
+                ? 'bg-prosperus-gold-dark/20 border-prosperus-gold-dark/40 text-prosperus-gold-dark'
+                : 'bg-white/5 border-white/10 text-white/50 hover:text-white/60'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Render the selected group's chat messages */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={selectedIdx}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.15 }}
+          className="space-y-1"
+        >
+          {currentGroup.map((m) => (
+            <ChatBubble
+              key={m.id}
+              message={m}
+              fieldPrefix={fieldPrefix}
+              getValue={getValue}
+              setValue={setValue}
+              isEdited={isEdited}
+              restoreField={restoreField}
+            />
+          ))}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -1332,7 +1482,7 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
 
   const { scriptRaw, blueprintRaw, secondTabLabel } = useMemo(() => splitContent(content), [content]);
 
-  const chatMessages = useMemo(() => parseChatMessages(scriptRaw), [scriptRaw]);
+  const chatMessages = useMemo(() => groupOutreachObjectionVariants(parseChatMessages(scriptRaw)), [scriptRaw]);
   const hasChatMessages =
     chatMessages.filter((m) => m.sender !== 'system' && m.sender !== 'stage').length > 0;
 
@@ -1560,6 +1710,22 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
               <div ref={chatScrollRef} className="px-4 py-4 space-y-1 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
                 {hasChatMessages ? (
                   chatMessages.map((msg) => {
+                    // Objection variant group
+                    if (msg.objectionGroups) {
+                      return (
+                        <OutreachObjectionGroup
+                          key={msg.id}
+                          message={msg}
+                          fieldPrefix="script"
+                          getValue={getValue}
+                          setValue={setValue}
+                          isEdited={isEdited}
+                          restoreField={restoreField}
+                          stageRef={(el) => { if (el) stageRefs.current.set(msg.id, el); }}
+                        />
+                      );
+                    }
+
                     const isStage = msg.sender === 'stage';
                     return (
                       <div
