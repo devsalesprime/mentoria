@@ -1,3 +1,8 @@
+# Database (user data — never commit)
+*.sqlite
+*.sqlite3
+*.db
+
 # Logs
 logs
 *.log

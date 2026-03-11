@@ -7,13 +7,6 @@ export interface BrandBrain {
   section2_offer: object;
   section3_positioning: object;
   section4_copy: object;
-
-  sectionApprovals: {
-    s1: 'pending' | 'approved' | 'editing';
-    s2: 'pending' | 'approved' | 'editing';
-    s3: 'pending' | 'approved' | 'editing';
-    s4: 'pending' | 'approved' | 'editing';
-  };
 }
 
 // === ASSETS ===

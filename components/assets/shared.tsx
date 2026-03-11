@@ -42,16 +42,20 @@ export const stripMarkdown = (text: string): string =>
 // ─── generatePdf ─────────────────────────────────────────────────────────────
 
 /** Generate and download a styled PDF from markdown content. */
-export const generatePdf = async (assetName: string, content: string): Promise<void> => {
+export const generatePdf = async (assetName: string, content: string, options?: { edited?: boolean }): Promise<void> => {
   const html2pdf = (await import('html2pdf.js')).default;
   const renderedHtml = DOMPurify.sanitize(marked.parse(content, { async: false }));
   const date = new Date().toLocaleDateString('pt-BR');
+  const editedLabel = options?.edited
+    ? `<p style="font-size:11px;color:#CA9A43;margin-top:4px;">Editado em ${date}</p>`
+    : '';
 
   const fullHtml = `
     <div style="font-family:'Segoe UI',Arial,sans-serif;color:#222;max-width:700px;margin:0 auto;padding:40px 24px;">
       <div style="text-align:center;margin-bottom:40px;">
         <h1 style="font-size:24px;color:#CA9A43;margin-bottom:4px;">${DOMPurify.sanitize(assetName)}</h1>
         <p style="font-size:12px;color:#666;">${date}</p>
+        ${editedLabel}
       </div>
       <div style="font-size:14px;line-height:1.7;color:#333;">
         ${renderedHtml}
@@ -78,6 +82,25 @@ export const generatePdf = async (assetName: string, content: string): Promise<v
     .save();
 
   document.body.removeChild(container);
+};
+
+// ─── downloadAsMarkdown ──────────────────────────────────────────────────
+
+/** Download content as a .md file, optionally with an "Editado em" header. */
+export const downloadAsMarkdown = (assetName: string, content: string, options?: { edited?: boolean }): void => {
+  const date = new Date().toISOString().split('T')[0];
+  const dateBr = new Date().toLocaleDateString('pt-BR');
+  const header = options?.edited ? `> Editado em ${dateBr}\n\n` : '';
+  const filename = `${toKebabCase(assetName)}-${date}.md`;
+  const blob = new Blob([header + content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.setAttribute('download', filename);
+  document.body.appendChild(a);
+  a.click();
+  a.parentElement?.removeChild(a);
+  URL.revokeObjectURL(url);
 };
 
 // ─── CopyButton ──────────────────────────────────────────────────────────────

@@ -753,7 +753,9 @@ export const LandingPagePreview: React.FC<LandingPagePreviewProps> = ({
 
   const handleDownloadText = () => {
     const date = new Date().toISOString().split('T')[0];
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const dateBr = new Date().toLocaleDateString('pt-BR');
+    const header = hasEdits ? `> Editado em ${dateBr}\n\n` : '';
+    const blob = new Blob([header + content], { type: 'text/markdown;charset=utf-8' });
     downloadFile(blob, `${toKebabCase(assetName)}-${date}.md`);
     markAssetOpened(assetId);
   };

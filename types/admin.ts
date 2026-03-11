@@ -72,12 +72,11 @@ export interface PipelineDetail {
     brandBrainStatus: string;
     brandBrainVersion: number;
     brandBrainCompletedAt: string | null;
-    sectionApprovals: Record<string, string>;
-    reviewNotes: any;
     expertNotes: Record<string, string> | null;
     assets: any;
     assetsStatus: string;
     assetsDeliveredAt: string | null;
+    educationalSuggestions: Record<string, any[]> | null;
 }
 
 export type BadgeColor = 'gray' | 'yellow' | 'blue' | 'purple' | 'green';

@@ -11,21 +11,33 @@ interface Stage {
 }
 
 const PIPELINE_STAGES: Stage[] = [
-  { key: 'diagnostic',  label: 'Diagnóstico',      description: 'Preenchimento do diagnóstico completo' },
-  { key: 'research',    label: 'Pesquisa de Mercado', description: 'Pesquisa de mercado e análise competitiva' },
-  { key: 'brand_brain', label: 'Brand Brain',       description: 'Geração do documento estratégico' },
-  { key: 'review',      label: 'Revisão',           description: 'Sua revisão e aprovação do Brand Brain' },
-  { key: 'assets',      label: 'Entregáveis',       description: 'Geração dos materiais de vendas' },
-  { key: 'delivered',   label: 'Entregue',          description: 'Materiais prontos para uso' },
+  { key: 'diagnostic',  label: 'Diagnóstico',     description: 'Preenchimento do diagnóstico completo' },
+  { key: 'processing',  label: 'Processamento',   description: 'Pesquisa, análise e geração dos materiais' },
+  { key: 'delivered',   label: 'Pronto',           description: 'Materiais prontos para uso' },
+];
+
+// Map actual pipeline statuses to simplified 3-stage model
+const SIMPLIFIED_PIPELINE_ORDER: PipelineStatus[] = [
+  'diagnostic', 'processing' as PipelineStatus, 'delivered',
 ];
 
 const PIPELINE_ORDER: PipelineStatus[] = [
   'diagnostic', 'research', 'brand_brain', 'review', 'assets', 'delivered',
 ];
 
+// Map actual pipeline status to simplified stage key
+function toSimplifiedStage(status: PipelineStatus): string {
+  if (status === 'diagnostic') return 'diagnostic';
+  if (status === 'delivered') return 'delivered';
+  // Everything in between (research, brand_brain, review, assets) = processing
+  return 'processing';
+}
+
 function getStageState(stageKey: string, currentStatus: PipelineStatus): 'completed' | 'active' | 'pending' {
-  const currentIdx = PIPELINE_ORDER.indexOf(currentStatus);
-  const stageIdx = PIPELINE_ORDER.indexOf(stageKey as PipelineStatus);
+  const simplifiedOrder = ['diagnostic', 'processing', 'delivered'];
+  const simplifiedCurrent = toSimplifiedStage(currentStatus);
+  const currentIdx = simplifiedOrder.indexOf(simplifiedCurrent);
+  const stageIdx = simplifiedOrder.indexOf(stageKey);
   // When pipeline reaches 'delivered' (last stage), everything is completed
   if (currentStatus === 'delivered') return 'completed';
   if (stageIdx < currentIdx) return 'completed';
@@ -46,10 +58,10 @@ function getContextualMessage(
     return null;
   }
   if (pipelineStatus === 'assets') {
-    return { text: 'Brand Brain aprovado! Seus entregáveis estão sendo preparados.', icon: '⚙️' };
+    return { text: 'Seus entregáveis estão sendo preparados. Você será notificado quando estiverem prontos.', icon: '⚙️' };
   }
-  if (brandBrainStatus === 'mentor_review') {
-    return { text: 'Seu Brand Brain está pronto para revisão. Acesse a seção Brand Brain no menu.', icon: '🧠' };
+  if (brandBrainStatus === 'ready') {
+    return { text: 'Seu Brand Brain está disponível. Acesse a seção Brand Brain no menu.', icon: '🧠' };
   }
   if (pipelineStatus === 'brand_brain' || researchStatus === 'complete') {
     return { text: 'A pesquisa foi concluída. Seu Brand Brain está sendo preparado.', icon: '🔬' };
@@ -188,7 +200,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Brand Brain shortcut */}
-            {(brandBrainStatus === 'mentor_review' || brandBrainStatus === 'approved' || brandBrainStatus === 'generated' || brandBrainStatus === 'danilo_review') && (
+            {(brandBrainStatus === 'ready' || brandBrainStatus === 'generating') && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -200,22 +212,17 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
                   <div>
                     <h4 className="text-lg font-bold text-white">Brand Brain</h4>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                      brandBrainStatus === 'approved'
+                      brandBrainStatus === 'ready'
                         ? 'bg-green-500/20 text-green-400'
-                        : brandBrainStatus === 'mentor_review'
-                        ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark'
                         : 'bg-white/10 text-white/50'
                     }`}>
-                      {brandBrainStatus === 'approved' ? 'Aprovado ✓' :
-                       brandBrainStatus === 'mentor_review' ? 'Aguardando Revisão' :
+                      {brandBrainStatus === 'ready' ? 'Disponível' :
                        'Em preparação'}
                     </span>
                   </div>
                 </div>
                 <p className="text-sm text-white/50">
-                  {brandBrainStatus === 'mentor_review'
-                    ? 'Revise e aprove seu documento estratégico.'
-                    : brandBrainStatus === 'approved'
+                  {brandBrainStatus === 'ready'
                     ? 'Visualize e baixe seu Brand Brain completo.'
                     : 'Seu documento estratégico está sendo preparado.'}
                 </p>
@@ -298,8 +305,8 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
                   {!isLast && (
                     <div className="hidden sm:flex items-start pt-4 flex-shrink-0">
                       <div className={`w-6 h-px mt-0 ${
-                        getStageState(PIPELINE_STAGES[idx + 1].key, pipelineStatus) !== 'pending' ||
-                        getStageState(stage.key, pipelineStatus) === 'completed'
+                        getStageState(PIPELINE_STAGES[idx + 1].key, effectivePipelineStatus) !== 'pending' ||
+                        getStageState(stage.key, effectivePipelineStatus) === 'completed'
                           ? 'bg-green-500/30'
                           : 'bg-white/10'
                       }`} />

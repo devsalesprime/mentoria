@@ -7,8 +7,8 @@ import type { PipelineDetail } from '../../types/admin';
 import { StatusBadge } from './StatusBadge';
 import { Button } from '../ui/Button';
 import {
-    BB_STATUS_ORDER, PIPELINE_STAGES,
-    getAdminStageState, SECTION_KEY_MAP, SECTION_ALT_KEY_MAP, SECTION_LABELS,
+    PIPELINE_STAGES,
+    getAdminStageState,
 } from './helpers';
 
 // Prose classes for BB section preview — compact admin variant (text-xs vs text-sm in brand-brain-parser.ts)
@@ -68,11 +68,14 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
     const [savingAssets, setSavingAssets] = useState(false);
     const [delivering, setDelivering] = useState(false);
 
-    const [revisionContent, setRevisionContent] = useState<Record<string, string>>({});
-    const [savingRevision, setSavingRevision] = useState<Record<string, boolean>>({});
-
     const [expertNotes, setExpertNotes] = useState<Record<string, string>>({});
     const [bbExpandedNotes, setBbExpandedNotes] = useState<Record<string, boolean>>({});
+
+    // Educational suggestions (Squad 2 output — 3 lenses JSON)
+    const [suggestionsJson, setSuggestionsJson] = useState('');
+    const [savingSuggestions, setSavingSuggestions] = useState(false);
+    const [suggestionsError, setSuggestionsError] = useState('');
+    const [suggestionsPreview, setSuggestionsPreview] = useState(false);
 
     // Landing page specific: Markdown vs HTML input mode (null = not yet detected)
     const [lpInputMode, setLpInputMode] = useState<'markdown' | 'html' | null>(null);
@@ -96,12 +99,11 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     brandBrainStatus:      d.brandBrainStatus      ?? d.brand_brain_status     ?? 'pending',
                     brandBrainVersion:     d.brandBrainVersion     ?? d.brand_brain_version    ?? 0,
                     brandBrainCompletedAt: d.brandBrainCompletedAt ?? d.brand_brain_completed_at ?? null,
-                    sectionApprovals:      { s1: 'pending', s2: 'pending', s3: 'pending', s4: 'pending', s5: 'pending', ...(d.sectionApprovals ?? d.section_approvals) },
-                    reviewNotes:           d.reviewNotes           ?? d.review_notes           ?? null,
                     expertNotes:           d.expertNotes           ?? d.expert_notes           ?? null,
                     assets:                d.assets                ?? null,
                     assetsStatus:          d.assetsStatus          ?? d.assets_status          ?? 'pending',
                     assetsDeliveredAt:     d.assetsDeliveredAt     ?? d.assets_delivered_at    ?? null,
+                    educationalSuggestions: d.educational_suggestions ?? d.educationalSuggestions ?? null,
                 };
                 setDetail(mapped);
                 // Detect research_dossier format: URL string vs legacy JSON object
@@ -162,6 +164,12 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     setAssetContents({});
                 }
                 setExpertNotes(mapped.expertNotes ?? {});
+                // Load existing educational suggestions
+                if (mapped.educationalSuggestions) {
+                    setSuggestionsJson(JSON.stringify(mapped.educationalSuggestions, null, 2));
+                } else {
+                    setSuggestionsJson('');
+                }
             }
         } catch (e: any) {
             showToast(e.response?.data?.message || 'Erro ao carregar pipeline', 'error');
@@ -233,15 +241,55 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
         } finally { setSavingBb(false); }
     };
 
-    const transitionBbStatus = async (status: string) => {
-        setSavingBb(true);
+    const REQUIRED_LENSES = ['marketing', 'vendas', 'modelo_de_negocios'] as const;
+    const LENS_LABELS: Record<string, string> = {
+        marketing: 'Marketing',
+        vendas: 'Vendas',
+        modelo_de_negocios: 'Modelo de Negócios',
+    };
+
+    const validateSuggestionsJson = (raw: string): { valid: boolean; parsed?: Record<string, any[]>; error?: string } => {
+        if (!raw.trim()) return { valid: false, error: 'JSON não pode estar vazio.' };
+        let parsed: any;
         try {
-            await axios.post(`/api/pipeline/${userId}/brand-brain`, { status }, { headers });
-            showToast('Status atualizado com sucesso', 'success');
+            parsed = JSON.parse(raw);
+        } catch {
+            return { valid: false, error: 'JSON inválido — verifique a formatação.' };
+        }
+        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return { valid: false, error: 'JSON deve ser um objeto com as 3 lentes.' };
+        }
+        // Auto-unwrap squad output format: { educational_suggestions: { ... } }
+        if ('educational_suggestions' in parsed && typeof parsed.educational_suggestions === 'object' && !Array.isArray(parsed.educational_suggestions)) {
+            parsed = parsed.educational_suggestions;
+        }
+        const missing = REQUIRED_LENSES.filter(k => !(k in parsed));
+        if (missing.length > 0) {
+            return { valid: false, error: `Lentes ausentes: ${missing.join(', ')}. Esperado: marketing, vendas, modelo_de_negocios.` };
+        }
+        for (const k of REQUIRED_LENSES) {
+            if (!Array.isArray(parsed[k])) {
+                return { valid: false, error: `Campo "${k}" deve ser um array.` };
+            }
+        }
+        return { valid: true, parsed };
+    };
+
+    const saveEducationalSuggestions = async () => {
+        const result = validateSuggestionsJson(suggestionsJson);
+        if (!result.valid) {
+            setSuggestionsError(result.error!);
+            return;
+        }
+        setSuggestionsError('');
+        setSavingSuggestions(true);
+        try {
+            await axios.post(`/api/admin/pipeline/${userId}/educational-suggestions`, result.parsed, { headers });
+            showToast('Sugestões educacionais salvas com sucesso', 'success');
             fetchDetail();
         } catch (e: any) {
-            showToast(e.response?.data?.message || 'Transição inválida', 'error');
-        } finally { setSavingBb(false); }
+            showToast(e.response?.data?.message || 'Erro ao salvar sugestões educacionais', 'error');
+        } finally { setSavingSuggestions(false); }
     };
 
     const saveAssets = async () => {
@@ -279,39 +327,6 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
         } finally { setDelivering(false); }
     };
 
-    const getSectionContent = (sectionId: string): string => {
-        if (!detail?.brandBrain) return '';
-        const key = SECTION_KEY_MAP[sectionId];
-        const altKey = SECTION_ALT_KEY_MAP[sectionId];
-        const section = detail.brandBrain[key] ?? (altKey ? detail.brandBrain[altKey] : undefined);
-        if (!section) return '';
-        if (typeof section === 'string') return section;
-        if (typeof section === 'object' && typeof section.content === 'string') return section.content;
-        return JSON.stringify(section, null, 2);
-    };
-
-    const reviseSection = async (sectionId: string) => {
-        const content = revisionContent[sectionId];
-        if (!content?.trim()) {
-            showToast('Conteúdo da revisão não pode estar vazio', 'error');
-            return;
-        }
-        setSavingRevision(prev => ({ ...prev, [sectionId]: true }));
-        try {
-            await axios.post(
-                `/api/admin/pipeline/${userId}/brand-brain/section/${sectionId}/revise`,
-                { content },
-                { headers }
-            );
-            showToast(`${SECTION_LABELS[sectionId]} revisada com sucesso`, 'success');
-            setRevisionContent(prev => ({ ...prev, [sectionId]: '' }));
-            fetchDetail();
-        } catch (e: any) {
-            showToast(e.response?.data?.message || 'Erro ao salvar revisão', 'error');
-        } finally {
-            setSavingRevision(prev => ({ ...prev, [sectionId]: false }));
-        }
-    };
 
     if (loading || !detail) {
         return (
@@ -320,8 +335,6 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
             </div>
         );
     }
-
-    const bbStatusIdx = BB_STATUS_ORDER.indexOf(detail.brandBrainStatus);
 
     return (
         <div className="space-y-6">
@@ -395,19 +408,7 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
                 <div className="flex items-center justify-between">
                     <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Etapa 3: Brand Brain</h4>
-                    <div className="flex items-center gap-2">
-                        <StatusBadge status={detail.brandBrainStatus} />
-                        {detail.brandBrain?.mentorEditedAt && (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-600/20 text-orange-400">
-                                Editado na revisão em {new Date(detail.brandBrain.mentorEditedAt).toLocaleDateString('pt-BR')}
-                            </span>
-                        )}
-                        {detail.brandBrain?.userEditedAt && (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-600/20 text-blue-400">
-                                Editado pós-aprovação em {new Date(detail.brandBrain.userEditedAt).toLocaleDateString('pt-BR')}
-                            </span>
-                        )}
-                    </div>
+                    <StatusBadge status={detail.brandBrainStatus} />
                 </div>
 
                 <div className="bg-prosperus-gold-dark/10 border border-prosperus-gold-dark/30 rounded-lg px-4 py-3 text-sm text-prosperus-gold-dark">
@@ -415,77 +416,7 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     <p>Cole o markdown de cada seção diretamente nos 5 campos abaixo — sem precisar formatar como JSON. Use o toggle "Visualizar" para conferir a renderização antes de salvar.</p>
                 </div>
 
-                {/* Section approvals */}
-                {detail.sectionApprovals && (
-                    <div className="flex gap-2">
-                        {BB_SECTION_ORDER.map((s) => (
-                            <span key={s} className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                detail.sectionApprovals[s] === 'approved' ? 'bg-green-600/20 text-green-400' :
-                                detail.sectionApprovals[s] === 'editing' ? 'bg-yellow-600/20 text-yellow-400' :
-                                detail.sectionApprovals[s] === 'revised' ? 'bg-blue-600/20 text-blue-400' :
-                                'bg-gray-600/20 text-gray-400'
-                            }`}>
-                                {BB_DISPLAY_NUM[s]}: {detail.sectionApprovals[s] ?? 'pending'}
-                            </span>
-                        ))}
-                    </div>
-                )}
-
-                {/* Mentor review notes (always visible when present) */}
-                {detail.reviewNotes && BB_SECTION_ORDER.some(s => detail.reviewNotes?.[s]?.trim()) && (
-                    <div className="space-y-2">
-                        <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold">Observações do mentor:</p>
-                        {BB_SECTION_ORDER.filter(s => detail.reviewNotes?.[s]?.trim()).map((s) => (
-                            <div key={s} className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2">
-                                <p className="text-[10px] font-semibold text-blue-400 mb-0.5">{SECTION_LABELS[s]}</p>
-                                <p className="text-sm text-white/70 italic">{detail.reviewNotes[s]}</p>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Section revision editor */}
-                {detail.sectionApprovals && BB_SECTION_ORDER.some(s => detail.sectionApprovals[s] === 'editing') && (
-                    <div className="space-y-3">
-                        <div className="bg-yellow-600/10 border border-yellow-600/30 rounded-lg px-4 py-3 text-sm text-yellow-400">
-                            <p className="font-semibold mb-1">Alterações solicitadas pelo mentor:</p>
-                            <p>Revise o conteúdo de cada seção abaixo e clique em "Salvar Revisão" para enviar de volta ao mentor.</p>
-                        </div>
-                        {BB_SECTION_ORDER.filter(s => detail.sectionApprovals[s] === 'editing').map((s) => (
-                            <div key={s} className="bg-yellow-600/5 border border-yellow-600/20 rounded-lg p-4 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-sm font-semibold text-white">{SECTION_LABELS[s]}</p>
-                                    <span className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-600/20 text-yellow-400">
-                                        Alterações Solicitadas
-                                    </span>
-                                </div>
-                                {detail.reviewNotes?.[s] && (
-                                    <div className="bg-black/20 border border-white/10 rounded-lg px-3 py-2">
-                                        <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold mb-1">Notas do mentor:</p>
-                                        <p className="text-sm text-yellow-300/80 italic">{detail.reviewNotes[s]}</p>
-                                    </div>
-                                )}
-                                <textarea
-                                    value={revisionContent[s] ?? getSectionContent(s)}
-                                    onChange={(e) => setRevisionContent(prev => ({ ...prev, [s]: e.target.value }))}
-                                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/70 font-mono resize-none h-32 focus:outline-none focus:border-yellow-600/40"
-                                    placeholder="Cole aqui o conteúdo revisado da seção..."
-                                />
-                                <Button
-                                    variant="outline"
-                                    onClick={() => reviseSection(s)}
-                                    disabled={savingRevision[s]}
-                                    loading={savingRevision[s]}
-                                    className="!bg-yellow-600/20 !text-yellow-400 !border-yellow-600/30 hover:!bg-yellow-600/30"
-                                >
-                                    {savingRevision[s] ? 'Salvando...' : `Salvar Revisão ${BB_DISPLAY_NUM[s]}`}
-                                </Button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* 4 Markdown textareas — one per section */}
+                {/* 5 Markdown textareas — one per section */}
                 <div className="space-y-4">
                     {BB_INPUT_SECTIONS.map((sec) => {
                         const isEmpty = !bbSections[sec.id]?.trim();
@@ -600,24 +531,114 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     <p className="text-red-400 text-xs">Preencha todas as 5 seções para habilitar o save.</p>
                 )}
 
-                <div className="flex flex-wrap gap-2">
-                    <Button
-                        variant="primary"
-                        onClick={saveBrandBrain}
-                        disabled={!bbAllFilled || savingBb}
-                        loading={savingBb}
-                    >
-                        {savingBb ? 'Salvando...' : 'Salvar Brand Brain'}
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onClick={() => transitionBbStatus('mentor_review')}
-                        disabled={savingBb || bbStatusIdx < BB_STATUS_ORDER.indexOf('generated') || bbStatusIdx >= BB_STATUS_ORDER.indexOf('mentor_review')}
-                        className="!bg-purple-600/20 !text-purple-400 !border-purple-600/30 hover:!bg-purple-600/30"
-                    >
-                        Enviar ao Mentor
-                    </Button>
+                <Button
+                    variant="primary"
+                    onClick={saveBrandBrain}
+                    disabled={!bbAllFilled || savingBb}
+                    loading={savingBb}
+                >
+                    {savingBb ? 'Salvando...' : 'Salvar Brand Brain'}
+                </Button>
+            </div>
+
+            {/* Educational Suggestions */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Etapa 4: Sugestões Educacionais</h4>
+                    {detail.educationalSuggestions && (
+                        <span className="text-[10px] text-green-400 bg-green-600/20 px-2 py-0.5 rounded-full font-semibold">
+                            salvo
+                        </span>
+                    )}
                 </div>
+
+                <div className="bg-prosperus-gold-dark/10 border border-prosperus-gold-dark/30 rounded-lg px-4 py-3 text-sm text-prosperus-gold-dark">
+                    <p className="font-semibold mb-1">JSON de sugestões educacionais (Squad 2)</p>
+                    <p>Cole o JSON com as 3 lentes: <code className="bg-black/20 px-1 rounded">marketing</code>, <code className="bg-black/20 px-1 rounded">vendas</code>, <code className="bg-black/20 px-1 rounded">modelo_de_negocios</code>. Cada lente deve ser um array de sugestões.</p>
+                </div>
+
+                <div className={`border rounded-xl overflow-hidden transition ${suggestionsError ? 'border-red-500/30 bg-red-500/5' : !suggestionsJson.trim() ? 'border-white/10 bg-black/20' : 'border-green-600/30 bg-green-900/5'}`}>
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm">📚</span>
+                            <span className="text-xs font-semibold text-white/80">Sugestões Educacionais JSON</span>
+                        </div>
+                        <button
+                            onClick={() => {
+                                const result = validateSuggestionsJson(suggestionsJson);
+                                if (!result.valid) {
+                                    setSuggestionsError(result.error!);
+                                    setSuggestionsPreview(false);
+                                } else {
+                                    setSuggestionsError('');
+                                    setSuggestionsPreview(v => !v);
+                                }
+                            }}
+                            disabled={!suggestionsJson.trim()}
+                            className={`px-2 py-1 rounded text-[10px] font-semibold transition disabled:opacity-30 disabled:cursor-not-allowed ${
+                                suggestionsPreview
+                                    ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark'
+                                    : 'bg-white/5 text-white/40 hover:text-white/60'
+                            }`}
+                        >
+                            {suggestionsPreview ? 'Editar' : 'Preview'}
+                        </button>
+                    </div>
+                    {suggestionsPreview ? (
+                        <div className="px-4 py-3 space-y-4">
+                            {REQUIRED_LENSES.map((lens) => {
+                                const parsed = JSON.parse(suggestionsJson);
+                                const items: any[] = parsed[lens] || [];
+                                return (
+                                    <div key={lens} className="space-y-2">
+                                        <h5 className="text-xs font-bold text-prosperus-gold-dark uppercase tracking-wider">{LENS_LABELS[lens]}</h5>
+                                        {items.length === 0 ? (
+                                            <p className="text-xs text-white/30 italic">Nenhuma sugestão nesta lente.</p>
+                                        ) : (
+                                            <ul className="space-y-1.5">
+                                                {items.map((item, i) => (
+                                                    <li key={i} className="bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                                                        {typeof item === 'string' ? (
+                                                            <p className="text-xs text-white/70">{item}</p>
+                                                        ) : (
+                                                            <div className="space-y-1">
+                                                                {item.titulo && <p className="text-xs font-semibold text-white/90">{item.titulo}</p>}
+                                                                {item.title && <p className="text-xs font-semibold text-white/90">{item.title}</p>}
+                                                                {item.descricao && <p className="text-xs text-white/60">{item.descricao}</p>}
+                                                                {item.description && <p className="text-xs text-white/60">{item.description}</p>}
+                                                                {item.sugestao && <p className="text-xs text-white/60">{item.sugestao}</p>}
+                                                            </div>
+                                                        )}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <textarea
+                            value={suggestionsJson}
+                            onChange={(e) => { setSuggestionsJson(e.target.value); setSuggestionsError(''); setSuggestionsPreview(false); }}
+                            placeholder={'{\n  "marketing": [\n    { "titulo": "...", "descricao": "..." }\n  ],\n  "vendas": [...],\n  "modelo_de_negocios": [...]\n}'}
+                            className="w-full bg-transparent px-3 py-2 text-xs text-white/70 font-mono resize-none h-48 focus:outline-none focus:bg-white/5 transition placeholder:text-white/20"
+                        />
+                    )}
+                </div>
+
+                {suggestionsError && (
+                    <p className="text-red-400 text-xs">{suggestionsError}</p>
+                )}
+
+                <Button
+                    variant="primary"
+                    onClick={saveEducationalSuggestions}
+                    disabled={!suggestionsJson.trim() || savingSuggestions}
+                    loading={savingSuggestions}
+                >
+                    {savingSuggestions ? 'Salvando...' : 'Salvar Sugestões Educacionais'}
+                </Button>
             </div>
 
             {/* Assets */}
@@ -714,15 +735,17 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     >
                         {savingAssets ? 'Salvando...' : 'Salvar Entregáveis'}
                     </Button>
-                    <Button
-                        variant="outline"
-                        onClick={deliver}
-                        disabled={detail.assetsStatus === 'pending' || delivering}
-                        loading={delivering}
-                        className="!bg-green-600/20 !text-green-400 !border-green-600/30 hover:!bg-green-600/30"
-                    >
-                        {delivering ? 'Entregando...' : detail.assetsStatus === 'delivered' ? 'Re-entregar ao Mentor' : 'Entregar ao Mentor'}
-                    </Button>
+                    {(detail.assetsStatus === 'ready' || detail.assetsStatus === 'delivered') && (
+                        <Button
+                            variant="outline"
+                            onClick={deliver}
+                            disabled={delivering}
+                            loading={delivering}
+                            className="!bg-green-600/20 !text-green-400 !border-green-600/30 hover:!bg-green-600/30"
+                        >
+                            {delivering ? 'Entregando...' : detail.assetsStatus === 'delivered' ? 'Re-entregar ao Mentor' : 'Entregar ao Mentor'}
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>

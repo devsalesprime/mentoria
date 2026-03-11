@@ -59,8 +59,8 @@ module.exports = function createAdminUsersRoutes({ db, dbGet, dbRun, dbAll, auth
         const pipelineStage = (() => {
           if (ds !== 'submitted') return 'Diagnóstico';
           if (as_ === 'delivered') return 'Entregue';
-          if (bbs === 'approved') return 'Entregáveis';
-          if (bbs === 'mentor_review') return 'Revisão';
+          if (bbs === 'ready') return 'Entregáveis';
+          if (bbs === 'generating') return 'Brand Brain';
           if (bbs && bbs !== 'pending') return 'Brand Brain';
           if (rs === 'complete') return 'Brand Brain';
           return 'Pesquisa';

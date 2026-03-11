@@ -265,7 +265,7 @@ export const GuideView: React.FC<GuideViewProps> = ({ tool, token, onBack }) => 
         const res = await axios.get('/api/brand-brain', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (res.data.success && res.data.data?.brandBrainStatus === 'approved') {
+        if (res.data.success && (res.data.data?.brandBrainStatus === 'ready' || res.data.data?.brandBrainStatus === 'approved')) {
           setBbStatus('available');
           setBbData(res.data.data.brandBrain);
           setMentorName(res.data.data?.name || 'Mentor');
@@ -376,7 +376,7 @@ export const GuideView: React.FC<GuideViewProps> = ({ tool, token, onBack }) => 
                 {downloading ? 'Baixando...' : '⬇ Baixar Brand Brain para uso com IA'}
               </Button>
               {bbStatus === 'unavailable' && (
-                <p className="text-white/50 text-xs mt-1">Brand Brain ainda não aprovado</p>
+                <p className="text-white/50 text-xs mt-1">Brand Brain ainda não disponível</p>
               )}
             </div>
             <p className="text-white/20 text-[10px] mt-2 max-w-md">

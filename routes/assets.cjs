@@ -3,7 +3,7 @@ const { Router } = require('express');
 module.exports = function createAssetsRoutes({ db, dbGet, dbRun, dbAll, authMiddleware, safeJsonParse }) {
   const router = Router();
 
-  // GET /api/assets — Get my delivered assets
+  // GET /api/assets — Get my assets (available when status is 'ready' or 'delivered')
   router.get('/api/assets', authMiddleware, async (req, res) => {
     try {
       const { userId } = req.user;
@@ -11,7 +11,7 @@ module.exports = function createAssetsRoutes({ db, dbGet, dbRun, dbAll, authMidd
 
       const row = await dbGet('SELECT assets, assets_status FROM pipeline WHERE user_id = ?', [userId]);
 
-      if (!row || row.assets_status !== 'delivered') {
+      if (!row || row.assets_status === 'pending' || !row.assets_status) {
         return res.json({ success: true, data: null });
       }
 
@@ -45,8 +45,8 @@ module.exports = function createAssetsRoutes({ db, dbGet, dbRun, dbAll, authMidd
 
       const row = await dbGet('SELECT assets, assets_status FROM pipeline WHERE user_id = ?', [userId]);
 
-      if (!row || row.assets_status !== 'delivered' || !row.assets) {
-        return res.status(404).json({ success: false, message: 'Asset não encontrado ou ainda não entregue.' });
+      if (!row || row.assets_status === 'pending' || !row.assets_status || !row.assets) {
+        return res.status(404).json({ success: false, message: 'Asset não encontrado ou ainda não disponível.' });
       }
 
       const assets = safeJsonParse(row.assets);

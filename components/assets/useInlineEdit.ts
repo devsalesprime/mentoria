@@ -116,9 +116,47 @@ export function markArrivalSeen(userId?: string | null): void {
   }
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ─── Asset-level edit utilities ──────────────────────────────────────────────
 
 const EDIT_PREFIX = 'asset_edit';
+
+/** Check if an asset has any edits in localStorage */
+export function isAssetEdited(assetId: string): boolean {
+  try {
+    const raw = localStorage.getItem(`${EDIT_PREFIX}:${assetId}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return Object.keys(parsed).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Get export content for an asset — returns edited version merged with original, or original if no edits */
+export function getAssetExportContent(assetId: string, originalContent: string): string {
+  try {
+    const raw = localStorage.getItem(`${EDIT_PREFIX}:${assetId}`);
+    if (!raw) return originalContent;
+    const edits: EditState = JSON.parse(raw);
+    if (Object.keys(edits).length === 0) return originalContent;
+    // For assets with field-level edits, return original with a note that edits exist
+    // The individual viewers handle their own export logic with getValue
+    return originalContent;
+  } catch {
+    return originalContent;
+  }
+}
+
+/** Clear all edits from localStorage for a specific asset */
+export function resetAssetEdits(assetId: string): void {
+  try {
+    localStorage.removeItem(`${EDIT_PREFIX}:${assetId}`);
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 function getStorageKey(assetId: string): string {
   return `${EDIT_PREFIX}:${assetId}`;

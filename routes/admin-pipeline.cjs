@@ -1,5 +1,4 @@
 const { Router } = require('express');
-const { VALID_SECTIONS, SECTION_KEY_MAP, SECTION_ALT_KEY_MAP } = require('./shared/brand-brain-constants.cjs');
 
 module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, authMiddleware, adminMiddleware, uuidv4, safeJsonParse }) {
   const router = Router();
@@ -51,8 +50,9 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
           d.id, d.name, d.email, d.status AS diagnostic_status, d.updated_at, d.submitted_at,
           p.research_dossier, p.research_status, p.research_completed_at,
           p.brand_brain, p.brand_brain_status, p.brand_brain_version, p.brand_brain_completed_at,
-          p.section_approvals, p.review_notes, p.expert_notes,
-          p.assets, p.assets_status, p.assets_delivered_at
+          p.expert_notes,
+          p.assets, p.assets_status, p.assets_delivered_at,
+          p.educational_suggestions
          FROM diagnostic_data d
          LEFT JOIN pipeline p ON d.user_id = p.user_id
          WHERE d.id = ?`,
@@ -75,10 +75,9 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
         ...row,
         research_dossier: parsedResearch,
         brand_brain: row.brand_brain ? safeJsonParse(row.brand_brain, null) : null,
-        section_approvals: row.section_approvals ? safeJsonParse(row.section_approvals, null) : null,
-        review_notes: row.review_notes ? safeJsonParse(row.review_notes, null) : null,
         expert_notes: row.expert_notes ? safeJsonParse(row.expert_notes, null) : null,
         assets: row.assets ? safeJsonParse(row.assets, null) : null,
+        educational_suggestions: row.educational_suggestions ? safeJsonParse(row.educational_suggestions, null) : null,
       };
 
       res.json({ success: true, data });
@@ -116,8 +115,9 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
 
       const VALID_TRANSITIONS = {
         'pending': ['generated'],
-        'generated': ['danilo_review', 'mentor_review'],
+        'generated': ['danilo_review'],
         'danilo_review': ['mentor_review'],
+        'mentor_review': ['approved'],
       };
 
       const user = await dbGet('SELECT id, user_id FROM diagnostic_data WHERE id = ?', [userId]);
@@ -126,7 +126,7 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
       }
       const userUid = user.user_id;
 
-      const pipeline = await dbGet('SELECT id, brand_brain_status, section_approvals FROM pipeline WHERE user_id = ?', [userUid]);
+      const pipeline = await dbGet('SELECT id, brand_brain_status FROM pipeline WHERE user_id = ?', [userUid]);
 
       // Validate status transition if status provided
       let newStatus = null;
@@ -145,13 +145,12 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
       if (!pipeline) {
         // INSERT new pipeline row
         const pipelineId = uuidv4();
-        const bbStatus = newStatus || (brandBrain ? 'generated' : 'pending');
-        const initialApprovals = brandBrain ? JSON.stringify({ s1: 'pending', s2: 'pending', s3: 'pending', s4: 'pending', s5: 'pending' }) : null;
+        const bbStatus = newStatus || (brandBrain ? 'mentor_review' : 'pending');
 
         await dbRun(
-          `INSERT INTO pipeline (id, user_id, brand_brain, brand_brain_status, section_approvals, updated_at)
-           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-          [pipelineId, userUid, brandBrain ? JSON.stringify(brandBrain) : null, bbStatus, initialApprovals]
+          `INSERT INTO pipeline (id, user_id, brand_brain, brand_brain_status, updated_at)
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+          [pipelineId, userUid, brandBrain ? JSON.stringify(brandBrain) : null, bbStatus]
         );
 
         console.log(`✅ Pipeline criada e Brand Brain salvo para ${userId}`);
@@ -165,17 +164,12 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
         const currentBbStatus = pipeline.brand_brain_status || 'pending';
         let finalStatus = newStatus; // explicit transition takes priority
         if (!finalStatus && brandBrain && currentBbStatus === 'pending') {
-          finalStatus = 'generated'; // auto-set when saving brand brain for first time
+          finalStatus = 'mentor_review'; // auto-set when admin uploads content directly
         }
 
         if (brandBrain) {
           updates.push('brand_brain = ?');
           params.push(JSON.stringify(brandBrain));
-          // Initialize approvals only when transitioning from pending
-          if (currentBbStatus === 'pending') {
-            updates.push('section_approvals = ?');
-            params.push(JSON.stringify({ s1: 'pending', s2: 'pending', s3: 'pending', s4: 'pending', s5: 'pending' }));
-          }
         }
 
         if (finalStatus) {
@@ -274,10 +268,11 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
 
       const pipeline = await dbGet('SELECT id, assets_status FROM pipeline WHERE user_id = ?', [userUid]);
 
-      if (!pipeline || pipeline.assets_status === 'pending') {
+      if (!pipeline || !['ready', 'delivered'].includes(pipeline.assets_status)) {
+        const currentStatus = pipeline ? pipeline.assets_status : 'sem pipeline';
         return res.status(400).json({
           success: false,
-          message: 'Assets não estão prontos para entrega. Status atual: ' + (pipeline ? pipeline.assets_status : 'sem pipeline')
+          message: `Assets não estão prontos para entrega. Status atual: ${currentStatus}`
         });
       }
 
@@ -345,71 +340,6 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
     }
   });
 
-  // POST /api/admin/pipeline/:userId/brand-brain/section/:sectionId/revise — Revise a single BB section (admin only)
-  router.post('/api/admin/pipeline/:userId/brand-brain/section/:sectionId/revise', authMiddleware, adminMiddleware, async (req, res) => {
-    try {
-      const { userId, sectionId } = req.params;
-      const { content } = req.body;
-      console.log(`✏️ [Admin] Revisando seção ${sectionId} do Brand Brain para: ${userId}`);
-
-      if (!VALID_SECTIONS.includes(sectionId)) {
-        return res.status(400).json({ success: false, message: `Seção inválida: ${sectionId}. Use: s1, s2, s3, s4 ou s5.` });
-      }
-
-      if (!content) {
-        return res.status(400).json({ success: false, message: 'Campo content é obrigatório.' });
-      }
-
-      const user = await dbGet('SELECT id, user_id FROM diagnostic_data WHERE id = ?', [userId]);
-      if (!user) {
-        return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
-      }
-      const userUid = user.user_id;
-
-      const pipeline = await dbGet('SELECT brand_brain, brand_brain_status, brand_brain_version, section_approvals, review_notes FROM pipeline WHERE user_id = ?', [userUid]);
-
-      if (!pipeline) {
-        return res.status(404).json({ success: false, message: 'Pipeline não encontrada.' });
-      }
-
-      const brandBrain = safeJsonParse(pipeline.brand_brain);
-      const approvals = { s1: 'pending', s2: 'pending', s3: 'pending', s4: 'pending', s5: 'pending', ...safeJsonParse(pipeline.section_approvals) };
-      const reviewNotes = safeJsonParse(pipeline.review_notes);
-
-      // Update the section content
-      const sectionKey = SECTION_KEY_MAP[sectionId];
-      const altKey = SECTION_ALT_KEY_MAP[sectionId];
-      const existingKey = (sectionKey in brandBrain) ? sectionKey : (altKey && altKey in brandBrain) ? altKey : sectionKey;
-      if (typeof brandBrain[existingKey] === 'object' && brandBrain[existingKey] !== null) {
-        brandBrain[existingKey].content = content;
-      } else {
-        brandBrain[existingKey] = { content };
-      }
-
-      // Set status to 'revised' and clear review notes for this section
-      approvals[sectionId] = 'revised';
-      delete reviewNotes[sectionId];
-
-      const newVersion = (pipeline.brand_brain_version || 0) + 1;
-
-      await dbRun(
-        `UPDATE pipeline SET brand_brain = ?, section_approvals = ?, review_notes = ?, brand_brain_version = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
-        [JSON.stringify(brandBrain), JSON.stringify(approvals), JSON.stringify(reviewNotes), newVersion, userUid]
-      );
-
-      console.log(`✅ Seção ${sectionId} revisada para ${userId} (v${newVersion})`);
-      res.json({
-        success: true,
-        message: `Seção ${sectionId} revisada com sucesso.`,
-        sectionApprovals: approvals,
-        version: newVersion,
-      });
-    } catch (error) {
-      console.error('❌ Erro em POST /api/admin/pipeline/:userId/brand-brain/section/:sectionId/revise:', error);
-      res.status(500).json({ success: false, message: 'Erro ao salvar revisão.' });
-    }
-  });
-
   // POST /api/admin/pipeline/:userId/expert-notes — Save expert notes for Brand Brain sections
   router.post('/api/admin/pipeline/:userId/expert-notes', authMiddleware, adminMiddleware, async (req, res) => {
     try {
@@ -437,6 +367,52 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
     } catch (error) {
       console.error('❌ Erro em POST /api/admin/pipeline/:userId/expert-notes:', error);
       res.status(500).json({ success: false, message: 'Erro ao salvar notas do especialista.' });
+    }
+  });
+
+  // POST /api/admin/pipeline/:userId/educational-suggestions — Save educational suggestions JSON (admin only)
+  router.post('/api/admin/pipeline/:userId/educational-suggestions', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const suggestions = req.body;
+      console.log(`📚 [Admin] Salvando sugestões educacionais para: ${userId}`);
+
+      // Validate required keys
+      const REQUIRED_KEYS = ['marketing', 'vendas', 'modelo_de_negocios'];
+      const missingKeys = REQUIRED_KEYS.filter(key => !(key in suggestions));
+      if (missingKeys.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Campos obrigatórios ausentes: ${missingKeys.join(', ')}. JSON deve conter: marketing, vendas, modelo_de_negocios.`
+        });
+      }
+
+      // Validate each key is an array
+      for (const key of REQUIRED_KEYS) {
+        if (!Array.isArray(suggestions[key])) {
+          return res.status(400).json({
+            success: false,
+            message: `Campo "${key}" deve ser um array.`
+          });
+        }
+      }
+
+      const user = await dbGet('SELECT user_id FROM diagnostic_data WHERE id = ?', [userId]);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+      }
+      const userUid = user.user_id;
+
+      await dbRun(
+        'UPDATE pipeline SET educational_suggestions = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+        [JSON.stringify(suggestions), userUid]
+      );
+
+      console.log(`✅ Sugestões educacionais salvas para ${userId}`);
+      res.json({ success: true, message: 'Sugestões educacionais salvas com sucesso.' });
+    } catch (error) {
+      console.error('❌ Erro em POST /api/admin/pipeline/:userId/educational-suggestions:', error);
+      res.status(500).json({ success: false, message: 'Erro ao salvar sugestões educacionais.' });
     }
   });
 

@@ -19,6 +19,7 @@ import {
 } from './assetConfig';
 import {
   getAssetProgress, markAssetOpened, hasSeenArrival,
+  isAssetEdited, resetAssetEdits,
   type AssetProgressState,
 } from './useInlineEdit';
 
@@ -68,11 +69,14 @@ interface JourneyAssetCardProps {
   entry: AssetCatalogEntry;
   asset: GeneratedAsset | undefined;
   onView: (entry: AssetCatalogEntry, asset: GeneratedAsset) => void;
+  onResetEdits?: (assetId: string) => void;
 }
 
-const JourneyAssetCard: React.FC<JourneyAssetCardProps> = ({ entry, asset, onView }) => {
+const JourneyAssetCard: React.FC<JourneyAssetCardProps> = ({ entry, asset, onView, onResetEdits }) => {
   const hasContent = !!asset?.content;
   const progress = getAssetProgress(entry.assetId);
+  const edited = isAssetEdited(entry.assetId);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   return (
     <motion.div
@@ -85,27 +89,69 @@ const JourneyAssetCard: React.FC<JourneyAssetCardProps> = ({ entry, asset, onVie
           <span className="text-xl flex-shrink-0">{entry.icon}</span>
           <h4 className="font-semibold text-white text-sm leading-snug">{entry.name}</h4>
         </div>
-        {hasContent ? (
-          <ProgressBadge state={progress} />
-        ) : (
-          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-600/20 text-gray-400">
-            Ainda não gerado
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {hasContent ? (
+            <ProgressBadge state={progress} />
+          ) : (
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-600/20 text-gray-400">
+              Ainda não gerado
+            </span>
+          )}
+          {edited && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-prosperus-gold-dark/20 text-prosperus-gold-dark">
+              Editado
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Trigger sentence */}
       <p className="text-sm text-prosperus-gold-dark/70 leading-relaxed">{entry.triggerSentence}</p>
 
-      {/* Action */}
-      <Button
-        variant="primary"
-        fullWidth
-        onClick={() => hasContent && asset && onView(entry, asset)}
-        disabled={!hasContent}
-      >
-        Ver agora
-      </Button>
+      {/* Restore confirmation */}
+      {showConfirm && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 space-y-2">
+          <p className="text-xs text-red-300">Tem certeza? As edicoes serao perdidas.</p>
+          <div className="flex gap-2">
+            <Button
+              variant="danger-soft"
+              size="xs"
+              onClick={() => {
+                resetAssetEdits(entry.assetId);
+                onResetEdits?.(entry.assetId);
+                setShowConfirm(false);
+              }}
+            >
+              Restaurar Original
+            </Button>
+            <Button variant="ghost" size="xs" onClick={() => setShowConfirm(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        <Button
+          variant="primary"
+          fullWidth
+          onClick={() => hasContent && asset && onView(entry, asset)}
+          disabled={!hasContent}
+        >
+          Ver agora
+        </Button>
+        {edited && !showConfirm && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowConfirm(true)}
+            className="flex-shrink-0 text-xs"
+          >
+            Restaurar
+          </Button>
+        )}
+      </div>
     </motion.div>
   );
 };
@@ -181,6 +227,7 @@ export const AssetDeliveryHub: React.FC<AssetDeliveryHubProps> = ({
   const [showArrival, setShowArrival] = useState(false);
   const [activePhase, setActivePhase] = useState<JourneyPhase | 'all' | 'toolkit'>('all');
   const [warningDismissed, setWarningDismissed] = useState(() => localStorage.getItem(scopedKey(userId, 'hub_warning_dismissed')) === 'true');
+  const [editResetCounter, setEditResetCounter] = useState(0);
 
   // ─── Fetch assets ─────────────────────────────────────────────────────────
 
@@ -219,6 +266,10 @@ export const AssetDeliveryHub: React.FC<AssetDeliveryHubProps> = ({
   };
 
   const handleBack = () => setSelected(null);
+
+  const handleResetEdits = (_assetId: string) => {
+    setEditResetCounter((c) => c + 1);
+  };
 
   const handleSelectTool = (tool: ToolDefinition) => {
     setSelectedTool(tool);
@@ -326,7 +377,7 @@ export const AssetDeliveryHub: React.FC<AssetDeliveryHubProps> = ({
           <span className="text-5xl block mb-4">🚀</span>
           <h3 className="text-xl font-semibold text-white mb-2">Entregáveis em preparação</h3>
           <p className="text-white/50 text-sm max-w-sm mx-auto">
-            Seus entregáveis estão sendo preparados com base no seu Brand Brain aprovado.
+            Seus entregáveis estão sendo preparados com base no seu Brand Brain.
             Você será notificado quando estiverem prontos.
           </p>
         </div>
@@ -449,10 +500,11 @@ export const AssetDeliveryHub: React.FC<AssetDeliveryHubProps> = ({
                     {/* Stacked asset cards */}
                     {phaseAssets.map((entry) => (
                       <JourneyAssetCard
-                        key={entry.assetId}
+                        key={`${entry.assetId}-${editResetCounter}`}
                         entry={entry}
                         asset={resolveAssetContent(assets, entry)}
                         onView={handleView}
+                        onResetEdits={handleResetEdits}
                       />
                     ))}
                   </motion.div>
@@ -497,6 +549,7 @@ export const AssetDeliveryHub: React.FC<AssetDeliveryHubProps> = ({
                             entry={entry}
                             asset={resolveAssetContent(assets, entry)}
                             onView={handleView}
+                            onResetEdits={handleResetEdits}
                           />
                         </div>
                       ))}

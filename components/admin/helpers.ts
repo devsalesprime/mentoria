@@ -14,25 +14,23 @@ export const hasBbSections = (str: string): boolean => {
     } catch { return true; }
 };
 
-export const BB_STATUS_ORDER = ['pending', 'generated', 'danilo_review', 'mentor_review', 'approved'];
+export const BB_STATUS_ORDER = ['pending', 'generating', 'ready'];
 
 export const PIPELINE_STAGES = [
     { key: 'diagnostic',  label: 'Diagnóstico' },
     { key: 'research',    label: 'Pesquisa' },
     { key: 'brand_brain', label: 'Brand Brain' },
-    { key: 'review',      label: 'Revisão' },
     { key: 'assets',      label: 'Entregáveis' },
     { key: 'delivered',   label: 'Entregue' },
 ];
 
-const PIPELINE_STAGE_ORDER = ['diagnostic', 'research', 'brand_brain', 'review', 'assets', 'delivered'];
+const PIPELINE_STAGE_ORDER = ['diagnostic', 'research', 'brand_brain', 'assets', 'delivered'];
 
 export function getAdminStageState(stageKey: string, detail: PipelineDetail): 'completed' | 'active' | 'pending' {
     const completed: Record<string, boolean> = {
         diagnostic:  detail.diagnosticStatus === 'submitted',
         research:    detail.researchStatus === 'complete',
-        brand_brain: ['mentor_review', 'approved'].includes(detail.brandBrainStatus),
-        review:      detail.brandBrainStatus === 'approved',
+        brand_brain: detail.brandBrainStatus === 'ready' || ['mentor_review', 'approved', 'generated'].includes(detail.brandBrainStatus),
         assets:      detail.assetsStatus === 'delivered',
         delivered:   detail.assetsStatus === 'delivered',
     };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CopyButton, toKebabCase, renderMarkdown, generatePdf, stripMarkdown } from './shared';
 import { SectionWarning } from '../shared/SectionWarning';
@@ -61,7 +61,8 @@ const SPLIT_HEADER = /^#{1,3}\s+.*\b(racioc[íi]n[íi]|por\s+que\s+este\s+script
 const REP_LABELS = /^\*\*(Reconhe[cç]er?|Elogiar?|Perguntar?)\s*:\*\*/i;
 const REP_PLAIN = /^(?:Reconhe[cç]er?|Elogiar?|Perguntar?)\s*:/i;
 // Variant headers: group content under last mentor message as alternatives
-const VARIANT_HEADER = /^(?:#{2,4}\s+|\*{2})?(?:variante|op[cç][aã]o|vers[aã]o)\s+\d+/i;
+// Matches: "Variante 1", "**Variante Opt-in:**", "### Opção 2:", "Versão Networking"
+const VARIANT_HEADER = /^(?:#{2,4}\s+|\*{2})?(?:variante|op[cç][aã]o|vers[aã]o)\s+(?:\d+|[A-Za-zÀ-ÖØ-öø-ÿ-]+)/i;
 const DAY_REGEX = /dia\s+(\d+)/i;
 const DECISION_INDICATORS = /\?|respondeu|se\s+|se\s*\(/i;
 const ARROW_REGEX = /[\u2192\u25b6]/;
@@ -148,7 +149,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
       const inlineContent = line
         .replace(/^#{2,4}\s+/, '')
         .replace(/\*\*/g, '')
-        .replace(/^(?:variante|op[cç][aã]o|vers[aã]o)\s+\d+\s*:?\s*/i, '')
+        .replace(/^(?:variante|op[cç][aã]o|vers[aã]o)\s+(?:\d+|[A-Za-zÀ-ÖØ-öø-ÿ-]+)\s*:?\s*/i, '')
         .trim();
       if (inlineContent) variantLines.push(inlineContent);
       justSawMentor = false;
@@ -1013,23 +1014,116 @@ const MobileFlowList: React.FC<{
 
 const BlueprintFallback: React.FC<{ raw: string }> = ({ raw }) => (
   <div className="border-l-2 border-prosperus-gold-dark/30 pl-5 py-2">
-    <div
-      className="text-sm text-white/70 leading-relaxed
-        [&_ul]:space-y-1.5 [&_ul]:mt-2 [&_ul]:ml-0 [&_ul]:list-none [&_ul]:pl-0
-        [&_ol]:space-y-1.5 [&_ol]:mt-2 [&_ol]:ml-0 [&_ol]:pl-0
-        [&_li]:relative [&_li]:pl-4 [&_li]:text-white/70 [&_li]:text-[13px] [&_li]:leading-relaxed
-        [&_li]:before:content-[''] [&_li]:before:absolute [&_li]:before:left-0 [&_li]:before:top-[9px] [&_li]:before:w-1.5 [&_li]:before:h-1.5 [&_li]:before:rounded-full [&_li]:before:bg-prosperus-gold-dark/50
-        [&_strong]:text-prosperus-gold-dark [&_strong]:font-semibold
-        [&_em]:text-white/50
-        [&_p]:mb-2 [&_p]:text-[13px]
-        [&_h2]:text-sm [&_h2]:text-prosperus-gold-dark [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-4
-        [&_h3]:text-sm [&_h3]:text-white/70 [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-3
-        [&_h4]:text-xs [&_h4]:text-white/70 [&_h4]:font-semibold [&_h4]:mb-1 [&_h4]:mt-2
-      "
-      dangerouslySetInnerHTML={{ __html: renderMarkdown(raw) }}
-    />
+    <MarkdownBlock raw={raw} />
   </div>
 );
+
+// ─── Shared markdown block styling ──────────────────────────────────────────
+
+const MarkdownBlock: React.FC<{ raw: string }> = ({ raw }) => (
+  <div
+    className="text-sm text-white/70 leading-relaxed
+      [&_ul]:space-y-1.5 [&_ul]:mt-2 [&_ul]:ml-0 [&_ul]:list-none [&_ul]:pl-0
+      [&_ol]:space-y-1.5 [&_ol]:mt-2 [&_ol]:ml-0 [&_ol]:pl-0
+      [&_li]:relative [&_li]:pl-4 [&_li]:text-white/70 [&_li]:text-[13px] [&_li]:leading-relaxed
+      [&_li]:before:content-[''] [&_li]:before:absolute [&_li]:before:left-0 [&_li]:before:top-[9px] [&_li]:before:w-1.5 [&_li]:before:h-1.5 [&_li]:before:rounded-full [&_li]:before:bg-prosperus-gold-dark/50
+      [&_strong]:text-prosperus-gold-dark [&_strong]:font-semibold
+      [&_em]:text-white/50
+      [&_p]:mb-2 [&_p]:text-[13px]
+      [&_h2]:text-sm [&_h2]:text-prosperus-gold-dark [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-4
+      [&_h3]:text-sm [&_h3]:text-white/70 [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-3
+      [&_h4]:text-xs [&_h4]:text-white/70 [&_h4]:font-semibold [&_h4]:mb-1 [&_h4]:mt-2
+    "
+    dangerouslySetInnerHTML={{ __html: renderMarkdown(raw) }}
+  />
+);
+
+// ─── Reasoning sections (card-per-topic layout) ─────────────────────────────
+
+interface ReasoningSection {
+  title: string;
+  number: string;
+  body: string;
+}
+
+function parseReasoningSections(raw: string): { intro: string; sections: ReasoningSection[] } {
+  const lines = raw.split('\n');
+  const sections: ReasoningSection[] = [];
+  let intro: string[] = [];
+  let current: { title: string; number: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Numbered section header: ### 1. Title, ### 2: Title, etc.
+    const numberedMatch = trimmed.match(/^#{2,3}\s+(\d+)\.?\s*[:\-\u2013\u2014.]?\s*(.+)/);
+    if (numberedMatch) {
+      if (current) {
+        sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+      }
+      current = {
+        number: numberedMatch[1],
+        title: numberedMatch[2].trim(),
+        lines: [],
+      };
+      continue;
+    }
+
+    // Non-numbered header (e.g. "## Raciocínio Estratégico") → treat as intro
+    if (/^#{2,3}\s+/.test(trimmed) && !current) {
+      intro.push(line);
+      continue;
+    }
+
+    if (current) {
+      current.lines.push(line);
+    } else {
+      intro.push(line);
+    }
+  }
+
+  // Flush last section
+  if (current) {
+    sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+  }
+
+  return { intro: intro.join('\n').trim(), sections };
+}
+
+const ReasoningView: React.FC<{ raw: string }> = ({ raw }) => {
+  const { intro, sections } = useMemo(() => parseReasoningSections(raw), [raw]);
+
+  if (sections.length === 0) {
+    return <BlueprintFallback raw={raw} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      {intro && (
+        <div className="px-1 pb-2">
+          <MarkdownBlock raw={intro} />
+        </div>
+      )}
+      {sections.map((section, idx) => (
+        <div
+          key={idx}
+          className="bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden"
+        >
+          {/* Section header */}
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-white/5 bg-white/[0.02]">
+            <span className="w-7 h-7 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold flex items-center justify-center flex-shrink-0">
+              {section.number}
+            </span>
+            <h3 className="text-sm font-semibold text-white/90">{section.title}</h3>
+          </div>
+          {/* Section body */}
+          <div className="px-5 py-4">
+            <MarkdownBlock raw={section.body} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 // ─── Script fallback (styled markdown) ───────────────────────────────────────
 
@@ -1049,6 +1143,110 @@ const ScriptFallback: React.FC<{ raw: string }> = ({ raw }) => (
     dangerouslySetInnerHTML={{ __html: renderMarkdown(raw) }}
   />
 );
+
+// ─── Stage navigation with scroll arrows (matches sales script StageNav) ─────
+
+const OutreachStageNav: React.FC<{
+  stages: { index: number; label: string; messageId: string }[];
+  activeStageIdx: number;
+  onStageClick: (idx: number) => void;
+}> = ({ stages, activeStageIdx, onStageClick }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const tolerance = 2;
+    setCanScrollLeft(el.scrollLeft > tolerance);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - tolerance);
+  }, []);
+
+  useEffect(() => {
+    updateScrollState();
+    const el = scrollRef.current;
+    if (!el) return;
+    const resizeObserver = new ResizeObserver(() => updateScrollState());
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, [updateScrollState, stages]);
+
+  const scrollBy = useCallback((direction: 'left' | 'right') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const scrollAmount = el.clientWidth * 0.6;
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth',
+    });
+  }, []);
+
+  if (stages.length === 0) return null;
+
+  return (
+    <div className="sticky top-0 z-20 bg-prosperus-navy-dark/95 backdrop-blur-sm border-b border-white/5 -mx-0 px-4">
+      <div className="relative">
+        {canScrollLeft && (
+          <button
+            onClick={() => scrollBy('left')}
+            className="absolute left-0 top-0 bottom-0 z-10 flex items-center pl-1 pr-4 bg-gradient-to-r from-prosperus-navy-dark via-prosperus-navy-dark/80 to-transparent"
+            aria-label="Scroll left"
+          >
+            <span className="text-white/70 text-sm font-bold hover:text-white transition">&#8249;</span>
+          </button>
+        )}
+
+        <div
+          ref={scrollRef}
+          className="flex gap-1 py-2 overflow-x-auto scrollbar-hide"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          onScroll={updateScrollState}
+        >
+          {stages.map((stage, idx) => {
+            const numMatch = stage.label.match(/(\d+)/);
+            const num = numMatch ? numMatch[1] : `${idx + 1}`;
+            const shortLabel = stage.label
+              .replace(/^(?:ETAPA|Etapa|Fase|Passo)\s*\d*\s*[:\u2013\u2014.\-]\s*/i, '')
+              .replace(/^\d+\s*[:\u2013\u2014.\-]\s*/, '')
+              .trim();
+            const displayLabel = shortLabel.length > 20 ? shortLabel.slice(0, 18) + '...' : shortLabel;
+            const isActive = idx === activeStageIdx;
+
+            return (
+              <button
+                key={stage.messageId}
+                onClick={() => onStageClick(idx)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap flex-shrink-0 border ${
+                  isActive
+                    ? 'bg-prosperus-gold-dark/20 border-prosperus-gold-dark/40 text-prosperus-gold-dark'
+                    : 'bg-white/5 border-white/5 text-white/50 hover:text-white/60 hover:bg-white/5'
+                }`}
+              >
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                  isActive ? 'bg-prosperus-gold-dark/30 text-prosperus-gold-dark' : 'bg-white/10 text-white/50'
+                }`}>
+                  {num}
+                </span>
+                {displayLabel && <span>{displayLabel}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {canScrollRight && (
+          <button
+            onClick={() => scrollBy('right')}
+            className="absolute right-0 top-0 bottom-0 z-10 flex items-center pr-1 pl-4 bg-gradient-to-l from-prosperus-navy-dark via-prosperus-navy-dark/80 to-transparent"
+            aria-label="Scroll right"
+          >
+            <span className="text-white/70 text-sm font-bold hover:text-white transition">&#8250;</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // =============================================================================
 // MAIN COMPONENT
@@ -1086,9 +1284,32 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
   const hasChatMessages =
     chatMessages.filter((m) => m.sender !== 'system' && m.sender !== 'stage').length > 0;
 
+  // Extract stages for navigation
+  const stages = useMemo(() => {
+    const result: { index: number; label: string; messageId: string }[] = [];
+    chatMessages.forEach((msg) => {
+      if (msg.sender === 'stage') {
+        result.push({ index: result.length, label: msg.text, messageId: msg.id });
+      }
+    });
+    return result;
+  }, [chatMessages]);
+  const [activeStageIdx, setActiveStageIdx] = useState(0);
+  const stageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollToStage = useCallback((idx: number) => {
+    setActiveStageIdx(idx);
+    const stage = stages[idx];
+    if (!stage) return;
+    const el = stageRefs.current.get(stage.messageId);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [stages]);
+
+  const isReasoning = secondTabLabel === 'Raciocínio';
   const flowNodes = useMemo(
-    () => (blueprintRaw ? parseBlueprintNodes(blueprintRaw) : []),
-    [blueprintRaw]
+    () => (blueprintRaw && !isReasoning ? parseBlueprintNodes(blueprintRaw) : []),
+    [blueprintRaw, isReasoning]
   );
   const hasBlueprint = blueprintRaw.length > 0;
   const hasFlowNodes = flowNodes.length > 0;
@@ -1099,8 +1320,10 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
 
   const handleDownloadText = useCallback(() => {
     const date = new Date().toISOString().split('T')[0];
+    const dateBr = new Date().toLocaleDateString('pt-BR');
+    const header = hasEdits ? `> Editado em ${dateBr}\n\n` : '';
     const filename = `${toKebabCase(assetName)}-${date}.md`;
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([header + content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1110,19 +1333,19 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
     a.parentElement?.removeChild(a);
     URL.revokeObjectURL(url);
     handleMarkUsed();
-  }, [content, assetName, handleMarkUsed]);
+  }, [content, assetName, handleMarkUsed, hasEdits]);
 
   const handleDownloadPdf = useCallback(async () => {
     setDownloadingPdf(true);
     try {
-      await generatePdf(assetName, content);
+      await generatePdf(assetName, content, { edited: hasEdits });
       handleMarkUsed();
     } catch (e) {
       console.error('PDF download failed:', e);
     } finally {
       setDownloadingPdf(false);
     }
-  }, [assetName, content, handleMarkUsed]);
+  }, [assetName, content, handleMarkUsed, hasEdits]);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -1214,34 +1437,32 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
 
       {/* ── Tab toggle (only when second section exists) ──────────────────── */}
       {hasBlueprint && (
-        <div className="flex gap-2 mb-6" role="tablist">
+        <div className="flex gap-1 mb-4 bg-white/5 border border-white/10 rounded-lg p-1" role="tablist">
           <button
             role="tab"
             aria-selected={activeTab === 'script'}
             aria-controls="panel-script"
             onClick={() => setActiveTab('script')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-semibold transition ${
               activeTab === 'script'
-                ? 'bg-prosperus-gold-dark text-black'
-                : 'bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark border border-prosperus-gold-dark/30'
+                : 'text-white/50 hover:text-white/70 border border-transparent'
             }`}
           >
-            <span>{'\uD83D\uDCAC'}</span>
-            Script
+            {'\uD83D\uDCAC'} Script
           </button>
           <button
             role="tab"
             aria-selected={activeTab === 'reasoning'}
             aria-controls="panel-reasoning"
             onClick={() => setActiveTab('reasoning')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-semibold transition ${
               activeTab === 'reasoning'
-                ? 'bg-prosperus-gold-dark text-black'
-                : 'bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark border border-prosperus-gold-dark/30'
+                : 'text-white/50 hover:text-white/70 border border-transparent'
             }`}
           >
-            <span>{secondTabIcon}</span>
-            {secondTabLabel}
+            {secondTabIcon} {secondTabLabel}
           </button>
         </div>
       )}
@@ -1274,20 +1495,37 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
                 />
               </div>
 
+              {/* Stage navigation — with scroll arrows like sales script */}
+              {stages.length > 0 && (
+                <OutreachStageNav
+                  stages={stages}
+                  activeStageIdx={activeStageIdx}
+                  onStageClick={scrollToStage}
+                />
+              )}
+
               {/* Chat messages */}
-              <div className="px-4 py-4 space-y-1 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+              <div ref={chatScrollRef} className="px-4 py-4 space-y-1 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
                 {hasChatMessages ? (
-                  chatMessages.map((msg) => (
-                    <ChatBubble
-                      key={msg.id}
-                      message={msg}
-                      fieldPrefix="script"
-                      getValue={getValue}
-                      setValue={setValue}
-                      isEdited={isEdited}
-                      restoreField={restoreField}
-                    />
-                  ))
+                  chatMessages.map((msg) => {
+                    const isStage = msg.sender === 'stage';
+                    return (
+                      <div
+                        key={msg.id}
+                        ref={isStage ? (el) => { if (el) stageRefs.current.set(msg.id, el); } : undefined}
+                        className={isStage ? 'scroll-mt-16' : undefined}
+                      >
+                        <ChatBubble
+                          message={msg}
+                          fieldPrefix="script"
+                          getValue={getValue}
+                          setValue={setValue}
+                          isEdited={isEdited}
+                          restoreField={restoreField}
+                        />
+                      </div>
+                    );
+                  })
                 ) : (
                   <ScriptFallback raw={scriptRaw} />
                 )}
@@ -1297,7 +1535,7 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
               <div className="px-5 py-2.5 border-t border-white/5 bg-white/5">
                 <p className="text-[10px] text-white/20 text-center">
                   {
-                    'Campos em amarelo s\u00e3o edit\u00e1veis \u2014 clique para personalizar com seus dados'
+                    'Campos em amarelo são editáveis — clique para personalizar com seus dados'
                   }
                 </p>
               </div>
@@ -1375,6 +1613,8 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
                       />
                     </div>
                   </>
+                ) : isReasoning ? (
+                  <ReasoningView raw={blueprintRaw} />
                 ) : (
                   <BlueprintFallback raw={blueprintRaw} />
                 )}
@@ -1386,11 +1626,11 @@ export const OutreachFlowView: React.FC<OutreachFlowViewProps> = ({
                   <div className="flex items-center justify-center gap-4 flex-wrap">
                     <span className="flex items-center gap-1.5 text-[10px] text-white/50">
                       <span className="w-2.5 h-2.5 rounded-sm bg-white/5 border border-white/10" />
-                      {`A\u00e7\u00e3o`}
+                      {'Ação'}
                     </span>
                     <span className="flex items-center gap-1.5 text-[10px] text-white/50">
                       <span className="w-2.5 h-2.5 rounded-sm bg-amber-500/[0.12] border border-amber-500/20" />
-                      {`Decis\u00e3o`}
+                      {'Decisão'}
                     </span>
                     <span className="flex items-center gap-1.5 text-[10px] text-white/50">
                       <span className="w-2.5 h-2.5 rounded-sm bg-green-500/[0.12] border border-green-500/20" />

@@ -20,6 +20,7 @@ import { OfferModule } from './modules/OfferModule';
 import { OverviewPanel } from './OverviewPanel';
 import { BrandBrainViewer } from './brand-brain/BrandBrainViewer';
 import { AssetDeliveryHub } from './assets/AssetDeliveryHub';
+import { EducationalSuggestionsView } from './suggestions/EducationalSuggestionsView';
 import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
 import type { PipelineStatus } from '../types/pipeline';
 
@@ -34,6 +35,7 @@ const SLUG_TO_ID: Record<string, string> = {
   'complete': 'diagnostic_complete',
   'brand-brain': 'brand_brain_review',
   'assets': 'deliverables',
+  'suggestions': 'suggestions',
 };
 
 const ID_TO_SLUG: Record<string, string> = Object.fromEntries(
@@ -89,30 +91,42 @@ const getSidebarMenu = (
     },
   ];
 
-  // BRAND BRAIN — above Diagnóstico, visible when not pending or after submission
-  if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
-    const bbDot: 'green' | 'yellow' | 'gray' =
-      brandBrainStatus === 'approved' ? 'green' :
-      brandBrainStatus === 'mentor_review' ? 'yellow' : 'gray';
-
-    const bbItems: MenuItem[] = [{ id: 'brand_brain_review', label: 'Brand Brain', statusDot: bbDot }];
-
-    // Show Entregáveis sub-item only when assets are actually available
-    if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') {
-      const assetDot: 'green' | 'yellow' | 'gray' =
-        assetsStatus === 'delivered' ? 'green' :
-        assetsStatus === 'ready' || assetsStatus === 'generating' ? 'yellow' : 'gray';
-      bbItems.push({ id: 'deliverables', label: 'Ativos', statusDot: assetDot });
-    }
+  // ENTREGÁVEIS — assets as primary item, always visible when available
+  if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') {
+    const assetDot: 'green' | 'yellow' | 'gray' =
+      (assetsStatus === 'ready' || assetsStatus === 'delivered') ? 'green' :
+      assetsStatus === 'generating' ? 'yellow' : 'gray';
 
     menu.push({
-      id: 'brand_brain',
+      id: 'entregaveis',
       title: 'ENTREGÁVEIS',
-      items: bbItems,
+      items: [
+        { id: 'deliverables', label: 'Meus Ativos', statusDot: assetDot },
+      ],
     });
   }
 
-  // DIAGNÓSTICO — below Brand Brain
+  // INTELIGÊNCIA — Sugestões + Brand Brain (visible when BB not pending or after submission)
+  if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
+    const bbDot: 'green' | 'yellow' | 'gray' =
+      brandBrainStatus === 'ready' ? 'green' :
+      brandBrainStatus === 'generating' ? 'yellow' : 'gray';
+
+    // Suggestions available when brand brain is ready or assets exist
+    const suggestionsAvailable = brandBrainStatus === 'ready' || assetsStatus === 'ready' || assetsStatus === 'delivered';
+    const suggestionsDot: 'green' | 'gray' = suggestionsAvailable ? 'green' : 'gray';
+
+    menu.push({
+      id: 'inteligencia',
+      title: 'INTELIGÊNCIA',
+      items: [
+        { id: 'suggestions', label: 'Sugestões', statusDot: suggestionsDot },
+        { id: 'brand_brain_review', label: 'Brand Brain', statusDot: bbDot },
+      ],
+    });
+  }
+
+  // DIAGNÓSTICO — keep as-is
   menu.push({
     id: 'diagnostic',
     title: 'DIAGNÓSTICO',
@@ -124,8 +138,6 @@ const getSidebarMenu = (
       { id: 'offer',      label: 'A Oferta',             statusDot: moduleStatus('offer', offerComplete) },
     ],
   });
-
-  // Entregáveis is a sub-item under BRAND BRAIN section (added above when available)
 
   return menu;
 };
@@ -176,7 +188,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       navigate(`/dashboard/${slug}`, { replace: true });
     }
   };
-  const [openSections, setOpenSections] = useState<string[]>(['geral', 'diagnostic', 'brand_brain', 'assets']);
+  const [openSections, setOpenSections] = useState<string[]>(['geral', 'diagnostic', 'entregaveis', 'inteligencia']);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [editName, setEditName] = useState(resolvedName);
@@ -195,6 +207,16 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     pipelineStatus, brandBrainStatus, assetsStatus, researchStatus,
     refreshPipelineStatus,
   } = useDiagnosticPersistence(token);
+
+  // AC8: Default route post-login — redirect to Meus Ativos when assets available
+  const [hasRedirected, setHasRedirected] = useState(false);
+  useEffect(() => {
+    if (hasRedirected || urlModule) return; // Don't redirect if user navigated via URL
+    if (assetsStatus === 'ready' || assetsStatus === 'delivered') {
+      navigateTo('deliverables');
+      setHasRedirected(true);
+    }
+  }, [assetsStatus, hasRedirected, urlModule]);
 
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
   const mentorComplete    = isLegacy || isMentorComplete(mentor);
@@ -224,10 +246,10 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   // Ensure newly visible sections are open automatically
   useEffect(() => {
     if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
-      setOpenSections((prev) => prev.includes('brand_brain') ? prev : [...prev, 'brand_brain']);
+      setOpenSections((prev) => prev.includes('inteligencia') ? prev : [...prev, 'inteligencia']);
     }
-    if (assetsStatus === 'ready' || assetsStatus === 'delivered') {
-      setOpenSections((prev) => prev.includes('assets') ? prev : [...prev, 'assets']);
+    if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') {
+      setOpenSections((prev) => prev.includes('entregaveis') ? prev : [...prev, 'entregaveis']);
     }
   }, [brandBrainStatus, assetsStatus, diagnosticStatus]);
 
@@ -460,6 +482,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       return (
         <ModuleErrorBoundary moduleName="Brand Brain">
           <BrandBrainViewer token={token} onPipelineRefresh={refreshPipelineStatus} />
+        </ModuleErrorBoundary>
+      );
+    }
+
+    if (activeItem === 'suggestions') {
+      return (
+        <ModuleErrorBoundary moduleName="Sugestões Educacionais">
+          <EducationalSuggestionsView token={token} />
         </ModuleErrorBoundary>
       );
     }

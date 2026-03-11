@@ -112,20 +112,26 @@ const splitMessages = (text: string): string[] => {
 
 /** Extract numeric day from a day label string */
 const extractDayNumber = (label: string): number | null => {
-  const m = label.match(/(?:Dia|D[-\s]?)(\d+)/i);
+  const m = label.match(/(?:Dia\s+|D[-\s]?)(\d+)/i);
   return m ? parseInt(m[1], 10) : null;
 };
 
-/** Get time-of-day slot from label or content keywords */
-const detectTimeOfDay = (text: string, channel: ChannelType): TimeOfDay => {
-  const lower = text.toLowerCase();
-  if (/manh[aã]|cedo|morning|[89]h|10h|11h/i.test(lower)) return 'manha';
-  if (/tarde|afternoon|1[3-7]h/i.test(lower)) return 'tarde';
-  if (/noite|night|1[89]h|2[012]h/i.test(lower)) return 'noite';
-  // Channel-based defaults
-  if (channel === 'call') return 'manha';
-  if (channel === 'email') return 'noite';
-  return 'tarde'; // whatsapp/other default
+/** Get time-of-day slot from label keywords (header has priority over body) */
+const detectTimeOfDay = (label: string, _channel: ChannelType): TimeOfDay => {
+  const lower = label.toLowerCase();
+  // Check label for explicit time keywords (highest priority)
+  if (/fim\s+do\s+dia|final\s+do\s+dia|noite|night|1[89]h|2[012]h/i.test(lower)) return 'noite';
+  if (/manh[aã]|cedo|morning|imediato|imediatamente|[89]h|10h|11h/i.test(lower)) return 'manha';
+  if (/tarde|afternoon|per[ií]odo\s+oposto|1[3-7]h/i.test(lower)) return 'tarde';
+  // Numbered action within a day: #1 = manha, #2 = tarde, #3+ = noite
+  const numMatch = lower.match(/#(\d+)/);
+  if (numMatch) {
+    const n = parseInt(numMatch[1], 10);
+    if (n <= 1) return 'manha';
+    if (n === 2) return 'tarde';
+    return 'noite';
+  }
+  return 'manha'; // default: first action of day
 };
 
 /** Map day number to its visual group */
@@ -145,12 +151,16 @@ const parseTimelineNodes = (content: string): TimelineNode[] => {
 
   let currentLabel = '';
   let currentLines: string[] = [];
+  let currentDayLabel = ''; // Track parent ## Dia N context for sub-sections
 
   const flush = () => {
     if (currentLabel && currentLines.length > 0) {
       const raw = currentLines.join('\n').trim();
       if (raw.length > 0) {
-        const channel = detectChannel(raw);
+        // Detect channel from label first (### Ligação, ### WhatsApp, ### Email),
+        // then fall back to body content detection
+        const labelChannel = detectChannel(currentLabel);
+        const channel = labelChannel !== 'other' ? labelChannel : detectChannel(raw);
         const subject = channel === 'email' ? extractSubject(raw) : undefined;
         const messages = splitMessages(raw);
         nodes.push({
@@ -176,12 +186,18 @@ const parseTimelineNodes = (content: string): TimelineNode[] => {
         .trim();
       currentLabel = suffix ? `${mainPart} \u2014 ${suffix}` : mainPart;
       currentLabel = currentLabel.replace(/\s*\u2014\s*\u2014\s*/g, ' \u2014 ').trim();
+      // Remember this as the current day context for sub-sections
+      currentDayLabel = mainPart;
       currentLines = [];
     } else {
       const sectionMatch = line.match(sectionHeaderRegex);
       if (sectionMatch) {
         flush();
-        currentLabel = sectionMatch[1].replace(/\*{2}/g, '').trim();
+        const sectionName = sectionMatch[1].replace(/\*{2}/g, '').trim();
+        // Carry forward the parent day label so sub-sections keep their day context
+        currentLabel = currentDayLabel
+          ? `${currentDayLabel} \u2014 ${sectionName}`
+          : sectionName;
         currentLines = [];
       } else {
         currentLines.push(line);
@@ -206,7 +222,7 @@ const parseDayNodes = (content: string): DayNode[] => {
       if (!dayMap.has(fallbackDay)) {
         dayMap.set(fallbackDay, { day: fallbackDay, group: getGroupLabel(fallbackDay || 1), actions: [] });
       }
-      const timeOfDay = detectTimeOfDay(node.dayLabel + ' ' + node.rawContent, node.channel);
+      const timeOfDay = detectTimeOfDay(node.dayLabel, node.channel);
       dayMap.get(fallbackDay)!.actions.push({
         id: node.id,
         channel: node.channel,
@@ -222,7 +238,7 @@ const parseDayNodes = (content: string): DayNode[] => {
       dayMap.set(day, { day, group: getGroupLabel(day), actions: [] });
     }
 
-    const timeOfDay = detectTimeOfDay(node.dayLabel + ' ' + node.rawContent, node.channel);
+    const timeOfDay = detectTimeOfDay(node.dayLabel, node.channel);
     dayMap.get(day)!.actions.push({
       id: node.id,
       channel: node.channel,
@@ -327,7 +343,7 @@ const MessageCard: React.FC<MessageCardProps> = ({ message, nodeId, messageIndex
 
   return (
     <div className="group/msg relative">
-      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity z-10">
+      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/msg:opacity-100 [@media(hover:none)]:opacity-60 transition-opacity z-10">
         {!editing && (
           <Button variant="icon" size="xs" onClick={() => setEditing(true)} className="p-1.5" aria-label="Editar mensagem">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -378,24 +394,38 @@ const MessageCard: React.FC<MessageCardProps> = ({ message, nodeId, messageIndex
   );
 };
 
-// ─── Email accordion ──────────────────────────────────────────────────────────
+// ─── Action summary for collapsed header ─────────────────────────────────────
 
-interface EmailAccordionProps {
+const getActionSummary = (action: DayAction): string => {
+  if (action.channel === 'email' && action.subject) return action.subject;
+  const firstMsg = action.messages[0] || action.rawContent;
+  const clean = firstMsg
+    .replace(/^(?:\*{0,2})(?:Mensagem|Balão)\s*\d+[):.\s—-]*/i, '')
+    .replace(/\n.*/s, '')
+    .trim();
+  return clean.length > 70 ? clean.substring(0, 67) + '…' : clean;
+};
+
+// ─── Unified collapsible action (all channels) ──────────────────────────────
+
+interface ActionItemProps {
   action: DayAction;
   assetId: string;
   editHook: ReturnType<typeof useInlineEdit>;
 }
 
-const EmailAccordion: React.FC<EmailAccordionProps> = ({ action, assetId, editHook }) => {
+const ActionItem: React.FC<ActionItemProps> = ({ action, assetId, editHook }) => {
   const [open, setOpen] = useState(false);
-  const cfg = CHANNEL_CONFIG.email;
+  const cfg = CHANNEL_CONFIG[action.channel];
+  const summary = useMemo(() => getActionSummary(action), [action]);
+  const msgCount = action.messages.length;
 
   return (
     <div
       className="rounded-lg border overflow-hidden"
       style={{ borderColor: cfg.borderColor, backgroundColor: cfg.bg }}
     >
-      {/* Subject line — clickable header */}
+      {/* Collapsed header — always visible */}
       <button
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
@@ -403,14 +433,21 @@ const EmailAccordion: React.FC<EmailAccordionProps> = ({ action, assetId, editHo
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm flex-shrink-0">{cfg.emoji}</span>
-          <span className="text-xs font-semibold truncate" style={{ color: cfg.color }}>
-            {action.subject || 'Email'}
+          <span className="text-[10px] font-semibold uppercase tracking-wide flex-shrink-0" style={{ color: cfg.color }}>
+            {cfg.label}
           </span>
+          <span className="text-white/30 text-[10px] mx-0.5 flex-shrink-0">·</span>
+          <span className="text-xs text-white/50 truncate">{summary}</span>
         </div>
-        <span className="text-white/40 text-xs flex-shrink-0">{open ? '▲' : '▼'}</span>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {msgCount > 1 && (
+            <span className="text-[10px] text-white/30 tabular-nums">{msgCount}x</span>
+          )}
+          <span className="text-white/40 text-xs">{open ? '▲' : '▼'}</span>
+        </div>
       </button>
 
-      {/* Body — expanded */}
+      {/* Expanded body */}
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -427,7 +464,7 @@ const EmailAccordion: React.FC<EmailAccordionProps> = ({ action, assetId, editHo
                     message={msg}
                     nodeId={action.id}
                     messageIndex={mi}
-                    channel="email"
+                    channel={action.channel}
                     assetId={assetId}
                     editHook={editHook}
                   />
@@ -441,67 +478,6 @@ const EmailAccordion: React.FC<EmailAccordionProps> = ({ action, assetId, editHo
   );
 };
 
-// ─── Action item (call / whatsapp / other) ────────────────────────────────────
-
-interface ActionItemProps {
-  action: DayAction;
-  assetId: string;
-  editHook: ReturnType<typeof useInlineEdit>;
-  showTimeLabel?: boolean; // for mobile
-}
-
-const ActionItem: React.FC<ActionItemProps> = ({ action, assetId, editHook, showTimeLabel = false }) => {
-  const cfg = CHANNEL_CONFIG[action.channel];
-
-  if (action.channel === 'email') {
-    return (
-      <div>
-        {showTimeLabel && (
-          <span className="text-[10px] text-white/40 font-semibold uppercase tracking-wide mb-1 block">
-            {TIME_LABEL[action.timeOfDay]}
-          </span>
-        )}
-        <EmailAccordion action={action} assetId={assetId} editHook={editHook} />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {showTimeLabel && (
-        <span className="text-[10px] text-white/40 font-semibold uppercase tracking-wide mb-1 block">
-          {TIME_LABEL[action.timeOfDay]}
-        </span>
-      )}
-      <div
-        className="rounded-lg border p-2.5 space-y-2"
-        style={{ borderColor: cfg.borderColor, backgroundColor: cfg.bg }}
-      >
-        <div className="flex items-center gap-1.5 mb-1">
-          <span className="text-xs">{cfg.emoji}</span>
-          <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: cfg.color }}>
-            {cfg.label}
-          </span>
-        </div>
-        <div className="divide-y divide-white/5">
-          {action.messages.map((msg, mi) => (
-            <div key={mi} className="pt-2 first:pt-0">
-              <MessageCard
-                message={msg}
-                nodeId={action.id}
-                messageIndex={mi}
-                channel={action.channel}
-                assetId={assetId}
-                editHook={editHook}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ─── Desktop time grid ────────────────────────────────────────────────────────
 
 interface TimeGridProps {
@@ -511,9 +487,9 @@ interface TimeGridProps {
 }
 
 const GROUP_LABELS: Record<DayGroup, string> = {
-  'day1': 'Dia 1 — Aplicação',
-  'days2-3': 'Dias 2-3',
-  'days4-7': 'Dias 4-7',
+  'day1': 'Dia 1 — Contato Imediato',
+  'days2-3': 'Dias 2-3 — Persistência',
+  'days4-7': 'Dias 4-7 — Encerramento Gradual',
 };
 
 /** Build display groups from day nodes — shared by TimeGrid and MobileTimeline */
@@ -594,6 +570,8 @@ const TimeGrid: React.FC<TimeGridProps> = ({ dayNodes, assetId, editHook }) => {
 
 // ─── Mobile timeline ──────────────────────────────────────────────────────────
 
+const PERIOD_ORDER: TimeOfDay[] = ['manha', 'tarde', 'noite'];
+
 const MobileTimeline: React.FC<TimeGridProps> = ({ dayNodes, assetId, editHook }) => {
   const groups = buildDayGroups(dayNodes);
 
@@ -607,28 +585,38 @@ const MobileTimeline: React.FC<TimeGridProps> = ({ dayNodes, assetId, editHook }
             </span>
           </div>
           <div className="space-y-4">
-            {group.days.map(day => (
-              <div key={day.day} className="relative pl-5">
-                {/* Vertical line */}
-                <div className="absolute left-1.5 top-0 bottom-0 w-px bg-prosperus-gold-dark/20" />
-                {/* Day dot */}
-                <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-prosperus-gold-dark/40 ring-2 ring-black/50" />
-                <div className="mb-2">
-                  <span className="text-prosperus-gold-dark font-bold text-sm">Dia {day.day}</span>
+            {group.days.map(day => {
+              // Group actions by time-of-day for single label per period
+              const byPeriod = PERIOD_ORDER
+                .map(tod => ({ tod, actions: day.actions.filter(a => a.timeOfDay === tod) }))
+                .filter(g => g.actions.length > 0);
+
+              return (
+                <div key={day.day} className="relative pl-5">
+                  {/* Vertical line */}
+                  <div className="absolute left-1.5 top-0 bottom-0 w-px bg-prosperus-gold-dark/20" />
+                  {/* Day dot */}
+                  <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-prosperus-gold-dark/40 ring-2 ring-black/50" />
+                  <div className="mb-2">
+                    <span className="text-prosperus-gold-dark font-bold text-sm">Dia {day.day}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {byPeriod.map(({ tod, actions }) => (
+                      <div key={tod}>
+                        <span className="text-[10px] text-white/40 font-semibold uppercase tracking-wide mb-1.5 block">
+                          {TIME_LABEL[tod]}
+                        </span>
+                        <div className="space-y-1.5">
+                          {actions.map(action => (
+                            <ActionItem key={action.id} action={action} assetId={assetId} editHook={editHook} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {day.actions.map(action => (
-                    <ActionItem
-                      key={action.id}
-                      action={action}
-                      assetId={assetId}
-                      editHook={editHook}
-                      showTimeLabel
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}
@@ -636,9 +624,9 @@ const MobileTimeline: React.FC<TimeGridProps> = ({ dayNodes, assetId, editHook }
   );
 };
 
-// ─── Prose view (reasoning tab) ───────────────────────────────────────────────
+// ─── Reasoning card-per-topic view ────────────────────────────────────────────
 
-const ProseView: React.FC<{ raw: string }> = ({ raw }) => (
+const MarkdownBlock: React.FC<{ raw: string }> = ({ raw }) => (
   <div
     className="text-sm text-white/70 leading-relaxed
       [&_ul]:space-y-1.5 [&_ul]:mt-2 [&_ul]:ml-0 [&_ul]:list-none [&_ul]:pl-0
@@ -649,7 +637,6 @@ const ProseView: React.FC<{ raw: string }> = ({ raw }) => (
       [&_em]:text-white/50
       [&_p]:mb-2 [&_p]:text-[13px]
       [&_blockquote]:border-l-2 [&_blockquote]:border-prosperus-gold-dark/40 [&_blockquote]:bg-prosperus-gold-dark/[0.04] [&_blockquote]:rounded-r-lg [&_blockquote]:py-3 [&_blockquote]:px-4 [&_blockquote]:my-3 [&_blockquote]:text-white/60 [&_blockquote]:italic
-      [&_h1]:text-base [&_h1]:text-prosperus-gold-dark [&_h1]:font-bold [&_h1]:mb-2 [&_h1]:mt-4
       [&_h2]:text-sm [&_h2]:text-prosperus-gold-dark [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-3
       [&_h3]:text-sm [&_h3]:text-white/70 [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-2
       [&_hr]:border-white/5 [&_hr]:my-4
@@ -657,6 +644,82 @@ const ProseView: React.FC<{ raw: string }> = ({ raw }) => (
     dangerouslySetInnerHTML={{ __html: renderMarkdown(raw) }}
   />
 );
+
+interface ReasoningSection {
+  title: string;
+  number: string;
+  body: string;
+}
+
+function parseReasoningSections(raw: string): { intro: string; sections: ReasoningSection[] } {
+  const lines = raw.split('\n');
+  const sections: ReasoningSection[] = [];
+  const intro: string[] = [];
+  let current: { title: string; number: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const numberedMatch = trimmed.match(/^#{2,3}\s+(\d+)\.?\s*[:\-\u2013\u2014.]?\s*(.+)/);
+    if (numberedMatch) {
+      if (current) {
+        sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+      }
+      current = { number: numberedMatch[1], title: numberedMatch[2].trim(), lines: [] };
+      continue;
+    }
+
+    if (/^#{2,3}\s+/.test(trimmed) && !current) {
+      intro.push(line);
+      continue;
+    }
+
+    if (current) {
+      current.lines.push(line);
+    } else {
+      intro.push(line);
+    }
+  }
+
+  if (current) {
+    sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+  }
+
+  return { intro: intro.join('\n').trim(), sections };
+}
+
+const ReasoningView: React.FC<{ raw: string }> = ({ raw }) => {
+  const { intro, sections } = useMemo(() => parseReasoningSections(raw), [raw]);
+
+  if (sections.length === 0) {
+    return <MarkdownBlock raw={raw} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      {intro && (
+        <div className="px-1 pb-2">
+          <MarkdownBlock raw={intro} />
+        </div>
+      )}
+      {sections.map((section, idx) => (
+        <div
+          key={idx}
+          className="bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden"
+        >
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-white/5 bg-white/[0.02]">
+            <span className="w-7 h-7 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold flex items-center justify-center flex-shrink-0">
+              {section.number}
+            </span>
+            <h3 className="text-sm font-semibold text-white/90">{section.title}</h3>
+          </div>
+          <div className="px-5 py-4">
+            <MarkdownBlock raw={section.body} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
@@ -705,8 +768,11 @@ export const CadenceTimeline: React.FC<CadenceTimelineProps> = ({
   const handleDownloadMd = () => {
     handleMarkUsed();
     const date = new Date().toISOString().split('T')[0];
+    const dateBr = new Date().toLocaleDateString('pt-BR');
+    const exportContent = getExportContent();
+    const header = editHook.hasEdits ? `> Editado em ${dateBr}\n\n` : '';
     const filename = `${toKebabCase(assetName)}-${date}.md`;
-    const blob = new Blob([getExportContent()], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([header + exportContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -720,7 +786,7 @@ export const CadenceTimeline: React.FC<CadenceTimelineProps> = ({
   const handleDownloadPdf = async () => {
     handleMarkUsed();
     setDownloadingPdf(true);
-    try { await generatePdf(assetName, getExportContent()); }
+    try { await generatePdf(assetName, getExportContent(), { edited: editHook.hasEdits }); }
     catch (e) { console.error('PDF download failed:', e); }
     finally { setDownloadingPdf(false); }
   };
@@ -780,34 +846,32 @@ export const CadenceTimeline: React.FC<CadenceTimelineProps> = ({
 
       {/* ─── Tab toggle (only if reasoning section exists) ───────────────── */}
       {hasReasoning && (
-        <div className="flex gap-2 mb-6" role="tablist">
+        <div className="flex gap-1 mb-4 bg-white/5 border border-white/10 rounded-lg p-1" role="tablist">
           <button
             role="tab"
             aria-selected={activeTab === 'cadencia'}
             aria-controls="panel-cadencia"
             onClick={() => setActiveTab('cadencia')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-semibold transition ${
               activeTab === 'cadencia'
-                ? 'bg-prosperus-gold-dark text-black'
-                : 'bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark border border-prosperus-gold-dark/30'
+                : 'text-white/50 hover:text-white/70 border border-transparent'
             }`}
           >
-            <span>📅</span>
-            Cadência
+            📅 Cadência
           </button>
           <button
             role="tab"
             aria-selected={activeTab === 'raciocinio'}
             aria-controls="panel-raciocinio"
             onClick={() => setActiveTab('raciocinio')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-semibold transition ${
               activeTab === 'raciocinio'
-                ? 'bg-prosperus-gold-dark text-black'
-                : 'bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark border border-prosperus-gold-dark/30'
+                : 'text-white/50 hover:text-white/70 border border-transparent'
             }`}
           >
-            <span>🧠</span>
-            Raciocínio
+            🧠 Raciocínio
           </button>
         </div>
       )}
@@ -825,16 +889,7 @@ export const CadenceTimeline: React.FC<CadenceTimelineProps> = ({
             transition={{ duration: 0.2 }}
           >
             {hasDayNodes ? (
-              <>
-                {/* Desktop grid */}
-                <div className="hidden md:block">
-                  <TimeGrid dayNodes={dayNodes} assetId={assetId} editHook={editHook} />
-                </div>
-                {/* Mobile timeline */}
-                <div className="md:hidden">
-                  <MobileTimeline dayNodes={dayNodes} assetId={assetId} editHook={editHook} />
-                </div>
-              </>
+              <MobileTimeline dayNodes={dayNodes} assetId={assetId} editHook={editHook} />
             ) : (
               /* Fallback: render full markdown when no day structure detected */
               <motion.div
@@ -881,7 +936,7 @@ export const CadenceTimeline: React.FC<CadenceTimelineProps> = ({
                 <CopyButton content={reasoningRaw} label="Copiar Raciocínio" onCopy={handleMarkUsed} />
               </div>
               <div className="px-5 py-5 max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
-                <ProseView raw={reasoningRaw} />
+                <ReasoningView raw={reasoningRaw} />
               </div>
             </div>
           </motion.div>

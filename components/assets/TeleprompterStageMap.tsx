@@ -465,7 +465,7 @@ const TeleprompterView: React.FC<{
             size="sm"
             onClick={onExit}
           >
-            \u25C0 Stage Map
+            ◀ Stage Map
           </Button>
           <Button
             variant="outline"
@@ -473,7 +473,7 @@ const TeleprompterView: React.FC<{
             onClick={() => setIsPlaying(!isPlaying)}
             className="min-w-[100px]"
           >
-            {isPlaying ? '\u23F8 Pausar' : '\u25B6 Continuar'}
+            {isPlaying ? '⏸ Pausar' : '▶ Continuar'}
           </Button>
           <Button
             variant="secondary"
@@ -483,7 +483,7 @@ const TeleprompterView: React.FC<{
             Velocidade: {SPEED_DOTS[speed]}
           </Button>
           <span className="text-white/50 text-[10px] hidden sm:inline">
-            {SPEED_LABELS[speed]} \u00B7 Espa\u00E7o para pausar
+            {SPEED_LABELS[speed]} · Espaço para pausar
           </span>
         </div>
 
@@ -509,7 +509,7 @@ const TeleprompterView: React.FC<{
       {/* Unfilled brackets warning */}
       {showUnfilledWarning && (
         <div className="flex-shrink-0 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 flex items-center gap-2">
-          <span className="text-amber-400 text-sm">\u26A0\uFE0F</span>
+          <span className="text-amber-400 text-sm">⚠️</span>
           <p className="text-amber-300 text-sm font-medium">
             Preencha os campos marcados antes de gravar. Volte ao Stage Map para editar.
           </p>
@@ -622,7 +622,7 @@ export const TeleprompterStageMap: React.FC<TeleprompterStageMapProps> = ({
   const handleDownloadPdf = async () => {
     setDownloadingPdf(true);
     try {
-      await generatePdf(assetName, content);
+      await generatePdf(assetName, content, { edited: hasEdits });
       markAssetOpened(assetId);
     } catch (e) {
       console.error('PDF download failed:', e);
@@ -633,8 +633,10 @@ export const TeleprompterStageMap: React.FC<TeleprompterStageMapProps> = ({
 
   const handleDownloadTxt = () => {
     const date = new Date().toISOString().split('T')[0];
+    const dateBr = new Date().toLocaleDateString('pt-BR');
+    const header = hasEdits ? `> Editado em ${dateBr}\n\n` : '';
     const filename = `${toKebabCase(assetName)}-${date}.md`;
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([header + content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -896,7 +898,7 @@ export const TeleprompterStageMap: React.FC<TeleprompterStageMapProps> = ({
                 onClick={goToNextStage}
                 disabled={activeStageIndex === stages.length - 1}
               >
-                Pr\u00F3xima Etapa \u2192
+                Próxima Etapa →
               </Button>
             </div>
           </motion.div>
@@ -912,7 +914,7 @@ export const TeleprompterStageMap: React.FC<TeleprompterStageMapProps> = ({
         >
           <div className="flex items-center gap-2 text-xs text-prosperus-gold-dark/70">
             <div className="w-2 h-2 rounded-full bg-prosperus-gold-dark/40" />
-            <span>Edi\u00E7\u00F5es salvas localmente ({Object.keys(edits).length} campo{Object.keys(edits).length !== 1 ? 's' : ''})</span>
+            <span>Edições salvas localmente ({Object.keys(edits).length} campo{Object.keys(edits).length !== 1 ? 's' : ''})</span>
           </div>
           <Button
             variant="link"

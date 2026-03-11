@@ -78,10 +78,9 @@ function derivePipelineStatus(
   assetsStatus: string
 ): PipelineStatus {
   if (assetsStatus === 'delivered') return 'delivered';
-  if (brandBrainStatus === 'approved') return 'assets';
   if (assetsStatus === 'ready' || assetsStatus === 'generating') return 'assets';
-  if (brandBrainStatus === 'mentor_review') return 'review';
-  if (brandBrainStatus === 'generated' || brandBrainStatus === 'danilo_review') return 'brand_brain';
+  if (brandBrainStatus === 'ready') return 'assets';
+  if (brandBrainStatus === 'generating') return 'brand_brain';
   if (researchStatus === 'complete') return 'brand_brain';
   if (diagnosticStatus === 'submitted') return 'research';
   return 'diagnostic';
@@ -90,8 +89,7 @@ function derivePipelineStatus(
 function shouldPoll(pipelineStatus: PipelineStatus, brandBrainStatus: string): boolean {
   if (pipelineStatus === 'research') return true;
   if (pipelineStatus === 'brand_brain') return true;
-  if (pipelineStatus === 'review' && brandBrainStatus === 'approved') return true;
-  if (pipelineStatus === 'assets') return true;
+  if (pipelineStatus === 'assets' && brandBrainStatus !== 'ready') return true;
   return false;
 }
 

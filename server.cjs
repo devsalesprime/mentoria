@@ -203,11 +203,9 @@ function initializeDatabase() {
         research_completed_at DATETIME,
         brand_brain JSON,
         brand_brain_status TEXT DEFAULT 'pending'
-          CHECK(brand_brain_status IN ('pending', 'generated', 'danilo_review', 'mentor_review', 'approved')),
+          CHECK(brand_brain_status IN ('pending', 'generating', 'ready')),
         brand_brain_version INTEGER DEFAULT 0,
         brand_brain_completed_at DATETIME,
-        section_approvals JSON,
-        review_notes JSON,
         assets JSON,
         assets_status TEXT DEFAULT 'pending'
           CHECK(assets_status IN ('pending', 'ready', 'delivered')),
@@ -225,6 +223,26 @@ function initializeDatabase() {
         console.error('⚠️ expert_notes migration error:', err.message);
       }
     });
+
+    // Add educational_suggestions column if missing (AI-generated suggestions for 3 lenses)
+    db.run(`ALTER TABLE pipeline ADD COLUMN educational_suggestions TEXT DEFAULT NULL`, (err) => {
+      if (err && !err.message.includes('duplicate column')) {
+        console.error('⚠️ educational_suggestions migration error:', err.message);
+      }
+    });
+
+    // Create bb_analytics table for tracking mentor engagement
+    db.run(`
+      CREATE TABLE IF NOT EXISTS bb_analytics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL
+          REFERENCES users(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL
+          CHECK(event_type IN ('bb_full_viewed', 'expert_notes_viewed', 'bb_full_download')),
+        event_data JSON,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     // Add is_legacy column if missing (tags users who completed the old long diagnostic)
     db.run(`ALTER TABLE diagnostic_data ADD COLUMN is_legacy INTEGER DEFAULT 0 CHECK(is_legacy IN (0, 1))`, (err) => {

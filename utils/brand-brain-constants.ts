@@ -1,21 +1,9 @@
 // ─── Brand Brain Types & Constants ──────────────────────────────────────────
 
-export type ApprovalStatus = 'pending' | 'approved' | 'editing' | 'revised';
-
-export interface SectionApprovals {
-  s1: ApprovalStatus;
-  s2: ApprovalStatus;
-  s3: ApprovalStatus;
-  s4: ApprovalStatus;
-  s5: ApprovalStatus;
-}
-
 export interface BrandBrainApiData {
   brandBrain: Record<string, any>;
-  sectionApprovals: SectionApprovals;
-  reviewNotes: Record<string, string>;
   expertNotes: Record<string, string> | null;
-  brandBrainStatus: string;
+  brandBrainStatus: 'pending' | 'generating' | 'ready';
 }
 
 export interface BrandBrainViewerProps {

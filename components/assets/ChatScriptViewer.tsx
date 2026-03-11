@@ -37,6 +37,33 @@ interface ChatScriptViewerProps {
 
 // toKebabCase imported from ./shared
 
+// ─── Content splitter ────────────────────────────────────────────────────────
+
+type ActiveTab = 'script' | 'reasoning';
+
+const SPLIT_HEADER = /^#{1,3}\s+.*\b(racioc[íi]n[íi]|por\s+que\s+este\s+script|estrat[eé]gia\s+estrat[eé]gic|guia\s+de\s+adapta)/i;
+
+function splitContent(content: string): { scriptRaw: string; reasoningRaw: string } {
+  const lines = content.split('\n');
+  let splitIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (SPLIT_HEADER.test(lines[i].trim())) {
+      splitIndex = i;
+      break;
+    }
+  }
+
+  if (splitIndex === -1) {
+    return { scriptRaw: content, reasoningRaw: '' };
+  }
+
+  return {
+    scriptRaw: lines.slice(0, splitIndex).join('\n').trim(),
+    reasoningRaw: lines.slice(splitIndex).join('\n').trim(),
+  };
+}
+
 // ─── Markdown parser for chat script ──────────────────────────────────────────
 
 const STAGE_REGEX = /^#{2,3}\s+.*(?:ETAPA|Etapa|\d+[A-Za-z]?\s*[.)\-:])/i;
@@ -775,16 +802,21 @@ const StageNav: React.FC<{
 const generateChatPdf = async (
   assetName: string,
   messages: ParsedMessage[],
-  getValue: (id: string, original: string) => string
+  getValue: (id: string, original: string) => string,
+  options?: { edited?: boolean }
 ) => {
   const html2pdf = (await import('html2pdf.js')).default;
   const date = new Date().toLocaleDateString('pt-BR');
+  const editedLabel = options?.edited
+    ? `<p style="font-size:11px;color:#CA9A43;margin-top:4px;">Editado em ${date}</p>`
+    : '';
 
   let html = `
     <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;padding:40px 24px;">
       <div style="text-align:center;margin-bottom:32px;">
         <h1 style="font-size:22px;color:#CA9A43;margin-bottom:4px;">${DOMPurify.sanitize(assetName)}</h1>
         <p style="font-size:11px;color:#999;">${date}</p>
+        ${editedLabel}
       </div>
   `;
 
@@ -924,6 +956,112 @@ const FallbackView: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
+// ─── Reasoning sectioned view ────────────────────────────────────────────────
+
+interface ReasoningSection {
+  title: string;
+  number: string;
+  body: string;
+}
+
+function parseReasoningSections(raw: string): { intro: string; sections: ReasoningSection[] } {
+  const lines = raw.split('\n');
+  const sections: ReasoningSection[] = [];
+  const intro: string[] = [];
+  let current: { title: string; number: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Numbered section header: ### 1. Title, ### 2: Title, etc.
+    const numberedMatch = trimmed.match(/^#{2,3}\s+(\d+)\.?\s*[:\-\u2013\u2014.]?\s*(.+)/);
+    if (numberedMatch) {
+      if (current) {
+        sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+      }
+      current = {
+        number: numberedMatch[1],
+        title: numberedMatch[2].trim(),
+        lines: [],
+      };
+      continue;
+    }
+
+    // Non-numbered header (e.g. "## Raciocínio Estratégico") → treat as intro
+    if (/^#{2,3}\s+/.test(trimmed) && !current) {
+      intro.push(line);
+      continue;
+    }
+
+    if (current) {
+      current.lines.push(line);
+    } else {
+      intro.push(line);
+    }
+  }
+
+  if (current) {
+    sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+  }
+
+  return { intro: intro.join('\n').trim(), sections };
+}
+
+const MarkdownBlock: React.FC<{ content: string }> = ({ content: raw }) => {
+  const html = useMemo(() => {
+    return DOMPurify.sanitize(marked.parse(raw, { async: false }));
+  }, [raw]);
+
+  return (
+    <div
+      className="text-sm text-white/70 leading-relaxed
+        [&_ul]:space-y-1.5 [&_ul]:mt-2 [&_ul]:ml-0 [&_ul]:list-none [&_ul]:pl-0
+        [&_ol]:space-y-1.5 [&_ol]:mt-2 [&_ol]:ml-0 [&_ol]:pl-0
+        [&_li]:relative [&_li]:pl-4 [&_li]:text-white/70 [&_li]:text-[13px] [&_li]:leading-relaxed
+        [&_li]:before:content-[''] [&_li]:before:absolute [&_li]:before:left-0 [&_li]:before:top-[9px] [&_li]:before:w-1.5 [&_li]:before:h-1.5 [&_li]:before:rounded-full [&_li]:before:bg-prosperus-gold-dark/50
+        [&_strong]:text-prosperus-gold-dark [&_strong]:font-semibold
+        [&_em]:text-white/50
+        [&_p]:mb-2 [&_p]:text-[13px]
+        [&_blockquote]:border-l-2 [&_blockquote]:border-prosperus-gold-dark/40 [&_blockquote]:bg-prosperus-gold-dark/[0.04] [&_blockquote]:rounded-r-lg [&_blockquote]:py-3 [&_blockquote]:px-4 [&_blockquote]:my-3 [&_blockquote]:text-white/60 [&_blockquote]:italic
+      "
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+};
+
+const ReasoningView: React.FC<{ content: string }> = ({ content }) => {
+  const { intro, sections } = useMemo(() => parseReasoningSections(content), [content]);
+
+  if (sections.length === 0) {
+    return <FallbackView content={content} />;
+  }
+
+  return (
+    <div className="px-4 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+      {intro && (
+        <div className="px-1 pb-2">
+          <MarkdownBlock content={intro} />
+        </div>
+      )}
+      {sections.map((section, idx) => (
+        <div
+          key={idx}
+          className="bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden"
+        >
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-white/5 bg-white/[0.02]">
+            <span className="w-7 h-7 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold flex items-center justify-center flex-shrink-0">
+              {section.number}
+            </span>
+            <h3 className="text-sm font-semibold text-white/90">{section.title}</h3>
+          </div>
+          <div className="px-5 py-4">
+            <MarkdownBlock content={section.body} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
@@ -940,14 +1078,19 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
 
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [activeStage, setActiveStage] = useState(0);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('script');
+
+  // Split content into script + reasoning
+  const { scriptRaw, reasoningRaw } = useMemo(() => splitContent(content), [content]);
+  const hasReasoning = reasoningRaw.length > 0;
 
   // Refs for scrolling to stages
   const stageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(false);
 
-  // Parse on mount / content change
-  const messages = useMemo(() => parseMarkdownContent(content), [content]);
+  // Parse only the script part (not reasoning)
+  const messages = useMemo(() => parseMarkdownContent(scriptRaw), [scriptRaw]);
   const stages = useMemo(() => extractStages(messages), [messages]);
   const isFallback = messages.length === 0;
 
@@ -1011,7 +1154,7 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
   const handleDownloadPdf = async () => {
     setDownloadingPdf(true);
     try {
-      await generateChatPdf(assetName, messages, getValue);
+      await generateChatPdf(assetName, messages, getValue, { edited: hasEdits });
     } catch (e) {
       console.error('PDF download failed:', e);
     } finally {
@@ -1081,6 +1224,32 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
         </div>
       </div>
 
+      {/* ─── Tab bar (when reasoning exists) ─────────────────────────── */}
+      {hasReasoning && !isFallback && (
+        <div className="flex gap-1 mb-4 bg-white/5 border border-white/10 rounded-lg p-1">
+          <button
+            onClick={() => setActiveTab('script')}
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-semibold transition ${
+              activeTab === 'script'
+                ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark border border-prosperus-gold-dark/30'
+                : 'text-white/50 hover:text-white/70 border border-transparent'
+            }`}
+          >
+            💬 Script
+          </button>
+          <button
+            onClick={() => setActiveTab('reasoning')}
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-semibold transition ${
+              activeTab === 'reasoning'
+                ? 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark border border-prosperus-gold-dark/30'
+                : 'text-white/50 hover:text-white/70 border border-transparent'
+            }`}
+          >
+            🧠 Raciocínio
+          </button>
+        </div>
+      )}
+
       {/* ─── Fallback ────────────────────────────────────────────────────── */}
       {isFallback && (
         <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
@@ -1088,8 +1257,15 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
         </div>
       )}
 
-      {/* ─── Chat view ───────────────────────────────────────────────────── */}
-      {!isFallback && (
+      {/* ─── Reasoning tab ────────────────────────────────────────────────── */}
+      {!isFallback && activeTab === 'reasoning' && hasReasoning && (
+        <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+          <ReasoningView content={reasoningRaw} />
+        </div>
+      )}
+
+      {/* ─── Chat view (script tab) ──────────────────────────────────────── */}
+      {!isFallback && activeTab === 'script' && (
         <div className="bg-white/5 border border-white/5 rounded-xl overflow-hidden">
           {/* Stage navigation */}
           {stages.length > 0 && (
@@ -1103,7 +1279,7 @@ export const ChatScriptViewer: React.FC<ChatScriptViewerProps> = ({
           {/* Chat area */}
           <div className="relative">
           <div ref={chatAreaRef} className="px-4 py-4 space-y-3 max-h-[75vh] overflow-y-auto">
-            {messages.map((msg, idx) => {
+            {messages.map((msg) => {
               // Stage separator
               if (msg.stageLabel) {
                 const currentStageIdx = stageIndexMap.get(msg.id) ?? 0;
