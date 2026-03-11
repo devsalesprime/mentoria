@@ -66,7 +66,7 @@ function splitContent(content: string): { scriptRaw: string; reasoningRaw: strin
 
 // ─── Markdown parser for chat script ──────────────────────────────────────────
 
-const STAGE_REGEX = /^#{2,3}\s+.*(?:ETAPA|Etapa|\d+[A-Za-z]?\s*[.)\-:])/i;
+const STAGE_REGEX = /^#{2,3}\s+.*(?:ETAPA|Etapa|\d+[A-Za-z]?\s*[.)\-:\u2013\u2014])/i;
 const MENTOR_REGEX = /\*\*(?:Vendedor|Mentor|Você|Consultor|Closer)\s*:\*\*/i;
 const PROSPECT_REGEX = /\*\*(?:Prospect|Cliente|Lead|Comprador|Contato)\s*:\*\*/i;
 const TONE_REGEX = /^\s*\*?\(([^)]+)\)\*?\s*$/;
@@ -1001,6 +1001,57 @@ function parseReasoningSections(raw: string): { intro: string; sections: Reasoni
 
   if (current) {
     sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+  }
+
+  // Fallback: if no numbered sections found, split on any ### header (unnumbered)
+  // This handles the format contract pattern where reasoning uses ### Title (no numbers)
+  if (sections.length === 0) {
+    const fallbackSections: ReasoningSection[] = [];
+    const fallbackIntro: string[] = [];
+    let fbCurrent: { title: string; lines: string[] } | null = null;
+    let sectionCount = 0;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const headerMatch = trimmed.match(/^(#{2,3})\s+(.+)/);
+      if (headerMatch) {
+        const title = headerMatch[2].trim();
+        // Skip the top-level reasoning/strategy header (already shown as tab title)
+        if (sectionCount === 0 && /\b(racioc[íi]n[íi]|estrat[eé]gi[ca]|por\s+que|guia\s+de\s+adapta)/i.test(title)) {
+          fallbackIntro.push(line);
+          continue;
+        }
+        if (fbCurrent) {
+          sectionCount++;
+          fallbackSections.push({
+            title: fbCurrent.title,
+            number: String(sectionCount),
+            body: fbCurrent.lines.join('\n').trim(),
+          });
+        }
+        fbCurrent = { title, lines: [] };
+        continue;
+      }
+
+      if (fbCurrent) {
+        fbCurrent.lines.push(line);
+      } else {
+        fallbackIntro.push(line);
+      }
+    }
+
+    if (fbCurrent) {
+      sectionCount++;
+      fallbackSections.push({
+        title: fbCurrent.title,
+        number: String(sectionCount),
+        body: fbCurrent.lines.join('\n').trim(),
+      });
+    }
+
+    if (fallbackSections.length > 0) {
+      return { intro: fallbackIntro.join('\n').trim(), sections: fallbackSections };
+    }
   }
 
   return { intro: intro.join('\n').trim(), sections };

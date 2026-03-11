@@ -86,8 +86,13 @@ function splitCadenceContent(content: string): { cadenceRaw: string; reasoningRa
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Detect channel type from text content */
-const detectChannel = (text: string): ChannelType => {
-  if (/whatsapp|wpp|zap|bal[aã]o|mensagem\s+de\s+texto/i.test(text)) return 'whatsapp';
+const detectChannel = (text: string, isLabel = false): ChannelType => {
+  // "balão" only counts as WhatsApp in labels (e.g. "### Balão 1"), not in body text
+  // where it can appear in explanatory context (e.g. "envie 3 balões de mensagem")
+  const whatsappPattern = isLabel
+    ? /whatsapp|wpp|zap|bal[aã]o|mensagem\s+de\s+texto/i
+    : /whatsapp|wpp|zap|mensagem\s+de\s+texto/i;
+  if (whatsappPattern.test(text)) return 'whatsapp';
   if (/e[-\s]?mail|assunto:|subject:/i.test(text)) return 'email';
   if (/liga[çc][aã]o|ligacao|call|telefonema|telefone|voz|double.?dial|aircall/i.test(text)) return 'call';
   return 'other';
@@ -159,8 +164,8 @@ const parseTimelineNodes = (content: string): TimelineNode[] => {
       if (raw.length > 0) {
         // Detect channel from label first (### Ligação, ### WhatsApp, ### Email),
         // then fall back to body content detection
-        const labelChannel = detectChannel(currentLabel);
-        const channel = labelChannel !== 'other' ? labelChannel : detectChannel(raw);
+        const labelChannel = detectChannel(currentLabel, true);
+        const channel = labelChannel !== 'other' ? labelChannel : detectChannel(raw, false);
         const subject = channel === 'email' ? extractSubject(raw) : undefined;
         const messages = splitMessages(raw);
         nodes.push({
@@ -293,8 +298,8 @@ const BracketHighlight: React.FC<BracketHighlightProps> = ({ text, fieldPrefix, 
         placeholder={placeholder}
         onChange={e => setValue(fieldId, e.target.value || bracketText)}
         onClick={e => e.stopPropagation()}
-        size={Math.max(10, placeholder.length)}
-        className={`inline-block mx-0.5 px-1.5 py-0.5 text-sm rounded border transition-colors ${
+        style={{ minWidth: `${Math.max(10, placeholder.length + 2)}ch` }}
+        className={`inline-block mx-0.5 px-1.5 py-0.5 text-sm rounded border transition-colors max-w-full ${
           edited
             ? 'bg-yellow-400/20 border-yellow-400/40 text-yellow-300 font-medium'
             : 'bg-yellow-400/10 border-yellow-400/30 text-yellow-300 placeholder:text-yellow-400/50'

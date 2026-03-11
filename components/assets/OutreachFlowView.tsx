@@ -289,10 +289,10 @@ function parseChatMessages(raw: string): ChatMessage[] {
       continue;
     }
 
-    // H2/H3 headers not caught above → section divider
-    if (/^#{2,3}\s+/.test(line)) {
+    // H2/H3/H4 headers not caught above → section divider (includes objections with ####)
+    if (/^#{2,4}\s+/.test(line)) {
       flushVariant();
-      const title = line.replace(/^#{2,3}\s+/, '');
+      const title = line.replace(/^#{2,4}\s+/, '');
       messages.push({ id: `stage-${msgIndex++}`, sender: 'stage', text: title });
       pendingTone = null;
       lastMentorMessage = null;
@@ -1084,6 +1084,58 @@ function parseReasoningSections(raw: string): { intro: string; sections: Reasoni
   // Flush last section
   if (current) {
     sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+  }
+
+  // Fallback: if no numbered sections found, split on any ### header (unnumbered)
+  // This handles the format contract pattern where reasoning uses ### Title (no numbers)
+  if (sections.length === 0) {
+    const fallbackSections: ReasoningSection[] = [];
+    const fallbackIntro: string[] = [];
+    let fbCurrent: { title: string; lines: string[] } | null = null;
+    let sectionCount = 0;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Match any H2/H3 header that isn't the top-level reasoning header
+      const headerMatch = trimmed.match(/^(#{2,3})\s+(.+)/);
+      if (headerMatch) {
+        const title = headerMatch[2].trim();
+        // Skip the top-level reasoning/strategy header (already shown as tab title)
+        if (sectionCount === 0 && /\b(racioc[íi]n[íi]|estrat[eé]gi[ca]|por\s+que)/i.test(title)) {
+          fallbackIntro.push(line);
+          continue;
+        }
+        if (fbCurrent) {
+          sectionCount++;
+          fallbackSections.push({
+            title: fbCurrent.title,
+            number: String(sectionCount),
+            body: fbCurrent.lines.join('\n').trim(),
+          });
+        }
+        fbCurrent = { title, lines: [] };
+        continue;
+      }
+
+      if (fbCurrent) {
+        fbCurrent.lines.push(line);
+      } else {
+        fallbackIntro.push(line);
+      }
+    }
+
+    if (fbCurrent) {
+      sectionCount++;
+      fallbackSections.push({
+        title: fbCurrent.title,
+        number: String(sectionCount),
+        body: fbCurrent.lines.join('\n').trim(),
+      });
+    }
+
+    if (fallbackSections.length > 0) {
+      return { intro: fallbackIntro.join('\n').trim(), sections: fallbackSections };
+    }
   }
 
   return { intro: intro.join('\n').trim(), sections };
