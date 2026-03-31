@@ -21,9 +21,10 @@ interface InsightsData {
 
 interface InsightsHubProps {
   token: string;
+  onNavigate?: (moduleId: string) => void;
 }
 
-export const InsightsHub: React.FC<InsightsHubProps> = ({ token }) => {
+export const InsightsHub: React.FC<InsightsHubProps> = ({ token, onNavigate }) => {
   const [data, setData] = useState<InsightsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,9 +191,12 @@ export const InsightsHub: React.FC<InsightsHubProps> = ({ token }) => {
           <p className="text-white/50 mb-4">
             Preencha suas prioridades para receber recomendações personalizadas.
           </p>
-          <a href="/dashboard/complete" className="text-brand-primary hover:underline text-sm">
+          <button
+            onClick={() => onNavigate?.('diagnostic_complete')}
+            className="text-brand-primary hover:underline text-sm"
+          >
             Preencher prioridades
-          </a>
+          </button>
         </div>
       )}
 

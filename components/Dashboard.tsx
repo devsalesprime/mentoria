@@ -484,7 +484,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     if (activeItem === 'insights') {
       return (
         <ModuleErrorBoundary moduleName="Insights">
-          <InsightsHub token={token} />
+          <InsightsHub token={token} onNavigate={(id) => navigateTo(id)} />
         </ModuleErrorBoundary>
       );
     }
