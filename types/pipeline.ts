@@ -36,3 +36,14 @@ export type PipelineStatus =
   | 'review'
   | 'assets'
   | 'delivered';
+
+// === FEEDBACK STATUS (PV-1.1) ===
+export type FeedbackStatus = 'pending' | 'in_analysis' | 'delivered';
+
+// === PIPELINE EXTENDED FIELDS (PV-1.1) ===
+export interface PipelineInsightsFields {
+  showAssetsToUser: boolean;
+  feedbackStatus: FeedbackStatus;
+  personalizedFeedback: string | null;
+  feedbackDeliveredAt: string | null;
+}

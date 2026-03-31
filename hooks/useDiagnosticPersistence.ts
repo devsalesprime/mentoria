@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
-import type { PreModuleData, MentorData, MenteeData, MethodData, OfferData } from '../types/diagnostic';
-import type { PipelineStatus } from '../types/pipeline';
+import type { PreModuleData, MentorData, MenteeData, MethodData, OfferData, PrioritiesData } from '../types/diagnostic';
+import type { PipelineStatus, FeedbackStatus } from '../types/pipeline';
 import { calculateProgress } from '../utils/progress';
 
 // Initial data constants
@@ -56,6 +56,7 @@ interface DiagnosticState {
   mentee: MenteeData;
   method: MethodData;
   offer: OfferData;
+  priorities: PrioritiesData | null;
   currentModule: string;
   currentStep: number;
   diagnosticStatus: string;
@@ -69,6 +70,9 @@ interface PipelineState {
   assetsStatus: string;
   researchStatus: string;
   pipelineStatus: PipelineStatus;
+  feedbackStatus: FeedbackStatus;
+  showAssetsToUser: boolean;
+  hasEducationalSuggestions: boolean;
 }
 
 function derivePipelineStatus(
@@ -99,6 +103,7 @@ const INITIAL_STATE: DiagnosticState = {
   mentee: INITIAL_MENTEE,
   method: INITIAL_METHOD,
   offer: INITIAL_OFFER,
+  priorities: null,
   currentModule: 'pre_module',
   currentStep: 0,
   diagnosticStatus: 'in_progress',
@@ -110,6 +115,9 @@ const INITIAL_PIPELINE: PipelineState = {
   assetsStatus: 'pending',
   researchStatus: 'pending',
   pipelineStatus: 'diagnostic',
+  feedbackStatus: 'pending',
+  showAssetsToUser: false,
+  hasEducationalSuggestions: false,
 };
 
 export const useDiagnosticPersistence = (token: string) => {
@@ -180,6 +188,7 @@ export const useDiagnosticPersistence = (token: string) => {
           mentee: d.mentee && Object.keys(d.mentee).length > 0 ? { ...INITIAL_MENTEE, ...d.mentee } : INITIAL_MENTEE,
           method: d.method && Object.keys(d.method).length > 0 ? { ...INITIAL_METHOD, ...d.method } : INITIAL_METHOD,
           offer: d.offer && Object.keys(d.offer).length > 0 ? { ...INITIAL_OFFER, ...d.offer } : INITIAL_OFFER,
+          priorities: d.priorities || null,
           currentModule: d.current_module || 'pre_module',
           currentStep: d.current_step || 0,
           diagnosticStatus: d.status || 'in_progress',
@@ -195,14 +204,18 @@ export const useDiagnosticPersistence = (token: string) => {
     if (!token) return;
     try {
       // Fetch brand brain status
-      const [bbRes, assetsRes] = await Promise.allSettled([
+      const [bbRes, assetsRes, insightsRes] = await Promise.allSettled([
         axios.get('/api/brand-brain', { headers: { Authorization: `Bearer ${token}` } }),
         axios.get('/api/assets', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('/api/insights', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       let brandBrainStatus = 'pending';
       let assetsStatus = 'pending';
       let researchStatus = 'pending';
+      let feedbackStatus: FeedbackStatus = 'pending';
+      let showAssetsToUser = false;
+      let hasEducationalSuggestions = false;
 
       if (bbRes.status === 'fulfilled' && bbRes.value.data.success) {
         const d = bbRes.value.data.data;
@@ -220,10 +233,19 @@ export const useDiagnosticPersistence = (token: string) => {
         }
       }
 
+      if (insightsRes.status === 'fulfilled' && insightsRes.value.data.success) {
+        const d = insightsRes.value.data.data;
+        if (d) {
+          feedbackStatus = d.feedbackStatus || 'pending';
+          showAssetsToUser = d.showAssetsToUser === true;
+          hasEducationalSuggestions = d.hasEducationalSuggestions === true;
+        }
+      }
+
       const diagnosticStatus = latestStateRef.current.diagnosticStatus;
       const ps = derivePipelineStatus(diagnosticStatus, researchStatus, brandBrainStatus, assetsStatus);
 
-      setPipeline({ brandBrainStatus, assetsStatus, researchStatus, pipelineStatus: ps });
+      setPipeline({ brandBrainStatus, assetsStatus, researchStatus, pipelineStatus: ps, feedbackStatus, showAssetsToUser, hasEducationalSuggestions });
     } catch (error: any) {
       console.error('Error loading pipeline status:', error.message);
     }
@@ -243,6 +265,7 @@ export const useDiagnosticPersistence = (token: string) => {
         mentee: s.mentee,
         method: s.method,
         offer: s.offer,
+        priorities: s.priorities,
         current_module: s.currentModule,
         current_step: s.currentStep,
         progress_percentage: progress,
@@ -314,6 +337,15 @@ export const useDiagnosticPersistence = (token: string) => {
     scheduleSave();
   }, [scheduleSave]);
 
+  const updatePriorities = useCallback((data: PrioritiesData) => {
+    setState(prev => {
+      const updated = { ...prev, priorities: data };
+      latestStateRef.current = updated;
+      return updated;
+    });
+    scheduleSave();
+  }, [scheduleSave]);
+
   // Navigation helpers
   const setCurrentModule = useCallback((module: string) => {
     setState(prev => {
@@ -367,6 +399,7 @@ export const useDiagnosticPersistence = (token: string) => {
     mentee: state.mentee,
     method: state.method,
     offer: state.offer,
+    priorities: state.priorities,
 
     // Update functions
     updatePreModule,
@@ -374,6 +407,7 @@ export const useDiagnosticPersistence = (token: string) => {
     updateMentee,
     updateMethod,
     updateOffer,
+    updatePriorities,
 
     // Navigation
     currentModule: state.currentModule,
@@ -394,6 +428,9 @@ export const useDiagnosticPersistence = (token: string) => {
     assetsStatus: pipeline.assetsStatus,
     researchStatus: pipeline.researchStatus,
     pipelineStatus: pipeline.pipelineStatus,
+    feedbackStatus: pipeline.feedbackStatus,
+    showAssetsToUser: pipeline.showAssetsToUser,
+    hasEducationalSuggestions: pipeline.hasEducationalSuggestions,
     refreshPipelineStatus: loadPipelineStatus,
 
     // Save status

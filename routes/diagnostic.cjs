@@ -41,6 +41,7 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         mentee: safeJsonParse(row.mentee),
         method: safeJsonParse(row.method),
         offer: safeJsonParse(row.offer),
+        priorities: safeJsonParse(row.priorities, null),
         current_module: row.current_module,
         current_step: row.current_step,
         progress_percentage: row.progress_percentage,
@@ -62,7 +63,7 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
   router.post('/api/diagnostic', authMiddleware, async (req, res) => {
     try {
       const { userId, user: email, name } = req.user;
-      const { pre_module, mentor, mentee, method, offer, current_module, current_step, progress_percentage } = req.body;
+      const { pre_module, mentor, mentee, method, offer, priorities, current_module, current_step, progress_percentage } = req.body;
 
       // Check if record exists
       const existing = await dbGet('SELECT id FROM diagnostic_data WHERE user_id = ?', [userId]);
@@ -76,6 +77,7 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
       if (mentee !== undefined) updates.mentee = JSON.stringify(mentee);
       if (method !== undefined) updates.method = JSON.stringify(method);
       if (offer !== undefined) updates.offer = JSON.stringify(offer);
+      if (priorities !== undefined) updates.priorities = JSON.stringify(priorities);
       if (current_module !== undefined) updates.current_module = current_module;
       if (current_step !== undefined) updates.current_step = current_step;
       if (progress_percentage !== undefined) updates.progress_percentage = progress_percentage;
@@ -106,8 +108,8 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         }
 
         await dbRun(
-          `INSERT INTO diagnostic_data (id, user_id, email, name, pre_module, mentor, mentee, method, offer, current_module, current_step, progress_percentage)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO diagnostic_data (id, user_id, email, name, pre_module, mentor, mentee, method, offer, priorities, current_module, current_step, progress_percentage)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             userId,
@@ -118,6 +120,7 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
             updates.mentee || '{}',
             updates.method || '{}',
             updates.offer || '{}',
+            updates.priorities || null,
             updates.current_module || 'pre_module',
             updates.current_step || 0,
             updates.progress_percentage || 0
@@ -156,10 +159,22 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         return res.status(404).json({ success: false, message: 'Diagnóstico não encontrado.' });
       }
 
+      // Load full diagnostic data for webhook enrichment (PV-1.1)
+      const fullRow = await dbGet('SELECT mentee, method, offer, priorities FROM diagnostic_data WHERE user_id = ?', [userId]);
+      const menteeData = safeJsonParse(fullRow?.mentee, {});
+      const methodData = safeJsonParse(fullRow?.method, {});
+      const offerData = safeJsonParse(fullRow?.offer, {});
+      const prioritiesData = safeJsonParse(fullRow?.priorities, null);
+
+      // Infer mentor level from diagnostic data
+      let mentorLevel = 'growing';
+      if (menteeData.hasClients !== 'yes') mentorLevel = 'starting';
+      else if (methodData.maturity === 'structured' && offerData.pricing >= 3000) mentorLevel = 'scaling';
+
       // Trigger webhook to n8n — only on explicit submit
       const webhookUrl = 'https://n8n.salesprime.com.br/webhook/diagostico-100';
-      console.log(`🚀 [WEBHOOK] Diagnostic submitted for ${email}`);
-      axios.post(webhookUrl, { email })
+      console.log(`🚀 [WEBHOOK] Diagnostic submitted for ${email} (level: ${mentorLevel})`);
+      axios.post(webhookUrl, { email, priorities: prioritiesData, mentorLevel })
         .then(() => console.log('✅ [WEBHOOK] Sent successfully'))
         .catch(e => console.error('❌ [WEBHOOK] Error:', e.message));
 

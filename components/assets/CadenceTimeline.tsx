@@ -305,8 +305,8 @@ const BracketHighlight: React.FC<BracketHighlightProps> = ({ text, fieldPrefix, 
         placeholder={placeholder}
         onChange={e => setValue(fieldId, e.target.value || bracketText)}
         onClick={e => e.stopPropagation()}
-        style={{ minWidth: `${Math.max(10, placeholder.length + 2)}ch` }}
-        className={`inline-block mx-0.5 px-1.5 py-0.5 text-sm rounded border transition-colors max-w-full ${
+        style={{ minWidth: `${Math.min(20, Math.max(10, placeholder.length + 2))}ch`, maxWidth: '100%' }}
+        className={`inline mx-0.5 px-1.5 py-0.5 text-sm rounded border transition-colors ${
           edited
             ? 'bg-yellow-400/20 border-yellow-400/40 text-yellow-300 font-medium'
             : 'bg-yellow-400/10 border-yellow-400/30 text-yellow-300 placeholder:text-yellow-400/50'
@@ -669,6 +669,8 @@ function parseReasoningSections(raw: string): { intro: string; sections: Reasoni
   const intro: string[] = [];
   let current: { title: string; number: string; lines: string[] } | null = null;
 
+  let autoNumber = 0;
+
   for (const line of lines) {
     const trimmed = line.trim();
     const numberedMatch = trimmed.match(/^#{2,3}\s+(\d+)\.?\s*[:\-\u2013\u2014.]?\s*(.+)/);
@@ -676,7 +678,19 @@ function parseReasoningSections(raw: string): { intro: string; sections: Reasoni
       if (current) {
         sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
       }
+      autoNumber = parseInt(numberedMatch[1], 10);
       current = { number: numberedMatch[1], title: numberedMatch[2].trim(), lines: [] };
+      continue;
+    }
+
+    // Accept unnumbered ### headers as sections (assign sequential numbers)
+    const unnumberedMatch = trimmed.match(/^#{2,3}\s+(.+)/);
+    if (unnumberedMatch && (current || sections.length > 0)) {
+      if (current) {
+        sections.push({ title: current.title, number: current.number, body: current.lines.join('\n').trim() });
+      }
+      autoNumber++;
+      current = { number: String(autoNumber), title: unnumberedMatch[1].trim(), lines: [] };
       continue;
     }
 

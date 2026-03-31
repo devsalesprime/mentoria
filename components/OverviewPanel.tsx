@@ -12,8 +12,8 @@ interface Stage {
 
 const PIPELINE_STAGES: Stage[] = [
   { key: 'diagnostic',  label: 'Diagnóstico',     description: 'Preenchimento do diagnóstico completo' },
-  { key: 'processing',  label: 'Processamento',   description: 'Pesquisa, análise e geração dos materiais' },
-  { key: 'delivered',   label: 'Pronto',           description: 'Materiais prontos para uso' },
+  { key: 'processing',  label: 'Análise',          description: 'Preparando seu feedback personalizado' },
+  { key: 'delivered',   label: 'Entregue',         description: 'Feedback personalizado disponível' },
 ];
 
 // Map actual pipeline statuses to simplified 3-stage model
@@ -52,24 +52,17 @@ function getContextualMessage(
   researchStatus: string,
   brandBrainStatus: string,
   assetsStatus: string,
-  pipelineStatus: PipelineStatus
+  pipelineStatus: PipelineStatus,
+  feedbackStatus?: string,
 ): { text: string; icon: string } | null {
-  if (assetsStatus === 'delivered') {
-    return null;
-  }
-  if (pipelineStatus === 'assets') {
-    return { text: 'Seus entregáveis estão sendo preparados. Você será notificado quando estiverem prontos.', icon: '⚙️' };
-  }
-  if (brandBrainStatus === 'ready') {
-    return { text: 'Seu Brand Brain está disponível. Acesse a seção Brand Brain no menu.', icon: '🧠' };
-  }
-  if (pipelineStatus === 'brand_brain' || researchStatus === 'complete') {
-    return { text: 'A pesquisa foi concluída. Seu Brand Brain está sendo preparado.', icon: '🔬' };
+  // FIX-PV-012: Insights-first messaging for submitted users
+  if (diagnosticStatus === 'submitted' && feedbackStatus === 'delivered') {
+    return { text: 'Seu feedback personalizado foi entregue! Acesse seus Insights para ver a análise completa.', icon: '✅' };
   }
   if (diagnosticStatus === 'submitted') {
-    return { text: 'Seu diagnóstico foi recebido! A pesquisa de mercado está sendo realizada.', icon: '✅' };
+    return { text: 'Seus insights estão disponíveis. Feedback personalizado em até 48h úteis.', icon: '💡' };
   }
-  return { text: 'Complete seu diagnóstico para dar início ao processo.', icon: '📋' };
+  return { text: 'Complete seu diagnóstico para receber seu feedback personalizado.', icon: '📋' };
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -99,6 +92,7 @@ interface OverviewPanelProps {
   brandBrainStatus: string;
   assetsStatus: string;
   researchStatus: string;
+  feedbackStatus?: string;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -120,6 +114,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
   brandBrainStatus,
   assetsStatus,
   researchStatus,
+  feedbackStatus,
 }) => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationShown, setCelebrationShown] = useState(false);
@@ -138,7 +133,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
   }, [assetsStatus, celebrationShown]);
 
   const contextualMsg = getContextualMessage(
-    diagnosticStatus, researchStatus, brandBrainStatus, assetsStatus, pipelineStatus
+    diagnosticStatus, researchStatus, brandBrainStatus, assetsStatus, pipelineStatus, feedbackStatus
   );
 
   const journeyModules: DiagnosticModuleStatus[] = [
@@ -164,7 +159,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
             <div className="bg-prosperus-navy-mid border border-prosperus-gold-dark/30 rounded-2xl p-10 text-center max-w-md mx-4">
               <span className="text-6xl block mb-4">🎉</span>
               <h3 className="text-2xl font-serif text-white mb-2">Parabéns!</h3>
-              <p className="text-white/60 text-sm">Todos os seus materiais estão prontos!</p>
+              <p className="text-white/60 text-sm">Seu feedback personalizado foi entregue!</p>
             </div>
           </motion.div>
         )}

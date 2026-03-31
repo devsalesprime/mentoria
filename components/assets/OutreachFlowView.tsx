@@ -113,12 +113,16 @@ function parseChatMessages(raw: string): ChatMessage[] {
   let justSawMentor = false;        // for multi-paragraph concatenation
   let collectingVariant = false;    // true when inside a variant block
   let variantLines: string[] = [];
+  let variantLabels: string[] = [];  // labels extracted from variant headers
   let msgIndex = 0;
 
   const flushVariant = () => {
     if (collectingVariant && variantLines.length > 0 && lastMentorMessage) {
       if (!lastMentorMessage.alternatives) lastMentorMessage.alternatives = [];
       lastMentorMessage.alternatives.push(variantLines.join('\n').trim());
+      if (variantLabels.length > 0) {
+        lastMentorMessage.alternativeLabels = ['Original', ...variantLabels];
+      }
     }
     collectingVariant = false;
     variantLines = [];
@@ -141,6 +145,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
       pendingTone = null;
       pendingSpeaker = null;
       lastMentorMessage = null;
+      variantLabels = [];
       justSawMentor = false;
       continue;
     }
@@ -149,6 +154,8 @@ function parseChatMessages(raw: string): ChatMessage[] {
     if (VARIANT_HEADER.test(line) && lastMentorMessage) {
       flushVariant();
       collectingVariant = true;
+      const variantLabelMatch = line.match(/\(([^)]+)\)/);
+      if (variantLabelMatch) variantLabels.push(variantLabelMatch[1]);
       const inlineContent = line
         .replace(/^#{2,4}\s+/, '')
         .replace(/\*\*/g, '')
@@ -197,6 +204,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
       };
       messages.push(msg);
       lastMentorMessage = msg;
+      variantLabels = [];
       pendingTone = null;
       pendingSpeaker = null;
       justSawMentor = true;
@@ -251,6 +259,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
         };
         messages.push(msg);
         lastMentorMessage = msg;
+        variantLabels = [];
         pendingTone = null;
         justSawMentor = true;
       }
@@ -286,6 +295,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
           text,
         });
         lastMentorMessage = null;
+        variantLabels = [];
         pendingTone = null;
         justSawMentor = false;
       }
@@ -311,6 +321,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
 
     // System message (observations, instructions, etc.)
     lastMentorMessage = null;
+    variantLabels = [];
     justSawMentor = false;
     messages.push({ id: `sys-${msgIndex++}`, sender: 'system', text: line });
     pendingTone = null;
@@ -322,7 +333,7 @@ function parseChatMessages(raw: string): ChatMessage[] {
 
 // ─── Objection variant grouping ───────────────────────────────────────────────
 
-const OBJECTION_STAGE_REGEX = /Obje[çc][aã]o\s*[\u2013\u2014\-:]\s*(?:Fase\s*\d+\s*[:\u2013\u2014\-]\s*)?(.+)/i;
+const OBJECTION_STAGE_REGEX = /Obje[çc][aã]o\s*(?:[\u2013\u2014\-:]\s*)?(?:Fase\s*\d+\s*[:\u2013\u2014\-]\s*)?(.+)/i;
 
 function groupOutreachObjectionVariants(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = [];

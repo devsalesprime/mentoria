@@ -251,6 +251,43 @@ function initializeDatabase() {
       }
     });
 
+    // PV-1.1: Add priorities column to diagnostic_data
+    db.run(`ALTER TABLE diagnostic_data ADD COLUMN priorities JSON DEFAULT NULL`, (err) => {
+      if (err && !err.message.includes('duplicate column')) {
+        console.error('⚠️ priorities migration error:', err.message);
+      }
+    });
+
+    // PV-1.1: Add personalized feedback columns to pipeline
+    db.run(`ALTER TABLE pipeline ADD COLUMN personalized_feedback JSON DEFAULT NULL`, (err) => {
+      if (err && !err.message.includes('duplicate column')) {
+        console.error('⚠️ personalized_feedback migration error:', err.message);
+      }
+    });
+    db.run(`ALTER TABLE pipeline ADD COLUMN feedback_status TEXT DEFAULT 'pending'`, (err) => {
+      if (err && !err.message.includes('duplicate column')) {
+        console.error('⚠️ feedback_status migration error:', err.message);
+      }
+    });
+    db.run(`ALTER TABLE pipeline ADD COLUMN feedback_delivered_at DATETIME`, (err) => {
+      if (err && !err.message.includes('duplicate column')) {
+        console.error('⚠️ feedback_delivered_at migration error:', err.message);
+      }
+    });
+
+    // PV-1.1: Add asset visibility flag to pipeline
+    db.run(`ALTER TABLE pipeline ADD COLUMN show_assets_to_user INTEGER DEFAULT 0`, (err) => {
+      if (err && !err.message.includes('duplicate column')) {
+        console.error('⚠️ show_assets_to_user migration error:', err.message);
+      } else if (!err) {
+        // Migrate existing users with assets — they keep visibility
+        db.run(`UPDATE pipeline SET show_assets_to_user = 1 WHERE assets_status IN ('ready', 'delivered')`, (updateErr) => {
+          if (updateErr) console.error('⚠️ show_assets_to_user migration UPDATE error:', updateErr.message);
+          else console.log('✅ Existing users with assets: show_assets_to_user set to 1');
+        });
+      }
+    });
+
     db.run(`
       CREATE TABLE IF NOT EXISTS audio_recordings (
         id TEXT PRIMARY KEY,
@@ -402,6 +439,7 @@ app.use(require('./routes/admin-pipeline.cjs')(deps));
 app.use(require('./routes/brand-brain.cjs')(deps));
 app.use(require('./routes/assets.cjs')(deps));
 app.use(require('./routes/diagnostic.cjs')(deps));
+app.use(require('./routes/insights.cjs')(deps));
 app.use(require('./routes/files.cjs')(deps));
 app.use(require('./routes/audio.cjs')(deps));
 

@@ -21,6 +21,8 @@ import { OverviewPanel } from './OverviewPanel';
 import { BrandBrainViewer } from './brand-brain/BrandBrainViewer';
 import { AssetDeliveryHub } from './assets/AssetDeliveryHub';
 import { EducationalSuggestionsView } from './suggestions/EducationalSuggestionsView';
+import { InsightsHub } from './insights/InsightsHub';
+import { PrioritiesScreen } from './modules/PrioritiesScreen';
 import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
 import type { PipelineStatus } from '../types/pipeline';
 
@@ -36,6 +38,7 @@ const SLUG_TO_ID: Record<string, string> = {
   'brand-brain': 'brand_brain_review',
   'assets': 'deliverables',
   'suggestions': 'suggestions',
+  'insights': 'insights',
 };
 
 const ID_TO_SLUG: Record<string, string> = Object.fromEntries(
@@ -75,6 +78,9 @@ const getSidebarMenu = (
   methodComplete: boolean,
   offerComplete: boolean,
   currentModule: string,
+  feedbackStatus: string,
+  showAssetsToUser: boolean,
+  hasEducationalSuggestions: boolean,
 ): MenuSection[] => {
   const moduleStatus = (id: string, complete: boolean): 'green' | 'yellow' | 'gold' => {
     if (complete) return 'green';
@@ -83,7 +89,6 @@ const getSidebarMenu = (
   };
 
   const menu: MenuSection[] = [
-    // Visão Geral — standalone, no section header
     {
       id: 'geral',
       title: '',
@@ -91,8 +96,56 @@ const getSidebarMenu = (
     },
   ];
 
-  // ENTREGÁVEIS — assets as primary item, always visible when available
-  if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') {
+  // DIAGNÓSTICO
+  menu.push({
+    id: 'diagnostic',
+    title: 'DIAGNÓSTICO',
+    items: [
+      { id: 'pre_module', label: 'Materiais Existentes', statusDot: preModuleComplete ? 'green' : 'yellow' },
+      { id: 'mentor',     label: 'O Mentor',             statusDot: moduleStatus('mentor', mentorComplete) },
+      { id: 'mentee',     label: 'O Mentorado',          statusDot: moduleStatus('mentee', menteeComplete) },
+      { id: 'method',     label: 'O Método',             statusDot: moduleStatus('method', methodComplete) },
+      { id: 'offer',      label: 'A Oferta',             statusDot: moduleStatus('offer', offerComplete) },
+    ],
+  });
+
+  // INTELIGÊNCIA — Insights (primary), Sugestões, Brand Brain
+  if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
+    const insightsDot: 'green' | 'yellow' =
+      feedbackStatus === 'delivered' ? 'green' : 'yellow';
+
+    const bbDot: 'green' | 'yellow' | 'gray' =
+      brandBrainStatus === 'ready' ? 'green' :
+      brandBrainStatus === 'generating' ? 'yellow' : 'gray';
+
+    const intItems: MenuItem[] = [];
+
+    // Insights — always first when diagnostic submitted
+    if (diagnosticStatus === 'submitted') {
+      intItems.push({ id: 'insights', label: 'Insights', statusDot: insightsDot });
+    }
+
+    // Sugestões — only when admin has populated them
+    if (hasEducationalSuggestions) {
+      intItems.push({ id: 'suggestions', label: 'Sugestões', statusDot: 'green' });
+    }
+
+    // Brand Brain
+    if (brandBrainStatus !== 'pending') {
+      intItems.push({ id: 'brand_brain_review', label: 'Brand Brain', statusDot: bbDot });
+    }
+
+    if (intItems.length > 0) {
+      menu.push({
+        id: 'inteligencia',
+        title: 'INTELIGÊNCIA',
+        items: intItems,
+      });
+    }
+  }
+
+  // ENTREGÁVEIS — only when admin has enabled for this user (PV-3.1)
+  if (showAssetsToUser && (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating')) {
     const assetDot: 'green' | 'yellow' | 'gray' =
       (assetsStatus === 'ready' || assetsStatus === 'delivered') ? 'green' :
       assetsStatus === 'generating' ? 'yellow' : 'gray';
@@ -105,39 +158,6 @@ const getSidebarMenu = (
       ],
     });
   }
-
-  // INTELIGÊNCIA — Sugestões + Brand Brain (visible when BB not pending or after submission)
-  if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
-    const bbDot: 'green' | 'yellow' | 'gray' =
-      brandBrainStatus === 'ready' ? 'green' :
-      brandBrainStatus === 'generating' ? 'yellow' : 'gray';
-
-    // Suggestions available when brand brain is ready or assets exist
-    const suggestionsAvailable = brandBrainStatus === 'ready' || assetsStatus === 'ready' || assetsStatus === 'delivered';
-    const suggestionsDot: 'green' | 'gray' = suggestionsAvailable ? 'green' : 'gray';
-
-    menu.push({
-      id: 'inteligencia',
-      title: 'INTELIGÊNCIA',
-      items: [
-        { id: 'suggestions', label: 'Sugestões', statusDot: suggestionsDot },
-        { id: 'brand_brain_review', label: 'Brand Brain', statusDot: bbDot },
-      ],
-    });
-  }
-
-  // DIAGNÓSTICO — keep as-is
-  menu.push({
-    id: 'diagnostic',
-    title: 'DIAGNÓSTICO',
-    items: [
-      { id: 'pre_module', label: 'Materiais Existentes', statusDot: preModuleComplete ? 'green' : 'yellow' },
-      { id: 'mentor',     label: 'O Mentor',             statusDot: moduleStatus('mentor', mentorComplete) },
-      { id: 'mentee',     label: 'O Mentorado',          statusDot: moduleStatus('mentee', menteeComplete) },
-      { id: 'method',     label: 'O Método',             statusDot: moduleStatus('method', methodComplete) },
-      { id: 'offer',      label: 'A Oferta',             statusDot: moduleStatus('offer', offerComplete) },
-    ],
-  });
 
   return menu;
 };
@@ -197,33 +217,34 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const token = props.token ?? '';
 
   const {
-    preModule, mentor, mentee, method, offer,
-    updatePreModule, updateMentor, updateMentee, updateMethod, updateOffer,
+    preModule, mentor, mentee, method, offer, priorities,
+    updatePreModule, updateMentor, updateMentee, updateMethod, updateOffer, updatePriorities,
     currentModule, setCurrentModule,
     progressPercentage, diagnosticStatus, isLegacy,
     isSaving, lastSaveError,
     submitDiagnostic,
     // Pipeline status
     pipelineStatus, brandBrainStatus, assetsStatus, researchStatus,
+    feedbackStatus, showAssetsToUser, hasEducationalSuggestions,
     refreshPipelineStatus,
   } = useDiagnosticPersistence(token);
 
-  // AC8: Default route post-login — redirect to Meus Ativos when assets available
+  // PV-1.2/PV-3.1: Default route post-login — redirect to insights when submitted
   const [hasRedirected, setHasRedirected] = useState(false);
   useEffect(() => {
     if (hasRedirected || urlModule) return; // Don't redirect if user navigated via URL
-    if (assetsStatus === 'ready' || assetsStatus === 'delivered') {
-      navigateTo('deliverables');
+    if (diagnosticStatus === 'submitted') {
+      navigateTo('insights');
       setHasRedirected(true);
     }
-  }, [assetsStatus, hasRedirected, urlModule]);
+  }, [diagnosticStatus, hasRedirected, urlModule]);
 
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
   const mentorComplete    = isLegacy || isMentorComplete(mentor);
   const menteeComplete    = isLegacy || isMenteeComplete(mentee);
   const methodComplete    = isLegacy || isMethodComplete(method);
   const offerComplete     = isLegacy || isOfferComplete(offer);
-  const effectiveProgress = isLegacy ? 100 : progressPercentage;
+  const effectiveProgress = (isLegacy || diagnosticStatus === 'submitted') ? 100 : progressPercentage;
 
   const methodEdges = {
     pointA: { internal: mentee.beforeInternal, external: mentee.beforeExternal },
@@ -241,6 +262,9 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     methodComplete,
     offerComplete,
     currentModule,
+    feedbackStatus,
+    showAssetsToUser,
+    hasEducationalSuggestions,
   );
 
   // Ensure newly visible sections are open automatically
@@ -318,52 +342,22 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
 
   const renderContent = () => {
     if (activeItem === 'diagnostic_complete') {
+      const alreadySubmitted = diagnosticStatus === 'submitted';
       return (
-        <div className="bg-prosperus-navy-mid border border-white/5 rounded-lg p-6 sm:p-8 md:p-12 min-h-[500px] shadow-2xl flex flex-col items-center justify-center text-center">
-          <span className="text-6xl sm:text-7xl block mb-6">🎉</span>
-          <h2 className="font-serif text-2xl sm:text-3xl md:text-4xl text-white mb-3">
-            Diagnóstico concluído!
-          </h2>
-          <p className="text-base sm:text-lg text-white/60 font-sans max-w-lg mb-8 leading-relaxed">
-            Você acabou de completar algo que poucos mentores fazem: colocar no papel o que você realmente é, o que você entrega, e para quem. Isso exigiu reflexão e dedicação — parabéns pelo comprometimento.
-          </p>
-
-          <div className="w-full max-w-lg bg-white/5 border border-white/10 rounded-xl p-5 sm:p-6 mb-8 text-left">
-            <h3 className="text-sm font-bold text-prosperus-gold-dark uppercase tracking-wider mb-4 font-sans">
-              O que acontece agora?
-            </h3>
-            <div className="space-y-4">
-              {[
-                { n: 1, title: '🔬 Pesquisa de Mercado', desc: 'Analisamos seu mercado, seus concorrentes e o vocabulário do seu público.' },
-                { n: 2, title: '🧠 Brand Brain', desc: 'Suas respostas + a pesquisa se fundem em um documento estratégico completo — seu Brand Brain.' },
-                { n: 3, title: '📦 Entregáveis', desc: 'Scripts, páginas, VSLs e sequências de follow-up gerados a partir da sua estratégia.' },
-              ].map((step) => (
-                <div key={step.n} className="flex gap-3">
-                  <span className="w-7 h-7 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-dark text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{step.n}</span>
-                  <div>
-                    <p className="text-sm font-semibold text-white">{step.title}</p>
-                    <p className="text-sm text-white/50 font-sans">{step.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <p className="text-sm text-white/50 font-sans mb-6">
-            Você não precisa fazer mais nada agora. Vamos te avisar quando estiver pronto.
-          </p>
-
-          <Button
-            variant="primary"
-            size="xl"
-            onClick={async () => {
+        <PrioritiesScreen
+          mentee={mentee}
+          method={method}
+          offer={offer}
+          priorities={priorities}
+          onUpdate={updatePriorities}
+          alreadySubmitted={alreadySubmitted}
+          onSubmit={async () => {
+            if (!alreadySubmitted) {
               await submitDiagnostic();
-              navigateTo('overview');
-            }}
-          >
-            Enviar Diagnóstico
-          </Button>
-        </div>
+            }
+            navigateTo('insights');
+          }}
+        />
       );
     }
 
@@ -393,6 +387,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
           brandBrainStatus={brandBrainStatus}
           assetsStatus={assetsStatus}
           researchStatus={researchStatus}
+          feedbackStatus={feedbackStatus}
         />
         </ModuleErrorBoundary>
       );
@@ -482,6 +477,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       return (
         <ModuleErrorBoundary moduleName="Brand Brain">
           <BrandBrainViewer token={token} onPipelineRefresh={refreshPipelineStatus} />
+        </ModuleErrorBoundary>
+      );
+    }
+
+    if (activeItem === 'insights') {
+      return (
+        <ModuleErrorBoundary moduleName="Insights">
+          <InsightsHub token={token} />
         </ModuleErrorBoundary>
       );
     }

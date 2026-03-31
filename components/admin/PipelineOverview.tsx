@@ -31,6 +31,8 @@ export const PipelineOverview: React.FC<PipelineOverviewProps> = ({ token, showT
                     researchStatus:   u.researchStatus   ?? u.research_status   ?? 'pending',
                     brandBrainStatus: u.brandBrainStatus ?? u.brand_brain_status ?? 'pending',
                     assetsStatus:     u.assetsStatus     ?? u.assets_status     ?? 'pending',
+                    feedbackStatus:   u.feedbackStatus   ?? u.feedback_status   ?? 'pending',
+                    showAssetsToUser: u.show_assets_to_user === 1 || u.showAssetsToUser === true,
                     lastUpdated:      u.lastUpdated      ?? u.last_updated      ?? '',
                 }));
                 setUsers(mapped);
@@ -92,6 +94,7 @@ export const PipelineOverview: React.FC<PipelineOverviewProps> = ({ token, showT
                                     <th className="px-4 py-3 text-left">Pesquisa</th>
                                     <th className="px-4 py-3 text-left">Brand Brain</th>
                                     <th className="px-4 py-3 text-left">Assets</th>
+                                    <th className="px-4 py-3 text-left">Feedback</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -117,6 +120,18 @@ export const PipelineOverview: React.FC<PipelineOverviewProps> = ({ token, showT
                                         <td className="px-4 py-3">
                                             <StatusBadge status={u.assetsStatus} />
                                         </td>
+                                        <td className="px-4 py-3">
+                                            {u.feedbackStatus && u.feedbackStatus !== 'pending' ? (
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                                                    u.feedbackStatus === 'delivered' ? 'bg-green-600/20 text-green-400' :
+                                                    u.feedbackStatus === 'in_analysis' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                    'bg-white/10 text-white/40'
+                                                }`}>
+                                                    {u.feedbackStatus === 'delivered' ? 'Entregue' :
+                                                     u.feedbackStatus === 'in_analysis' ? 'Em análise' : u.feedbackStatus}
+                                                </span>
+                                            ) : null}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -138,6 +153,16 @@ export const PipelineOverview: React.FC<PipelineOverviewProps> = ({ token, showT
                                     <StatusBadge status={u.researchStatus} />
                                     <StatusBadge status={u.brandBrainStatus} />
                                     <StatusBadge status={u.assetsStatus} />
+                                    {u.feedbackStatus && u.feedbackStatus !== 'pending' && (
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                                            u.feedbackStatus === 'delivered' ? 'bg-green-600/20 text-green-400' :
+                                            u.feedbackStatus === 'in_analysis' ? 'bg-yellow-500/20 text-yellow-400' :
+                                            'bg-white/10 text-white/40'
+                                        }`}>
+                                            {u.feedbackStatus === 'delivered' ? 'Feedback ✓' :
+                                             u.feedbackStatus === 'in_analysis' ? 'Feedback...' : u.feedbackStatus}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         ))}

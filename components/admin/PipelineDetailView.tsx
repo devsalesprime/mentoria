@@ -63,6 +63,14 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
 
     const [assetContents, setAssetContents] = useState<Record<string, string>>({});
 
+    // Feedback state (FIX-PV-002)
+    const [feedbackText, setFeedbackText] = useState('');
+    const [savingFeedback, setSavingFeedback] = useState(false);
+    const [feedbackEditing, setFeedbackEditing] = useState(false);
+
+    // Asset visibility toggle state (FIX-PV-005)
+    const [togglingAssets, setTogglingAssets] = useState(false);
+
     const [savingResearch, setSavingResearch] = useState(false);
     const [savingBb, setSavingBb] = useState(false);
     const [savingAssets, setSavingAssets] = useState(false);
@@ -104,6 +112,11 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     assetsStatus:          d.assetsStatus          ?? d.assets_status          ?? 'pending',
                     assetsDeliveredAt:     d.assetsDeliveredAt     ?? d.assets_delivered_at    ?? null,
                     educationalSuggestions: d.educational_suggestions ?? d.educationalSuggestions ?? null,
+                    personalizedFeedback:  d.personalized_feedback  ?? d.personalizedFeedback  ?? null,
+                    feedbackStatus:        d.feedback_status        ?? d.feedbackStatus        ?? 'pending',
+                    feedbackDeliveredAt:   d.feedback_delivered_at  ?? d.feedbackDeliveredAt   ?? null,
+                    showAssetsToUser:      d.show_assets_to_user === 1 || d.showAssetsToUser === true,
+                    priorities:            d.priorities             ?? null,
                 };
                 setDetail(mapped);
                 // Detect research_dossier format: URL string vs legacy JSON object
@@ -164,6 +177,14 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     setAssetContents({});
                 }
                 setExpertNotes(mapped.expertNotes ?? {});
+                // Load existing feedback (FIX-PV-002)
+                if (mapped.personalizedFeedback) {
+                    setFeedbackText(typeof mapped.personalizedFeedback === 'string' ? mapped.personalizedFeedback : JSON.stringify(mapped.personalizedFeedback));
+                    setFeedbackEditing(false);
+                } else {
+                    setFeedbackText('');
+                    setFeedbackEditing(true);
+                }
                 // Load existing educational suggestions
                 if (mapped.educationalSuggestions) {
                     setSuggestionsJson(JSON.stringify(mapped.educationalSuggestions, null, 2));
@@ -328,6 +349,40 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
     };
 
 
+    // FIX-PV-002: Save and deliver personalized feedback
+    const saveFeedback = async () => {
+        if (!feedbackText.trim()) {
+            showToast('Escreva o feedback antes de salvar', 'error');
+            return;
+        }
+        setSavingFeedback(true);
+        try {
+            await axios.post(`/api/admin/pipeline/${userId}/feedback`, { feedback: feedbackText.trim() }, { headers });
+            showToast('Feedback salvo e entregue com sucesso', 'success');
+            setFeedbackEditing(false);
+            fetchDetail();
+        } catch (e: any) {
+            showToast(e.response?.data?.message || 'Erro ao salvar feedback', 'error');
+        } finally { setSavingFeedback(false); }
+    };
+
+    // FIX-PV-005: Toggle asset visibility
+    const toggleAssetsVisibility = async () => {
+        if (!detail) return;
+        const newValue = !detail.showAssetsToUser;
+        // Optimistic update
+        setDetail(prev => prev ? { ...prev, showAssetsToUser: newValue } : prev);
+        setTogglingAssets(true);
+        try {
+            await axios.post(`/api/admin/pipeline/${userId}/toggle-assets-visibility`, { showAssetsToUser: newValue }, { headers });
+            showToast(newValue ? 'Entregáveis visíveis para o usuário' : 'Entregáveis ocultos', 'success');
+        } catch (e: any) {
+            // Rollback
+            setDetail(prev => prev ? { ...prev, showAssetsToUser: !newValue } : prev);
+            showToast(e.response?.data?.message || 'Erro ao alterar visibilidade', 'error');
+        } finally { setTogglingAssets(false); }
+    };
+
     if (loading || !detail) {
         return (
             <div className="animate-pulse space-y-4 p-4">
@@ -368,6 +423,99 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                     })}
                 </div>
             </div>
+
+            {/* FIX-PV-001: Priorities read-only section */}
+            {detail.priorities && detail.priorities.selectedAreas?.length > 0 && (
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+                    <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Prioridades do Usuário</h4>
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-white/50">Nível:</span>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                            detail.priorities.mentorLevel === 'starting' ? 'bg-blue-500/20 text-blue-400' :
+                            detail.priorities.mentorLevel === 'scaling' ? 'bg-green-500/20 text-green-400' :
+                            'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                            {detail.priorities.mentorLevel === 'starting' ? 'Iniciante' :
+                             detail.priorities.mentorLevel === 'scaling' ? 'Escalando' : 'Crescimento'}
+                        </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {detail.priorities.selectedAreas.map((area: any) => (
+                            <span key={area.id} className={`text-xs px-3 py-1.5 rounded-lg border ${
+                                area.isCustom
+                                    ? 'bg-prosperus-gold-dark/10 border-prosperus-gold-dark/30 text-prosperus-gold-dark italic'
+                                    : 'bg-white/5 border-white/10 text-white/70'
+                            }`}>
+                                {area.isCustom && '✨ '}{area.label}
+                            </span>
+                        ))}
+                    </div>
+                    {detail.priorities.freeformContext && (
+                        <div className="bg-black/20 border border-white/5 rounded-lg px-3 py-2">
+                            <span className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">Contexto adicional</span>
+                            <p className="text-xs text-white/60 mt-1">{detail.priorities.freeformContext}</p>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* FIX-PV-002: Personalized Feedback section */}
+            {detail.diagnosticStatus === 'submitted' && (
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                        <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Feedback Personalizado</h4>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                            detail.feedbackStatus === 'delivered'
+                                ? 'bg-green-600/20 text-green-400'
+                                : detail.feedbackStatus === 'in_analysis'
+                                ? 'bg-yellow-500/20 text-yellow-400'
+                                : 'bg-white/10 text-white/40'
+                        }`}>
+                            {detail.feedbackStatus === 'delivered' ? 'Entregue' :
+                             detail.feedbackStatus === 'in_analysis' ? 'Em análise' : 'Pendente'}
+                        </span>
+                    </div>
+                    {detail.feedbackDeliveredAt && (
+                        <p className="text-[10px] text-white/40">
+                            Entregue em {new Date(detail.feedbackDeliveredAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                    )}
+                    {detail.feedbackStatus === 'delivered' && !feedbackEditing ? (
+                        <div className="space-y-2">
+                            <div className="bg-black/20 border border-white/5 rounded-lg px-4 py-3 text-xs text-white/60 whitespace-pre-wrap max-h-64 overflow-y-auto">
+                                {feedbackText}
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => setFeedbackEditing(true)}>
+                                Editar Feedback
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            <textarea
+                                value={feedbackText}
+                                onChange={(e) => setFeedbackText(e.target.value)}
+                                placeholder="Escreva o feedback personalizado em markdown. Inclua: contextualização, pontos de melhoria, exemplos práticos, ferramentas sugeridas e próximos passos."
+                                className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/70 font-mono resize-none h-48 focus:outline-none focus:border-white/30"
+                            />
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="primary"
+                                    onClick={saveFeedback}
+                                    disabled={!feedbackText.trim() || savingFeedback}
+                                    loading={savingFeedback}
+                                >
+                                    {savingFeedback ? 'Salvando...' : 'Salvar e Entregar Feedback'}
+                                </Button>
+                                {detail.feedbackStatus === 'delivered' && (
+                                    <Button variant="outline" size="sm" onClick={() => setFeedbackEditing(false)}>
+                                        Cancelar
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Research */}
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
@@ -639,6 +787,30 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                 >
                     {savingSuggestions ? 'Salvando...' : 'Salvar Sugestões Educacionais'}
                 </Button>
+            </div>
+
+            {/* FIX-PV-005: Asset visibility toggle */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Visibilidade de Entregáveis</h4>
+                    <button
+                        onClick={toggleAssetsVisibility}
+                        disabled={togglingAssets}
+                        className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50"
+                        style={{ backgroundColor: detail.showAssetsToUser ? 'rgb(34 197 94 / 0.4)' : 'rgb(255 255 255 / 0.1)' }}
+                    >
+                        <span
+                            className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                                detail.showAssetsToUser ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                        />
+                    </button>
+                </div>
+                <p className="text-xs text-white/50">
+                    {detail.showAssetsToUser
+                        ? 'Entregáveis visíveis para este usuário no menu lateral.'
+                        : 'Entregáveis ocultos. Ative para que o usuário veja a seção "Meus Ativos".'}
+                </p>
             </div>
 
             {/* Assets */}

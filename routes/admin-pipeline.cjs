@@ -19,7 +19,9 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
       const rows = await dbAll(
         `SELECT
           d.id, d.id AS userId, d.name, d.email, d.status AS diagnostic_status, d.is_legacy, d.updated_at, d.submitted_at,
+          d.priorities,
           p.research_status, p.brand_brain_status, p.assets_status,
+          p.feedback_status, p.show_assets_to_user,
           p.research_completed_at, p.brand_brain_completed_at, p.assets_delivered_at
          FROM diagnostic_data d
          LEFT JOIN pipeline p ON d.user_id = p.user_id
@@ -52,7 +54,9 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
           p.brand_brain, p.brand_brain_status, p.brand_brain_version, p.brand_brain_completed_at,
           p.expert_notes,
           p.assets, p.assets_status, p.assets_delivered_at,
-          p.educational_suggestions
+          p.educational_suggestions,
+          p.personalized_feedback, p.feedback_status, p.feedback_delivered_at,
+          p.show_assets_to_user
          FROM diagnostic_data d
          LEFT JOIN pipeline p ON d.user_id = p.user_id
          WHERE d.id = ?`,
@@ -78,7 +82,15 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
         expert_notes: row.expert_notes ? safeJsonParse(row.expert_notes, null) : null,
         assets: row.assets ? safeJsonParse(row.assets, null) : null,
         educational_suggestions: row.educational_suggestions ? safeJsonParse(row.educational_suggestions, null) : null,
+        personalized_feedback: row.personalized_feedback || null,
+        feedback_status: row.feedback_status || 'pending',
+        feedback_delivered_at: row.feedback_delivered_at || null,
+        show_assets_to_user: row.show_assets_to_user === 1,
       };
+
+      // Load priorities from diagnostic_data for admin context (PV-1.1)
+      const diagRow = await dbGet('SELECT priorities FROM diagnostic_data WHERE id = ?', [userId]);
+      data.priorities = diagRow?.priorities ? safeJsonParse(diagRow.priorities, null) : null;
 
       res.json({ success: true, data });
     } catch (error) {
@@ -440,6 +452,63 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
     } catch (error) {
       console.error('❌ Erro em POST /api/admin/pipeline/:userId/set-legacy:', error);
       res.status(500).json({ success: false, message: 'Erro ao marcar usuario como legacy.' });
+    }
+  });
+
+  // POST /api/admin/pipeline/:userId/toggle-assets-visibility — Toggle show_assets_to_user (PV-1.1)
+  router.post('/api/admin/pipeline/:userId/toggle-assets-visibility', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { showAssetsToUser } = req.body;
+      const value = showAssetsToUser ? 1 : 0;
+
+      console.log(`👁️ [Admin] Setting show_assets_to_user=${value} for: ${userId}`);
+
+      const user = await dbGet('SELECT user_id FROM diagnostic_data WHERE id = ?', [userId]);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+      }
+
+      await dbRun(
+        'UPDATE pipeline SET show_assets_to_user = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+        [value, user.user_id]
+      );
+
+      console.log(`✅ show_assets_to_user=${value} for ${userId}`);
+      res.json({ success: true, message: `Visibilidade de ativos atualizada: ${value ? 'visível' : 'oculto'}.` });
+    } catch (error) {
+      console.error('❌ Erro em POST toggle-assets-visibility:', error);
+      res.status(500).json({ success: false, message: 'Erro ao atualizar visibilidade.' });
+    }
+  });
+
+  // POST /api/admin/pipeline/:userId/feedback — Save personalized feedback and mark as delivered (PV-1.1)
+  router.post('/api/admin/pipeline/:userId/feedback', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { feedback } = req.body;
+
+      console.log(`📝 [Admin] Salvando feedback personalizado para: ${userId}`);
+
+      if (!feedback || typeof feedback !== 'string') {
+        return res.status(400).json({ success: false, message: 'Campo feedback é obrigatório (string markdown).' });
+      }
+
+      const user = await dbGet('SELECT user_id FROM diagnostic_data WHERE id = ?', [userId]);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+      }
+
+      await dbRun(
+        `UPDATE pipeline SET personalized_feedback = ?, feedback_status = 'delivered', feedback_delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+        [feedback, user.user_id]
+      );
+
+      console.log(`✅ Feedback personalizado entregue para ${userId}`);
+      res.json({ success: true, message: 'Feedback personalizado salvo e entregue.' });
+    } catch (error) {
+      console.error('❌ Erro em POST feedback:', error);
+      res.status(500).json({ success: false, message: 'Erro ao salvar feedback.' });
     }
   });
 

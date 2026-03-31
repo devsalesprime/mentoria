@@ -58,6 +58,8 @@ export interface PipelineUser {
     researchStatus: string;
     brandBrainStatus: string;
     assetsStatus: string;
+    feedbackStatus: string;
+    showAssetsToUser: boolean;
     lastUpdated: string;
 }
 
@@ -77,6 +79,11 @@ export interface PipelineDetail {
     assetsStatus: string;
     assetsDeliveredAt: string | null;
     educationalSuggestions: Record<string, any[]> | null;
+    personalizedFeedback: string | null;
+    feedbackStatus: string;
+    feedbackDeliveredAt: string | null;
+    showAssetsToUser: boolean;
+    priorities: Record<string, any> | null;
 }
 
 export type BadgeColor = 'gray' | 'yellow' | 'blue' | 'purple' | 'green';

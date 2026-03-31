@@ -146,5 +146,18 @@ export interface ObstacleMap {
   solution?: string;
 }
 
+// === PRIORITIES (PV-1.1) ===
+export interface PriorityArea {
+  id: string;
+  label: string;
+  isCustom: boolean;
+}
+
+export interface PrioritiesData {
+  mentorLevel: 'starting' | 'growing' | 'scaling';
+  selectedAreas: PriorityArea[];
+  freeformContext?: string;
+}
+
 // Re-export UploadedFile from audio.ts for convenience
 export type { UploadedFile };
