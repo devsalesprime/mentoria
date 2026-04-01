@@ -499,6 +499,12 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
         return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
       }
 
+      // Ensure pipeline row exists before updating (upsert pattern)
+      await dbRun(
+        `INSERT OR IGNORE INTO pipeline (id, user_id) VALUES (?, ?)`,
+        [uuidv4(), user.user_id]
+      );
+
       await dbRun(
         `UPDATE pipeline SET personalized_feedback = ?, feedback_status = 'delivered', feedback_delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
         [feedback, user.user_id]
@@ -509,6 +515,105 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
     } catch (error) {
       console.error('❌ Erro em POST feedback:', error);
       res.status(500).json({ success: false, message: 'Erro ao salvar feedback.' });
+    }
+  });
+
+  // GET /api/admin/diagnostic/:userId/full-export — Full diagnostic export for AI consumption
+  // Also supports lookup by email or name via query params:
+  //   /api/admin/diagnostic/_/full-export?email=user@email.com
+  //   /api/admin/diagnostic/_/full-export?name=João Silva
+  // Use "_" or "lookup" as :userId placeholder when using query params
+  router.get('/api/admin/diagnostic/:userId/full-export', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { email, name } = req.query;
+      console.log(`📤 [Admin] Full diagnostic export — id:${userId} email:${email || '-'} name:${name || '-'}`);
+
+      let diag;
+
+      if (email) {
+        diag = await dbGet(
+          `SELECT d.id, d.user_id, d.name, d.email, d.status, d.submitted_at, d.is_legacy,
+                  d.pre_module, d.mentor, d.mentee, d.method, d.offer, d.priorities,
+                  p.personalized_feedback, p.feedback_status
+           FROM diagnostic_data d
+           LEFT JOIN pipeline p ON d.user_id = p.user_id
+           WHERE LOWER(d.email) = LOWER(?)
+           ORDER BY d.updated_at DESC LIMIT 1`,
+          [email.trim()]
+        );
+      } else if (name) {
+        diag = await dbGet(
+          `SELECT d.id, d.user_id, d.name, d.email, d.status, d.submitted_at, d.is_legacy,
+                  d.pre_module, d.mentor, d.mentee, d.method, d.offer, d.priorities,
+                  p.personalized_feedback, p.feedback_status
+           FROM diagnostic_data d
+           LEFT JOIN pipeline p ON d.user_id = p.user_id
+           WHERE LOWER(d.name) LIKE LOWER(?)
+           ORDER BY d.updated_at DESC LIMIT 1`,
+          [`%${name.trim()}%`]
+        );
+      } else if (userId && userId !== '_' && userId !== 'lookup') {
+        diag = await dbGet(
+          `SELECT d.id, d.user_id, d.name, d.email, d.status, d.submitted_at, d.is_legacy,
+                  d.pre_module, d.mentor, d.mentee, d.method, d.offer, d.priorities,
+                  p.personalized_feedback, p.feedback_status
+           FROM diagnostic_data d
+           LEFT JOIN pipeline p ON d.user_id = p.user_id
+           WHERE d.id = ?`,
+          [userId]
+        );
+      } else {
+        return res.status(400).json({ success: false, message: 'Forneça userId, ?email= ou ?name= para buscar.' });
+      }
+
+      if (!diag) {
+        return res.status(404).json({ success: false, message: 'Usuário não encontrado.' });
+      }
+
+      const files = await dbAll(
+        `SELECT id, category, file_name, file_type, file_size, url, module
+         FROM uploaded_files WHERE user_id = ?`,
+        [diag.user_id]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          id: diag.id,
+          user_id: diag.user_id,
+          name: diag.name,
+          email: diag.email,
+          status: diag.status,
+          submitted_at: diag.submitted_at,
+          is_legacy: diag.is_legacy === 1,
+          modules: {
+            pre_module: safeJsonParse(diag.pre_module, null),
+            mentor: safeJsonParse(diag.mentor, null),
+            mentee: safeJsonParse(diag.mentee, null),
+            method: safeJsonParse(diag.method, null),
+            offer: safeJsonParse(diag.offer, null),
+          },
+          priorities: safeJsonParse(diag.priorities, null),
+          uploaded_files: files.map(f => ({
+            id: f.id,
+            category: f.category,
+            file_name: f.file_name,
+            file_type: f.file_type,
+            file_size: f.file_size,
+            url: f.url,
+            module: f.module,
+            download_url: `/api/admin/files/${f.id}`,
+          })),
+          feedback: {
+            status: diag.feedback_status || 'pending',
+            content: diag.personalized_feedback || null,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('❌ Erro em GET /api/admin/diagnostic/:userId/full-export:', error);
+      res.status(500).json({ success: false, message: 'Erro ao exportar diagnóstico.' });
     }
   });
 
