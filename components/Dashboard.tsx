@@ -295,14 +295,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     offer: 'diagnostic_complete',
   };
 
-  const allModulesComplete = preModuleComplete && mentorComplete && menteeComplete && methodComplete && offerComplete;
+  const allModulesComplete = mentorComplete && menteeComplete && methodComplete && offerComplete;
 
   const handleModuleComplete = (currentModuleId: string) => {
-    // For the offer module: only go to diagnostic_complete if ALL modules are done
+    // For the offer module: only go to diagnostic_complete if ALL required modules are done
+    // Pre-module is optional and does not gate progression to submit
     if (currentModuleId === 'offer' && !allModulesComplete) {
-      // Find first incomplete module and navigate there
+      // Find first incomplete required module and navigate there
       const completionMap: Record<string, boolean> = {
-        pre_module: preModuleComplete,
         mentor: mentorComplete,
         mentee: menteeComplete,
         method: methodComplete,
