@@ -66,7 +66,6 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
     // Feedback state (FIX-PV-002)
     const [feedbackText, setFeedbackText] = useState('');
     const [savingFeedback, setSavingFeedback] = useState(false);
-    const [feedbackEditing, setFeedbackEditing] = useState(false);
 
     // Asset visibility toggle state (FIX-PV-005)
     const [togglingAssets, setTogglingAssets] = useState(false);
@@ -180,10 +179,8 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                 // Load existing feedback (FIX-PV-002)
                 if (mapped.personalizedFeedback) {
                     setFeedbackText(typeof mapped.personalizedFeedback === 'string' ? mapped.personalizedFeedback : JSON.stringify(mapped.personalizedFeedback));
-                    setFeedbackEditing(false);
                 } else {
                     setFeedbackText('');
-                    setFeedbackEditing(true);
                 }
                 // Load existing educational suggestions
                 if (mapped.educationalSuggestions) {
@@ -359,7 +356,6 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
         try {
             await axios.post(`/api/admin/pipeline/${userId}/feedback`, { feedback: feedbackText.trim() }, { headers });
             showToast('Feedback salvo e entregue com sucesso', 'success');
-            setFeedbackEditing(false);
             fetchDetail();
         } catch (e: any) {
             showToast(e.response?.data?.message || 'Erro ao salvar feedback', 'error');
@@ -459,63 +455,43 @@ export const PipelineDetailView: React.FC<PipelineDetailViewProps> = ({ userId, 
                 </div>
             )}
 
-            {/* FIX-PV-002: Personalized Feedback section */}
-            {detail.diagnosticStatus === 'submitted' && (
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Feedback Personalizado</h4>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                            detail.feedbackStatus === 'delivered'
-                                ? 'bg-green-600/20 text-green-400'
-                                : detail.feedbackStatus === 'in_analysis'
-                                ? 'bg-yellow-500/20 text-yellow-400'
-                                : 'bg-white/10 text-white/40'
-                        }`}>
-                            {detail.feedbackStatus === 'delivered' ? 'Entregue' :
-                             detail.feedbackStatus === 'in_analysis' ? 'Em análise' : 'Pendente'}
-                        </span>
-                    </div>
-                    {detail.feedbackDeliveredAt && (
-                        <p className="text-[10px] text-white/40">
-                            Entregue em {new Date(detail.feedbackDeliveredAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                    )}
-                    {detail.feedbackStatus === 'delivered' && !feedbackEditing ? (
-                        <div className="space-y-2">
-                            <div className="bg-black/20 border border-white/5 rounded-lg px-4 py-3 text-xs text-white/60 whitespace-pre-wrap max-h-64 overflow-y-auto">
-                                {feedbackText}
-                            </div>
-                            <Button variant="outline" size="sm" onClick={() => setFeedbackEditing(true)}>
-                                Editar Feedback
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            <textarea
-                                value={feedbackText}
-                                onChange={(e) => setFeedbackText(e.target.value)}
-                                placeholder="Escreva o feedback personalizado em markdown. Inclua: contextualização, pontos de melhoria, exemplos práticos, ferramentas sugeridas e próximos passos."
-                                className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/70 font-mono resize-none h-48 focus:outline-none focus:border-white/30"
-                            />
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="primary"
-                                    onClick={saveFeedback}
-                                    disabled={!feedbackText.trim() || savingFeedback}
-                                    loading={savingFeedback}
-                                >
-                                    {savingFeedback ? 'Salvando...' : 'Salvar e Entregar Feedback'}
-                                </Button>
-                                {detail.feedbackStatus === 'delivered' && (
-                                    <Button variant="outline" size="sm" onClick={() => setFeedbackEditing(false)}>
-                                        Cancelar
-                                    </Button>
-                                )}
-                            </div>
-                        </div>
-                    )}
+            {/* FIX-PV-002: Personalized Feedback section — always visible, always editable */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h4 className="text-xs uppercase tracking-wider text-white/50 font-semibold">Feedback Personalizado</h4>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                        detail.feedbackStatus === 'delivered'
+                            ? 'bg-green-600/20 text-green-400'
+                            : detail.feedbackStatus === 'in_analysis'
+                            ? 'bg-yellow-500/20 text-yellow-400'
+                            : 'bg-white/10 text-white/40'
+                    }`}>
+                        {detail.feedbackStatus === 'delivered' ? 'Entregue' :
+                         detail.feedbackStatus === 'in_analysis' ? 'Em análise' : 'Pendente'}
+                    </span>
                 </div>
-            )}
+                {detail.feedbackDeliveredAt && (
+                    <p className="text-[10px] text-white/40">
+                        Entregue em {new Date(detail.feedbackDeliveredAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                )}
+                <div className="space-y-2">
+                    <textarea
+                        value={feedbackText}
+                        onChange={(e) => setFeedbackText(e.target.value)}
+                        placeholder="Escreva o feedback personalizado em markdown. Inclua: contextualização, pontos de melhoria, exemplos práticos, ferramentas sugeridas e próximos passos."
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/70 font-mono resize-none h-48 focus:outline-none focus:border-white/30"
+                    />
+                    <Button
+                        variant="primary"
+                        onClick={saveFeedback}
+                        disabled={!feedbackText.trim() || savingFeedback}
+                        loading={savingFeedback}
+                    >
+                        {savingFeedback ? 'Salvando...' : detail.feedbackStatus === 'delivered' ? 'Atualizar Feedback' : 'Salvar e Entregar Feedback'}
+                    </Button>
+                </div>
+            </div>
 
             {/* Research */}
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
