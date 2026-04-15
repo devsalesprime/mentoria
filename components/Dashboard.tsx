@@ -110,7 +110,9 @@ const getSidebarMenu = (
   });
 
   // INTELIGÊNCIA — Insights (primary), Sugestões, Brand Brain
-  if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
+  // Also include when admin has explicitly delivered feedback, even if diagnostic is still in_progress
+  const hasInsightsAccess = diagnosticStatus === 'submitted' || feedbackStatus === 'delivered';
+  if (brandBrainStatus !== 'pending' || hasInsightsAccess) {
     const insightsDot: 'green' | 'yellow' =
       feedbackStatus === 'delivered' ? 'green' : 'yellow';
 
@@ -120,8 +122,8 @@ const getSidebarMenu = (
 
     const intItems: MenuItem[] = [];
 
-    // Insights — always first when diagnostic submitted
-    if (diagnosticStatus === 'submitted') {
+    // Insights — show when diagnostic submitted or feedback already delivered
+    if (hasInsightsAccess) {
       intItems.push({ id: 'insights', label: 'Insights', statusDot: insightsDot });
     }
 
@@ -230,14 +232,15 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   } = useDiagnosticPersistence(token);
 
   // PV-1.2/PV-3.1: Default route post-login — redirect to insights when submitted
+  // or when admin has delivered feedback for an in_progress user
   const [hasRedirected, setHasRedirected] = useState(false);
   useEffect(() => {
     if (hasRedirected || urlModule) return; // Don't redirect if user navigated via URL
-    if (diagnosticStatus === 'submitted') {
+    if (diagnosticStatus === 'submitted' || feedbackStatus === 'delivered') {
       navigateTo('insights');
       setHasRedirected(true);
     }
-  }, [diagnosticStatus, hasRedirected, urlModule]);
+  }, [diagnosticStatus, feedbackStatus, hasRedirected, urlModule]);
 
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
   const mentorComplete    = isLegacy || isMentorComplete(mentor);
@@ -269,13 +272,13 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
 
   // Ensure newly visible sections are open automatically
   useEffect(() => {
-    if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted') {
+    if (brandBrainStatus !== 'pending' || diagnosticStatus === 'submitted' || feedbackStatus === 'delivered') {
       setOpenSections((prev) => prev.includes('inteligencia') ? prev : [...prev, 'inteligencia']);
     }
     if (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') {
       setOpenSections((prev) => prev.includes('entregaveis') ? prev : [...prev, 'entregaveis']);
     }
-  }, [brandBrainStatus, assetsStatus, diagnosticStatus]);
+  }, [brandBrainStatus, assetsStatus, diagnosticStatus, feedbackStatus]);
 
   useEffect(() => setEditName(resolvedName), [resolvedName]);
   useEffect(() => setEditDescription(resolvedDescription), [resolvedDescription]);
