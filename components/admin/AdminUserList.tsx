@@ -7,17 +7,23 @@ interface AdminUserListProps {
     users: AdminUser[];
     loading: boolean;
     deleting: boolean;
+    page: number;
+    totalPages: number;
+    total: number;
     onViewDetails: (userId: string) => void;
     onDownload: (userId: string, userName: string) => void;
     onDelete: (userId: string) => void;
     onNavigatePipeline: (userId: string) => void;
     onRefresh: () => void;
+    onPageChange: (page: number) => void;
 }
 
 export const AdminUserList: React.FC<AdminUserListProps> = ({
-    users, loading, deleting,
-    onViewDetails, onDownload, onDelete, onNavigatePipeline, onRefresh,
+    users, loading, deleting, page, totalPages, total,
+    onViewDetails, onDownload, onDelete, onNavigatePipeline, onRefresh, onPageChange,
 }) => {
+    const canPrev = page > 1 && !loading;
+    const canNext = page < totalPages && !loading;
     return (
         <>
             {/* Desktop table */}
@@ -217,6 +223,55 @@ export const AdminUserList: React.FC<AdminUserListProps> = ({
                     ))
                 )}
             </div>
+
+            {/* Pagination */}
+            {total > 0 && (
+                <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-white/70">
+                    <div>
+                        Mostrando <span className="text-white font-semibold">{users.length}</span> de{' '}
+                        <span className="text-white font-semibold">{total}</span> usuário{total === 1 ? '' : 's'}
+                        {totalPages > 1 && <> · página <span className="text-white font-semibold">{page}</span> de <span className="text-white font-semibold">{totalPages}</span></>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onPageChange(1)}
+                            disabled={!canPrev}
+                            title="Primeira página"
+                        >
+                            <i className="bi bi-chevron-double-left"></i>
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onPageChange(page - 1)}
+                            disabled={!canPrev}
+                            title="Página anterior"
+                        >
+                            <i className="bi bi-chevron-left"></i> Anterior
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onPageChange(page + 1)}
+                            disabled={!canNext}
+                            title="Próxima página"
+                        >
+                            Próxima <i className="bi bi-chevron-right"></i>
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onPageChange(totalPages)}
+                            disabled={!canNext}
+                            title="Última página"
+                        >
+                            <i className="bi bi-chevron-double-right"></i>
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Refresh */}
             <div className="mt-6 sm:mt-8 flex justify-center">

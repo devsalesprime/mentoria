@@ -3,6 +3,7 @@ import axios from 'axios';
 import type { AdminUser, AdminUserDetails, AdminAudioRecording, AdminUploadedFile, ToastState } from '../types/admin';
 
 const API_BASE = '/api/admin';
+const DEFAULT_LIMIT = 20;
 
 export function useAdminUsers(token: string) {
     const [users, setUsers] = useState<AdminUser[]>([]);
@@ -13,6 +14,9 @@ export function useAdminUsers(token: string) {
     const [userAudio, setUserAudio] = useState<AdminAudioRecording[]>([]);
     const [userFiles, setUserFiles] = useState<AdminUploadedFile[]>([]);
     const [toast, setToast] = useState<ToastState | null>(null);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [total, setTotal] = useState(0);
 
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -24,14 +28,25 @@ export function useAdminUsers(token: string) {
 
     useEffect(() => () => { if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current); }, []);
 
-    const fetchUsers = useCallback(async () => {
+    const fetchUsers = useCallback(async (targetPage: number = 1) => {
         try {
             setLoading(true);
             const response = await axios.get(`${API_BASE}/users`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${token}` },
+                params: { page: targetPage, limit: DEFAULT_LIMIT }
             });
             if (response.data.success) {
                 setUsers(response.data.users);
+                const pg = response.data.pagination;
+                if (pg) {
+                    setPage(pg.page);
+                    setTotalPages(pg.pages || 1);
+                    setTotal(pg.total || 0);
+                } else {
+                    setPage(targetPage);
+                    setTotalPages(1);
+                    setTotal(response.data.users.length);
+                }
             }
         } catch (error) {
             console.error('Erro ao buscar usuários:', error);
@@ -40,6 +55,11 @@ export function useAdminUsers(token: string) {
             setLoading(false);
         }
     }, [token, showToast]);
+
+    const goToPage = useCallback((targetPage: number) => {
+        const safe = Math.max(1, Math.min(totalPages, targetPage));
+        if (safe !== page) fetchUsers(safe);
+    }, [page, totalPages, fetchUsers]);
 
     const handleViewDetails = async (userId: string) => {
         try {
@@ -99,11 +119,12 @@ export function useAdminUsers(token: string) {
             });
 
             if (response.data.success) {
-                setUsers(prev => prev.filter(u => u.id !== userId));
                 if (selectedUser?.id === userId) {
                     setShowDetails(false);
                     setSelectedUser(null);
                 }
+                const isLastOnPage = users.length === 1 && page > 1;
+                await fetchUsers(isLastOnPage ? page - 1 : page);
                 showToast('Usuário deletado com sucesso.', 'success');
             }
         } catch (error) {
@@ -117,7 +138,8 @@ export function useAdminUsers(token: string) {
     return {
         users, loading, deleting, toast,
         selectedUser, showDetails, userAudio, userFiles,
-        showToast, fetchUsers,
+        page, totalPages, total,
+        showToast, fetchUsers, goToPage,
         handleViewDetails, handleDownload, handleDelete,
         setShowDetails,
     };

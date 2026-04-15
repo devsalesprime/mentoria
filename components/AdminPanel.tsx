@@ -13,7 +13,8 @@ export const AdminPanel: React.FC<{ token: string; onLogout: () => void }> = ({ 
     const {
         users, loading, deleting, toast,
         selectedUser, showDetails, userAudio, userFiles,
-        showToast, fetchUsers,
+        page, totalPages, total,
+        showToast, fetchUsers, goToPage,
         handleViewDetails, handleDownload, handleDelete,
         setShowDetails,
     } = useAdminUsers(token);
@@ -79,11 +80,15 @@ export const AdminPanel: React.FC<{ token: string; onLogout: () => void }> = ({ 
                         users={users}
                         loading={loading}
                         deleting={deleting}
+                        page={page}
+                        totalPages={totalPages}
+                        total={total}
                         onViewDetails={handleViewDetails}
                         onDownload={handleDownload}
                         onDelete={handleDelete}
                         onNavigatePipeline={navigateToUserPipeline}
-                        onRefresh={fetchUsers}
+                        onRefresh={() => fetchUsers(page)}
+                        onPageChange={goToPage}
                     />
                 )}
             </div>
