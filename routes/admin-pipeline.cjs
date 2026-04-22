@@ -1,5 +1,19 @@
 const { Router } = require('express');
 
+// Strip dead-branch data from the Method module so AI consumers see only the
+// branch the mentor actually filled. Mirrors the branching rule the .txt export
+// already applies (routes/admin-users.cjs) and the squad's diagnostic-question-map.
+function sanitizeMethodBranch(method) {
+  if (!method || typeof method !== 'object') return method;
+  const cleaned = { ...method };
+  if (method.maturity === 'structured') {
+    delete cleaned.steps;
+  } else {
+    delete cleaned.pillars;
+  }
+  return cleaned;
+}
+
 module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, authMiddleware, adminMiddleware, uuidv4, safeJsonParse }) {
   const router = Router();
 
@@ -591,7 +605,7 @@ module.exports = function createAdminPipelineRoutes({ db, dbGet, dbRun, dbAll, a
             pre_module: safeJsonParse(diag.pre_module, null),
             mentor: safeJsonParse(diag.mentor, null),
             mentee: safeJsonParse(diag.mentee, null),
-            method: safeJsonParse(diag.method, null),
+            method: sanitizeMethodBranch(safeJsonParse(diag.method, null)),
             offer: safeJsonParse(diag.offer, null),
           },
           priorities: safeJsonParse(diag.priorities, null),
