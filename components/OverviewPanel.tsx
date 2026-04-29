@@ -194,6 +194,29 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
             Ações Disponíveis
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Insights shortcut — appears when personalized feedback is delivered */}
+            {feedbackStatus === 'delivered' && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="border-2 border-prosperus-gold-dark/60 bg-prosperus-gold-dark/10 rounded-xl p-5 cursor-pointer hover:bg-prosperus-gold-dark/15 hover:border-prosperus-gold-dark transition-all"
+                onClick={() => onNavigate('insights')}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-3xl">💡</span>
+                  <div>
+                    <h4 className="text-lg font-bold text-white">Insights</h4>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-green-500/20 text-green-400">
+                      Entregue ✓
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm text-white/50">
+                  Seu feedback personalizado e análise estratégica completa.
+                </p>
+              </motion.div>
+            )}
+
             {/* Brand Brain shortcut */}
             {(brandBrainStatus === 'ready' || brandBrainStatus === 'generating') && (
               <motion.div

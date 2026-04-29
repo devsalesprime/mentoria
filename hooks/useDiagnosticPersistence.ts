@@ -79,8 +79,13 @@ function derivePipelineStatus(
   diagnosticStatus: string,
   researchStatus: string,
   brandBrainStatus: string,
-  assetsStatus: string
+  assetsStatus: string,
+  feedbackStatus: FeedbackStatus
 ): PipelineStatus {
+  // Personalized feedback is the primary user-facing deliverable in the
+  // simplified 3-stage view ("Entregue — Feedback personalizado disponível").
+  // Once feedback ships, mark pipeline as delivered regardless of asset state.
+  if (feedbackStatus === 'delivered') return 'delivered';
   if (assetsStatus === 'delivered') return 'delivered';
   if (assetsStatus === 'ready' || assetsStatus === 'generating') return 'assets';
   if (brandBrainStatus === 'ready') return 'assets';
@@ -243,7 +248,7 @@ export const useDiagnosticPersistence = (token: string) => {
       }
 
       const diagnosticStatus = latestStateRef.current.diagnosticStatus;
-      const ps = derivePipelineStatus(diagnosticStatus, researchStatus, brandBrainStatus, assetsStatus);
+      const ps = derivePipelineStatus(diagnosticStatus, researchStatus, brandBrainStatus, assetsStatus, feedbackStatus);
 
       setPipeline({ brandBrainStatus, assetsStatus, researchStatus, pipelineStatus: ps, feedbackStatus, showAssetsToUser, hasEducationalSuggestions });
     } catch (error: any) {
