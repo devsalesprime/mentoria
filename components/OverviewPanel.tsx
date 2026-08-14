@@ -93,6 +93,7 @@ interface OverviewPanelProps {
   assetsStatus: string;
   researchStatus: string;
   feedbackStatus?: string;
+  showAssetsToUser?: boolean;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
   assetsStatus,
   researchStatus,
   feedbackStatus,
+  showAssetsToUser = false,
 }) => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationShown, setCelebrationShown] = useState(false);
@@ -212,7 +214,7 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
                   </div>
                 </div>
                 <p className="text-sm text-white/50">
-                  Seu feedback personalizado e análise estratégica completa.
+                  Seu feedback personalizado: a análise das suas prioridades e os próximos passos.
                 </p>
               </motion.div>
             )}
@@ -241,14 +243,14 @@ export const OverviewPanel: React.FC<OverviewPanelProps> = ({
                 </div>
                 <p className="text-sm text-white/50">
                   {brandBrainStatus === 'ready'
-                    ? 'Visualize e baixe seu Brand Brain completo.'
+                    ? 'Visualize e baixe seu Brand Brain.'
                     : 'Seu documento estratégico está sendo preparado.'}
                 </p>
               </motion.div>
             )}
 
-            {/* Assets shortcut */}
-            {(assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') && (
+            {/* Assets shortcut — only when admin liberou os ativos para este usuário (PV-3.1) */}
+            {showAssetsToUser && (assetsStatus === 'ready' || assetsStatus === 'delivered' || assetsStatus === 'generating') && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}

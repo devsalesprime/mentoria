@@ -25,7 +25,7 @@ export const Hero: React.FC<HeroProps> = ({ onStartDiagnosis }) => {
             <span className="text-gold-gradient italic">Mas Sabe Vender Sua Mentoria?</span>
           </h1>
           <p className="font-sans text-prosperus-neutral-grey text-base sm:text-lg md:text-xl max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed font-light px-4">
-            Te ajudamos a construir seu <strong className="text-white">posicionamento de marca</strong> e <strong className="text-white">6 ativos de venda</strong>. Tudo a partir das suas respostas.
+            Responda ao diagnóstico e receba a <strong className="text-white">leitura da sua mentoria</strong>: o que já está de pé, o que precisa ficar mais forte e <strong className="text-white">o que fazer primeiro</strong>.
           </p>
 
           <div className="flex flex-col items-center justify-center px-4">
@@ -33,7 +33,7 @@ export const Hero: React.FC<HeroProps> = ({ onStartDiagnosis }) => {
               Começar Diagnóstico
             </Button>
             <p className="text-sm text-prosperus-neutral-grey/50 mt-4 max-w-xs text-center px-2">
-              ~40 min de respostas. Dias, não meses, para ter tudo em mãos.
+              ~40 min de respostas. Seu feedback personalizado em até 48h úteis.
             </p>
           </div>
         </motion.div>

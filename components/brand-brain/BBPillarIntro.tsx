@@ -17,7 +17,7 @@ export const BBPillarIntro: React.FC<BBPillarIntroProps> = ({
         <div>
           <p className="text-sm font-bold text-prosperus-gold-dark mb-1">Seu Brand Brain em 5 pilares</p>
           <p className="text-sm text-white/50 leading-relaxed">
-            Todo modelo de negócio se sustenta em <strong className="text-white/70">5 fundamentos estratégicos</strong>. Seu Brand Brain é o mapa completo desses pilares — e a base de todos os seus entregáveis.
+            Todo modelo de negócio se sustenta em <strong className="text-white/70">5 fundamentos estratégicos</strong>. Seu Brand Brain organiza esses pilares e serve de base para a análise que você recebe.
           </p>
         </div>
         <Button

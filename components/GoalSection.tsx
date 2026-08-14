@@ -20,16 +20,14 @@ export const GoalSection: React.FC = () => {
               viewport={{ once: true }}
               className="border border-prosperus-gold/20 p-8 sm:p-10 bg-white/5 backdrop-blur-sm h-full"
             >
-              <p className="font-sans text-xs sm:text-sm text-prosperus-gold uppercase tracking-widest mb-6 sm:mb-8">O Que Você Recebe</p>
+              <p className="font-sans text-xs sm:text-sm text-prosperus-gold uppercase tracking-widest mb-6 sm:mb-8">O Que Vem No Seu Feedback</p>
               <ul className="space-y-4 sm:space-y-5">
                 {[
-                  { icon: 'bi-bullseye', name: 'Brand Brain', nameHint: 'cérebro da marca', desc: 'Seu posicionamento estratégico completo — DNA de marca documentado' },
-                  { icon: 'bi-window-desktop', name: 'MVP de Landing Page', desc: 'Estrutura de página de captura pronta para você refinar' },
-                  { icon: 'bi-camera-video', name: 'Script de VSL', desc: 'Base de roteiro persuasivo para você adaptar e gravar' },
-                  { icon: 'bi-send', name: 'Script de Prospecção', desc: 'Roteiro de ligação para pré-qualificação e agendamento' },
-                  { icon: 'bi-calendar-check', name: 'Fluxo de Cadência', desc: 'Sequência de follow-up estruturada para nutrir e converter' },
-                  { icon: 'bi-chat-square-quote', name: 'Script de Venda', desc: 'Estrutura de fechamento high-ticket baseada no método PRIME e 7 passos da venda' },
-                  { icon: 'bi-journal-check', name: 'Kit de Ferramentas', desc: 'Guia operacional completo da sua mentoria' },
+                  { icon: 'bi-person-check', name: 'Contextualização', desc: 'A leitura do seu momento: sua promessa, seu nível e sua situação com clientes, do jeito que você contou' },
+                  { icon: 'bi-flag', name: 'Suas Prioridades', desc: 'As até 3 frentes que você escolheu, conectadas ao que apareceu nas suas respostas' },
+                  { icon: 'bi-search', name: 'Análise e Recomendações', desc: 'Por prioridade: o que você nos disse, o que identificamos e como faríamos no seu lugar' },
+                  { icon: 'bi-list-check', name: 'Próximos Passos', desc: '3 ações concretas para você executar já nesta semana' },
+                  { icon: 'bi-file-earmark-arrow-down', name: 'Tudo em PDF', desc: 'Seu feedback completo para baixar, reler e usar fora da plataforma' },
                 ].map((item, index) => (
                   <motion.li
                     key={item.name}
@@ -43,9 +41,6 @@ export const GoalSection: React.FC = () => {
                     <div>
                       <p className="font-serif text-base sm:text-lg text-white">
                         {item.name}
-                        {'nameHint' in item && item.nameHint && (
-                          <span className="italic text-prosperus-neutral-grey/50 text-sm ml-1">({item.nameHint})</span>
-                        )}
                       </p>
                       <p className="font-sans text-xs sm:text-sm text-prosperus-neutral-grey/60">{item.desc}</p>
                     </div>
@@ -66,10 +61,10 @@ export const GoalSection: React.FC = () => {
                 <span className="text-gold-gradient italic">Tudo Sob Medida.</span>
               </h2>
               <p className="font-sans text-base sm:text-lg text-prosperus-neutral-grey/80 mb-4 sm:mb-6 leading-relaxed px-2">
-                A maioria dos especialistas leva meses e milhares de reais para montar posicionamento, escrever scripts e criar materiais de venda. Muitos nem começam.
+                A maioria dos especialistas passa meses girando em torno das mesmas decisões — posicionamento, oferta, método — sem nunca fechar nenhuma. Muitos nem começam.
               </p>
               <p className="font-sans text-base sm:text-lg text-prosperus-neutral-grey/80 mb-8 sm:mb-10 leading-relaxed px-2">
-                Aqui, você recebe <strong className="text-white">um ponto de partida sólido, construído a partir da sua expertise</strong>. Pode precisar de ajustes, mas é mais rápido do que começar do zero e mais estratégico do que fazer sozinho.
+                Aqui, você recebe <strong className="text-white">a leitura de quem olhou o seu caso</strong>, nas frentes que você mesmo escolheu. Não é material de venda pronto para publicar: é enxergar onde você está, o que precisa ficar mais forte e por onde começar.
               </p>
 
               <Button

@@ -147,7 +147,7 @@ export const BrandBrainViewer: React.FC<BrandBrainViewerProps> = ({ token }) => 
       <Card variant="default" padding="generous" className="mb-6">
         <h3 className="text-base font-bold text-prosperus-gold-dark mb-1">Matéria-Prima Estratégica</h3>
         <p className="text-sm text-white/50 leading-relaxed">
-          Esta é a base de conhecimento que usamos para gerar seus ativos. Consulte para entender a estratégia por trás de cada entregável.
+          Esta é a base de conhecimento que usamos na sua análise. Consulte para entender a estratégia por trás de cada recomendação.
         </p>
       </Card>
 

@@ -47,7 +47,7 @@ export const ModulesOverview: React.FC<ModulesOverviewProps> = ({ onStartModule 
       <div className="container mx-auto px-4 sm:px-6">
         <div className="text-center mb-12 sm:mb-16">
           <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl text-white mb-3 sm:mb-4 px-4">Os 4 Pilares do Diagnóstico</h2>
-          <p className="font-sans text-prosperus-neutral-grey/60 text-sm sm:text-base px-4">Cada resposta alimenta diretamente seu Brand Brain <span className="italic text-prosperus-neutral-grey/40">(cérebro da marca)</span> e seus ativos de venda.</p>
+          <p className="font-sans text-prosperus-neutral-grey/60 text-sm sm:text-base px-4">Cada resposta alimenta diretamente a análise que você recebe. No fim, você escolhe até 3 prioridades em marketing, vendas ou modelo de negócio.</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">

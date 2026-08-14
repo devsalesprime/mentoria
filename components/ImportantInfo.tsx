@@ -13,10 +13,10 @@ export const ImportantInfo: React.FC = () => {
             transition={{ duration: 0.6 }}
           >
             <h2 className="font-serif text-3xl sm:text-4xl text-white mb-3 sm:mb-4 px-2">
-              Você Responde. <span className="text-prosperus-gold italic">Nós Entregamos.</span>
+              Você Responde. <span className="text-prosperus-gold italic">Nós Analisamos.</span>
             </h2>
             <p className="font-sans text-prosperus-neutral-grey/70 text-sm sm:text-base max-w-xl mx-auto px-4">
-              Sem achismo. Sem conteúdo genérico. Tudo construído a partir das suas respostas.
+              Sem achismo. Sem conteúdo genérico. Cada linha do seu feedback nasce de algo que você respondeu.
             </p>
           </motion.div>
         </div>
@@ -26,21 +26,20 @@ export const ImportantInfo: React.FC = () => {
             {
               step: '01',
               title: 'Diagnóstico Guiado',
-              desc: 'Responda 4 módulos sobre sua expertise, público, método e oferta. Cada pergunta foi desenhada para extrair o que posiciona e vende.',
+              desc: 'Responda 4 módulos sobre sua expertise, público, método e oferta, e escolha até 3 prioridades. Se quiser, compartilhe também seus perfis e materiais de venda atuais.',
               icon: 'bi-clipboard2-data',
             },
             {
               step: '02',
-              title: 'Brand Brain',
-              subtitle: 'cérebro da marca',
-              desc: 'Analisamos suas respostas, pesquisamos seu mercado e geramos seu documento estratégico — posicionamento, linguagem e diferencial, tudo definido.',
-              icon: 'bi-cpu',
+              title: 'Análise Personalizada',
+              desc: 'A equipe Prosperus lê tudo o que você respondeu, olha os perfis e materiais que você compartilhou e cruza com as prioridades que você escolheu.',
+              icon: 'bi-search',
             },
             {
               step: '03',
-              title: 'Ativos de Venda',
-              desc: 'Com o Brand Brain validado por você, geramos scripts de venda, copy de landing page, cadência de prospecção e roteiro de VSL. Um ponto de partida sólido que você adapta ao seu estilo.',
-              icon: 'bi-rocket-takeoff',
+              title: 'Feedback Personalizado',
+              desc: 'Em até 48h úteis, você recebe um documento com a análise de cada prioridade e 3 próximos passos concretos para colocar em prática já nesta semana.',
+              icon: 'bi-file-earmark-text',
             },
           ].map((item, index) => (
             <motion.div
@@ -58,9 +57,6 @@ export const ImportantInfo: React.FC = () => {
               </div>
               <h3 className="font-serif text-xl sm:text-2xl text-white mb-2 sm:mb-3">
                 {item.title}
-                {'subtitle' in item && item.subtitle && (
-                  <span className="italic text-prosperus-neutral-grey/50 text-base sm:text-lg ml-1">({item.subtitle})</span>
-                )}
               </h3>
               <p className="font-sans text-prosperus-neutral-grey/70 text-sm leading-relaxed">{item.desc}</p>
             </motion.div>
@@ -75,7 +71,7 @@ export const ImportantInfo: React.FC = () => {
           className="mt-8 sm:mt-10 text-center"
         >
           <p className="font-sans text-sm text-prosperus-gold/80 italic px-4">
-            Quanto melhores suas respostas, mais poderosos seus materiais. Responda com profundidade — é disso que tudo é construído.
+            Quanto melhores suas respostas, mais precisa a análise. Responda com profundidade — é disso que tudo é construído.
           </p>
         </motion.div>
       </div>

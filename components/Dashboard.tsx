@@ -391,6 +391,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
           assetsStatus={assetsStatus}
           researchStatus={researchStatus}
           feedbackStatus={feedbackStatus}
+          showAssetsToUser={showAssetsToUser}
         />
         </ModuleErrorBoundary>
       );
