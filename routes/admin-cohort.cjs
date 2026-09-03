@@ -4,6 +4,8 @@ const { scriptPrefillSchema, cohortMembersSchema, validateBody } = require('../u
 const VM = require('../utils/validation-materials.cjs');
 const CM = require('../utils/cohort-materials.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
+const CTX = require('../utils/script-context.cjs');
+const SV = require('../utils/script-versions.cjs');
 
 /**
  * Admin do cohort (clubes do Exclusive) e da Ficha do Script.
@@ -15,6 +17,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
 
   VM.ensureCohortConfigTable(dbRun).catch((e) => console.error('cohort_config DDL error:', e.message));
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
+  CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
+  SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
 
   const normEmail = VM.normEmail;
 
@@ -86,7 +90,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       const fileCounts = await dbAll(
         `SELECT u.club_slug, COUNT(*) AS c
            FROM uploaded_files f JOIN users u ON u.id = f.user_id
-          WHERE f.category LIKE 'script_%' AND u.club_slug IS NOT NULL
+          WHERE f.category LIKE 'script_%' AND f.category <> 'script_contexto' AND u.club_slug IS NOT NULL
           GROUP BY u.club_slug`
       );
       const countBySlug = Object.fromEntries(fileCounts.map((r) => [r.club_slug, r.c]));
@@ -138,12 +142,17 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
       const ficha = await ensureFicha(club.slug);
       const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: true });
-      const [membros, files, jobs] = await Promise.all([
+      const [membros, files, jobs, contextoItems, versoes, comentarios] = await Promise.all([
         listMembers(club.slug),
         listFiles(club.slug),
         dbAll(`SELECT * FROM cohort_jobs WHERE club_slug = ? ORDER BY created_at DESC LIMIT 50`, [club.slug]),
+        CTX.listContext({ dbAll }, club.slug, { fileUrl: (id) => `/api/admin/files/${encodeURIComponent(id)}` }),
+        SV.listVersions({ dbAll }, club.slug),
+        SV.listComments({ dbAll }, club.slug),
       ]);
       const materials = VM.normalizeMaterials(ficha.materials);
+      const contexto = CTX.groupByField(contextoItems);
+      view.blocos = view.blocos.map((b) => ({ ...b, campos: b.campos.map((c) => ({ ...c, contexto_count: (contexto[c.key] || []).length })) }));
       res.json({
         success: true,
         data: {
@@ -153,8 +162,12 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
           // Por pessoa (arquivos, links, observacoes, acessos, resposta_ia, notify_phone, submitted_at). `legado` = forma antiga por clube.
           pessoas: buildPessoas(membros, files, materials),
           pessoas_enviaram: VM.countSubmitted(materials),
-          // Fila de pre-preenchimento deste clube (mais recentes primeiro)
+          // Fila deste clube (prefill, script, refinar; mais recentes primeiro)
           jobs: jobs.map(JOBS.rowToJob),
+          // Contexto por pergunta (do clube, com autor) e script escrito (versoes sem conteudo + comentarios)
+          contexto,
+          versoes,
+          comentarios,
           legado: materials.legado || null,
           materials,
           materials_status: ficha.materials_status,
@@ -204,6 +217,20 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     }
   });
 
+  // GET /api/admin/clubs/:slug/script-versoes/:versao  -> versao com conteudo + comentarios (ver / baixar .md)
+  router.get('/api/admin/clubs/:slug/script-versoes/:versao', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const n = Number(req.params.versao);
+      if (!Number.isInteger(n) || n < 1) return res.status(400).json({ success: false, message: 'Versão inválida.' });
+      const versao = await SV.getVersion({ dbGet }, req.params.slug, n);
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      res.json({ success: true, versao, comentarios: await SV.listComments({ dbAll }, req.params.slug, n) });
+    } catch (error) {
+      console.error('Error in GET /api/admin/clubs/:slug/script-versoes/:versao:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
   // GET /api/admin/cohort/config  (chave/valor; hoje so prazo_materiais)
   router.get('/api/admin/cohort/config', authMiddleware, adminMiddleware, async (req, res) => {
     try {
@@ -239,7 +266,11 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       if (status && !VM.JOB_STATUSES.includes(status)) {
         return res.status(400).json({ success: false, message: `status inválido (use ${VM.JOB_STATUSES.join('|')}).` });
       }
-      const jobs = await JOBS.listJobs({ dbAll }, { status, limit: req.query.limit });
+      const tipo = req.query.tipo ? String(req.query.tipo) : null;
+      if (tipo && !VM.JOB_TIPOS.includes(tipo)) {
+        return res.status(400).json({ success: false, message: `tipo inválido (use ${VM.JOB_TIPOS.join('|')}).` });
+      }
+      const jobs = await JOBS.listJobs({ dbAll }, { status, tipo, limit: req.query.limit });
       const slugs = [...new Set(jobs.map((j) => j.club_slug))];
       const clubs = slugs.length
         ? await dbAll(`SELECT slug, nome FROM cohort_clubs WHERE slug IN (${slugs.map(() => '?').join(',')})`, slugs)

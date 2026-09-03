@@ -26,6 +26,7 @@ import { PrioritiesScreen } from './modules/PrioritiesScreen';
 import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
 import { FichaScreen } from './script/FichaScreen';
 import { MateriaisScreen } from './script/MateriaisScreen';
+import { ScriptScreen } from './script/ScriptScreen';
 import { useScriptFicha } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
 import type { FichaStatus, MaterialsStatus } from '../data/script-ficha-fields';
@@ -46,6 +47,7 @@ const SLUG_TO_ID: Record<string, string> = {
   // Script 7 Passos (cohort Exclusive)
   'materiais': 'script_materiais',
   'ficha': 'script_ficha',
+  'script': 'script_script',
 };
 
 const ID_TO_SLUG: Record<string, string> = Object.fromEntries(
@@ -71,7 +73,13 @@ interface DashboardProps {
 
 type MenuItem = { id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold' };
 type MenuSection = { id: string; title: string; items: MenuItem[] };
-type ScriptMenuState = { enabled: boolean; fichaStatus: FichaStatus | null; materialsStatus: MaterialsStatus | null };
+type ScriptMenuState = {
+  enabled: boolean;
+  fichaStatus: FichaStatus | null;
+  materialsStatus: MaterialsStatus | null;
+  /** "Seu script": 'aprovado' | 'rascunho' (versao existe) | 'escrevendo' (job na fila) | null */
+  scriptState?: 'aprovado' | 'rascunho' | 'escrevendo' | null;
+};
 
 // ─── Dynamic sidebar menu ──────────────────────────────────────────────────────
 
@@ -110,12 +118,17 @@ const getSidebarMenu = (
     const fichaDot: 'green' | 'yellow' | 'gold' =
       script.fichaStatus === 'confirmada' ? 'green' :
       script.fichaStatus === 'em_revisao' ? 'gold' : 'yellow';
+    const scriptDot: 'green' | 'yellow' | 'gold' | 'gray' =
+      script.scriptState === 'aprovado' ? 'green' :
+      script.scriptState === 'rascunho' ? 'gold' :
+      script.scriptState === 'escrevendo' ? 'yellow' : 'gray';
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
       items: [
         { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
         { id: 'script_ficha', label: 'Ficha do Script', statusDot: fichaDot },
+        { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
       ],
     });
   }
@@ -260,10 +273,15 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   // Script 7 Passos: uma instancia so, compartilhada entre Materiais e Ficha (nao faz nada sem cohort)
   const scriptFicha = useScriptFicha(token, !!cohort, resolvedEmail);
   const scriptEnabled = !!cohort && scriptFicha.enabled;
+  const scriptSummary = scriptFicha.data?.script;
   const scriptMenu: ScriptMenuState = {
     enabled: scriptEnabled,
     fichaStatus: scriptFicha.data?.ficha_status ?? null,
     materialsStatus: scriptFicha.data?.materials_status ?? null,
+    scriptState: scriptSummary?.aprovada ? 'aprovado'
+      : (scriptSummary?.versoes || 0) > 0 ? 'rascunho'
+      : scriptSummary?.job && (scriptSummary.job.status === 'queued' || scriptSummary.job.status === 'running') ? 'escrevendo'
+      : null,
   };
 
   // PV-1.2/PV-3.1: Default route post-login — redirect to insights when submitted
@@ -561,6 +579,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       return (
         <ModuleErrorBoundary moduleName="Ficha do Script">
           <FichaScreen ficha={scriptFicha} onNavigate={(id) => navigateTo(id)} />
+        </ModuleErrorBoundary>
+      );
+    }
+
+    if (activeItem === 'script_script') {
+      return (
+        <ModuleErrorBoundary moduleName="Seu script">
+          <ScriptScreen ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
         </ModuleErrorBoundary>
       );
     }

@@ -75,12 +75,13 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
     expect(screen.getByText(/Sucessão vivida dos dois lados/)).toBeInTheDocument();
   });
 
-  it('3.7 tabela: uma linha por solução já tentada, custo a definir', () => {
+  it('3.7 tabela: uma linha por solução já tentada, custo em branco (nunca "a definir")', () => {
     render(<FichaDisplay campo={daPaloma('3.7')} />);
     const rows = screen.getAllByTestId('tabela-linha');
     expect(rows).toHaveLength(linhas('3.7').length);
     expect(within(rows[1]).getByText(/Holding e documentos/)).toBeInTheDocument();
-    expect(within(rows[1]).getByText('a definir')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('em branco')).toBeInTheDocument();
+    expect(rows[1].textContent).not.toContain('a definir');
     expect(screen.getAllByText('O que ele já tentou').length).toBeGreaterThan(0);
   });
 
@@ -95,18 +96,19 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
     expect(screen.getByText(/A entrada soma cerca de R\$20 mil/)).toBeInTheDocument();
   });
 
-  it('6.3 tabela: cada objeção numa linha, resposta a definir', () => {
+  it('6.3 tabela: cada objeção numa linha, resposta em branco (nunca "a definir")', () => {
     render(<FichaDisplay campo={daPaloma('6.3')} />);
     const rows = screen.getAllByTestId('tabela-linha');
     expect(rows).toHaveLength(linhas('6.3').length);
     expect(within(rows[0]).getByText(/O meu caso é específico/)).toBeInTheDocument();
-    expect(within(rows[0]).getByText('a definir')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('em branco')).toBeInTheDocument();
+    expect(rows[0].textContent).not.toContain('a definir');
   });
 
-  it('6.6 casos: sem sugestão no prefill, o cartão pede o preenchimento com o editor de casos', () => {
+  it('6.6 casos: sem sugestão no prefill, o cartão abre o editor de casos com o convite', () => {
     expect(fx['6.6'].sugerido).toBe('');
     render(<FichaField campo={daPaloma('6.6')} onDecide={vi.fn()} />);
-    expect(screen.getByText('Não encontramos, você preenche.')).toBeInTheDocument();
+    expect(screen.getByText('Não encontramos nos seus materiais. Conte com as suas palavras ou grave um áudio.')).toBeInTheDocument();
     expect(screen.getByLabelText('Casos reais (prova social): nome ou perfil do caso 1')).toBeInTheDocument();
     expect(screen.queryByTestId('display-6.6')).not.toBeInTheDocument();
   });

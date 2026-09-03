@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
-import { FichaBadge, MaterialsBadge, JobStatusBadge, formatDateTime } from './CohortOverview';
+import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, formatDateTime } from './CohortOverview';
 import type { CohortJob } from './CohortOverview';
+import { renderMarkdown } from '../../utils/markdown';
 import { MATERIAL_CATEGORIA_LABEL } from '../script/materiais/categorias';
 import { maskSenha } from '../script/materiais/AcessosPlataforma';
 import type { ScriptBlockView, ScriptFieldView, FichaStatus, MaterialsStatus } from '../../data/script-ficha-fields';
@@ -28,14 +29,35 @@ interface Pessoa {
   submitted_at: string | null;
 }
 
+/** Versao do script (sem conteudo; o conteudo vem de GET /api/admin/clubs/:slug/script-versoes/:versao). */
+interface ScriptVersao {
+  id: string;
+  versao: number;
+  status: 'rascunho' | 'aprovado';
+  resumo: string;
+  job_id: string | null;
+  aprovado_em: string | null;
+  aprovado_por: string | null;
+  created_at: string;
+  comentarios_count?: number;
+  content_md?: string;
+}
+interface ScriptComentario { id: string; versao: number; passo: number; texto: string; autor_email: string | null; autor_nome: string | null; created_at: string }
+interface ContextoItem { id: string; field_key: string; tipo: string; file_name: string | null; url: string; texto: string; legenda: string; transcricao: string | null; erro_transcricao: string | null; autor_email: string | null; autor_nome: string | null; created_at: string; download_url: string | null }
+
 interface ClubDetail {
   club: { slug: string; nome: string; ativo: boolean };
   membros: Member[];
   files: ClubFile[];
   pessoas: Pessoa[];
   pessoas_enviaram: number;
-  /** Fila de pre-preenchimento deste clube (mais recentes primeiro). */
+  /** Fila deste clube (prefill, script, refinar; mais recentes primeiro). */
   jobs?: CohortJob[];
+  /** Script escrito: versoes (mais recente primeiro) e comentarios por passo. */
+  versoes?: ScriptVersao[];
+  comentarios?: ScriptComentario[];
+  /** Contexto por pergunta { "3.3": [...] }. */
+  contexto?: Record<string, ContextoItem[]>;
   /** Forma antiga (por clube) que existia antes dos materiais por pessoa. */
   legado: { links: MaterialLink[]; observacoes: string } | null;
   materials_status: MaterialsStatus;
@@ -85,7 +107,11 @@ function formatSize(bytes?: number | null) {
 export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token, showToast, onBack }) => {
   const [detail, setDetail] = useState<ClubDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'ficha' | 'materiais' | 'membros' | 'importar'>('ficha');
+  const [tab, setTab] = useState<'ficha' | 'materiais' | 'script' | 'membros' | 'importar'>('ficha');
+  // Aba Script: conteudo por versao (carregado sob demanda) e qual esta aberta
+  const [versaoAberta, setVersaoAberta] = useState<number | null>(null);
+  const [conteudo, setConteudo] = useState<Record<number, string>>({});
+  const [carregandoVersao, setCarregandoVersao] = useState<number | null>(null);
 
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -184,6 +210,42 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
 
   const downloadUrl = (id: string) => `/api/admin/files/${id}?token=${encodeURIComponent(token)}`;
 
+  const fetchVersao = async (n: number): Promise<string | null> => {
+    if (conteudo[n] != null) return conteudo[n];
+    setCarregandoVersao(n);
+    try {
+      const res = await axios.get(`/api/admin/clubs/${slug}/script-versoes/${n}`, { headers });
+      const md: string = res.data?.versao?.content_md || '';
+      setConteudo((c) => ({ ...c, [n]: md }));
+      return md;
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erro ao abrir a versão', 'error');
+      return null;
+    } finally {
+      setCarregandoVersao(null);
+    }
+  };
+
+  const abrirVersao = async (n: number) => {
+    if (versaoAberta === n) { setVersaoAberta(null); return; }
+    const md = await fetchVersao(n);
+    if (md != null) setVersaoAberta(n);
+  };
+
+  const baixarVersao = async (n: number) => {
+    const md = await fetchVersao(n);
+    if (md == null) return;
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `script-${slug}-v${n}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   if (loading && !detail) {
     return <div className="animate-pulse h-40 bg-white/5 rounded-xl" />;
   }
@@ -221,6 +283,26 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
         <p className="text-[11px] text-white/40">Alternativas: {c.alternativas.map((a) => `${a.sugerido} (${a.fonte || 'sem fonte'})`).join(' | ')}</p>
       )}
       {c.nota_interna && <p className="text-[11px] text-purple-300/80">Nota interna: {c.nota_interna}</p>}
+      {(c.contexto_count || 0) > 0 && (
+        <details className="text-[11px] text-white/60">
+          <summary className="cursor-pointer text-prosperus-gold">Contexto do clube ({c.contexto_count})</summary>
+          <ul className="mt-1 space-y-1">
+            {(detail.contexto?.[c.key] || []).map((it) => (
+              <li key={it.id} className="border-l border-white/10 pl-2">
+                <span className="uppercase text-[10px] text-white/40">{it.tipo}</span>
+                {it.autor_nome || it.autor_email ? <span className="ml-1 text-white/50">{it.autor_nome || it.autor_email}</span> : null}
+                <span className="ml-1 text-white/30">{formatDateTime(it.created_at)}</span>
+                {it.legenda && <p className="text-white/70">{it.legenda}</p>}
+                {it.texto && <p className="text-white/80 whitespace-pre-line">{it.texto}</p>}
+                {it.url && <a href={it.url} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{it.url}</a>}
+                {it.transcricao && <p className="text-white/70 whitespace-pre-line italic">{it.transcricao}</p>}
+                {it.erro_transcricao && <p className="text-red-300">transcrição falhou: {it.erro_transcricao}</p>}
+                {it.file_name && it.download_url && <a href={`${it.download_url}?token=${encodeURIComponent(token)}`} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{it.file_name}</a>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {c.atualizado_por && <p className="text-[11px] text-white/30">{c.atualizado_por} · {formatDateTime(c.atualizado_em)}</p>}
     </div>
   );
@@ -257,6 +339,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
       <div className="flex gap-1 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
         {tabBtn('ficha', 'Ficha')}
         {tabBtn('materiais', `Materiais (${detail.files.length + (detail.pessoas || []).reduce((s, p) => s + p.links.length + p.acessos.length, 0)})`)}
+        {tabBtn('script', `Script (${(detail.versoes || []).length})`)}
         {tabBtn('membros', `Membros (${detail.membros.length})`)}
         {tabBtn('importar', 'Importar JSON')}
       </div>
@@ -415,10 +498,11 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
 
           {(detail.jobs || []).length > 0 && (
             <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
-              <h4 className="text-sm font-semibold text-white">Fila de pré-preenchimento deste clube</h4>
+              <h4 className="text-sm font-semibold text-white">Fila do worker deste clube</h4>
               <ul className="space-y-1">
                 {(detail.jobs || []).map((j) => (
                   <li key={j.id} className="flex flex-wrap items-center gap-2 text-xs border-b border-white/5 py-1.5">
+                    <JobTipoBadge job={j} />
                     <JobStatusBadge status={j.status} />
                     <span className="text-white/80">{j.email}</span>
                     {j.notify_phone && <span className="font-mono text-white/50">{j.notify_phone}</span>}
@@ -430,6 +514,58 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
               <p className="text-[11px] text-white/40">Reprocessar e ver todos: painel "Fila" na aba Cohort.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'script' && (
+        <div className="space-y-4">
+          {(detail.versoes || []).length === 0 ? (
+            <p className="text-xs text-white/40">
+              Nenhuma versão ainda. O worker grava a v1 depois que o mentor fecha a ficha (job "Script" na fila).
+            </p>
+          ) : (detail.versoes || []).map((v) => {
+            const coms = (detail.comentarios || []).filter((c) => c.versao === v.versao);
+            const aberta = versaoAberta === v.versao;
+            return (
+              <div key={v.id} className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Script v{v.versao}
+                      <span className={`ml-2 text-[11px] px-2 py-0.5 rounded-full ${v.status === 'aprovado' ? 'bg-green-600/20 text-green-400' : 'bg-blue-600/20 text-blue-300'}`}>{v.status}</span>
+                    </p>
+                    <p className="text-[11px] text-white/40">
+                      escrito {formatDateTime(v.created_at)}{v.job_id ? ` · job ${v.job_id}` : ''}{v.aprovado_em ? ` · aprovado ${formatDateTime(v.aprovado_em)} por ${v.aprovado_por || '?'}` : ''} · {coms.length} comentário(s)
+                    </p>
+                    {v.resumo && <p className="text-xs text-white/60 mt-1">{v.resumo}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="xs" onClick={() => abrirVersao(v.versao)} loading={carregandoVersao === v.versao}>{aberta ? 'Fechar' : 'Ver'}</Button>
+                    <Button variant="outline" size="xs" onClick={() => baixarVersao(v.versao)}>Baixar .md</Button>
+                  </div>
+                </div>
+                {aberta && conteudo[v.versao] != null && (
+                  <div
+                    className="bg-prosperus-neutral-white text-prosperus-neutral-black rounded-lg p-4 max-h-[70vh] overflow-y-auto custom-scrollbar text-sm
+                      [&_h1]:font-serif [&_h1]:text-xl [&_h1]:text-prosperus-navy-panel [&_h2]:font-serif [&_h2]:text-lg [&_h2]:text-prosperus-navy-panel [&_h2]:mt-4 [&_h3]:font-serif [&_h3]:text-base [&_h3]:mt-3
+                      [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-prosperus-gold-dark [&_blockquote]:pl-2 [&_blockquote]:italic"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(conteudo[v.versao]) }}
+                  />
+                )}
+                {coms.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {coms.map((c) => (
+                      <li key={c.id} className="text-xs border-l-2 border-prosperus-gold/40 pl-2">
+                        <span className="text-prosperus-gold font-semibold">{c.passo > 0 ? `Passo ${c.passo}` : 'Geral'}</span>
+                        <span className="text-white/50 ml-2">{c.autor_nome || c.autor_email || '?'} · {formatDateTime(c.created_at)}</span>
+                        <p className="text-white/80 whitespace-pre-line">{c.texto}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

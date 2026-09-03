@@ -5,6 +5,8 @@ const SF = require('../utils/script-ficha.cjs');
 const VM = require('../utils/validation-materials.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
 const CM = require('../utils/cohort-materials.cjs');
+const CTX = require('../utils/script-context.cjs');
+const SV = require('../utils/script-versions.cjs');
 const { scriptPrefillSchema, validateBody } = require('../utils/validation.cjs');
 
 /**
@@ -16,6 +18,8 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
   const router = Router();
 
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
+  CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
+  SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
 
   const jobPatchSchema = z.object({
     status: z.enum(['queued', 'running', 'done', 'error', 'needs_human']),
@@ -23,8 +27,19 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     error: z.string().max(4000).nullable().optional(),
   });
 
+  // tipo ausente ou 'any' = o mais antigo de qualquer tipo
   const jobNextSchema = z.object({
-    tipo: z.enum(VM.JOB_TIPOS).optional().default('prefill'),
+    tipo: z.enum([...VM.JOB_TIPOS, 'any']).optional().default('any'),
+  });
+
+  // PUT /api/jobs/:id/campo (job refinar): nova sugestao para 1 campo
+  const jobCampoSchema = z.object({
+    field_key: z.string().trim().min(3).max(8),
+    sugerido: z.string().max(20000).optional().default(''),
+    classe: z.enum(['Fato', 'DER', 'VZ']),
+    fonte: z.string().max(1000).optional().default(''),
+    alternativas: z.array(z.object({ sugerido: z.string().max(20000), fonte: z.string().max(1000).optional().default('') })).max(2).optional().default([]),
+    nota_interna: z.string().max(5000).optional().default(''),
   });
 
   function currentToken() {
@@ -87,10 +102,10 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
 
   router.use('/api/jobs', jobsAuth);
 
-  // POST /api/jobs/next  { tipo: 'prefill' }  -> reivindica o job mais antigo em queued (atomico) ou 204
+  // POST /api/jobs/next  { tipo?: 'prefill'|'script'|'refinar'|'any' }  -> reivindica o job mais antigo em queued (atomico) ou 204
   router.post('/api/jobs/next', validateBody(jobNextSchema), async (req, res) => {
     try {
-      const job = await JOBS.claimNextJob({ dbGet }, req.body.tipo);
+      const job = await JOBS.claimNextJob({ dbGet }, req.body.tipo === 'any' ? null : req.body.tipo);
       if (!job) return res.status(204).end();
       const club = await getClub(job.club_slug);
       res.json({
@@ -187,10 +202,11 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     }
   });
 
-  // GET /api/jobs/:id/files/:fileId  -> stream do arquivo (so se pertence ao clube do job)
+  // GET /api/jobs/:id/files/:fileId  -> stream do arquivo (materiais ou contexto; so se pertence ao clube do job)
   router.get('/api/jobs/:id/files/:fileId', loadJob, async (req, res) => {
     try {
-      const row = await CM.getClubFile({ dbGet }, req.job.club_slug, req.params.fileId);
+      const row = (await CM.getClubFile({ dbGet }, req.job.club_slug, req.params.fileId))
+        || (await CTX.getContextFile({ dbGet }, req.job.club_slug, req.params.fileId));
       if (!row) return res.status(404).json({ success: false, message: 'Arquivo não encontrado.' });
       if (!fs.existsSync(row.file_path)) return res.status(404).json({ success: false, message: 'Arquivo não encontrado no disco.' });
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(row.file_name)}"`);
@@ -202,7 +218,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     }
   });
 
-  // GET /api/jobs/:id/ficha  -> campos com status (o que o mentor ja decidiu) + metadados do clube/prefill
+  // GET /api/jobs/:id/ficha  -> campos com status (o que o mentor ja decidiu) + contexto por campo + valores planos
   router.get('/api/jobs/:id/ficha', loadJob, async (req, res) => {
     try {
       const slug = req.job.club_slug;
@@ -210,6 +226,17 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
       const ficha = await SF.ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
       const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: true });
       const decididos = view.blocos.flatMap((b) => b.campos.filter((c) => c.decidido).map((c) => c.key));
+      const fileUrl = (fileId) => `/api/jobs/${encodeURIComponent(req.job.id)}/files/${encodeURIComponent(fileId)}`;
+      const contextoItems = await CTX.listContext({ dbAll }, slug, { fileUrl });
+      const contexto = CTX.groupByField(contextoItems.map((it) => ({
+        id: it.id, tipo: it.tipo, texto: it.texto, url: it.url, legenda: it.legenda, transcricao: it.transcricao,
+        erro_transcricao: it.erro_transcricao, file_id: it.file_id, file_name: it.file_name, file_type: it.file_type,
+        download_url: it.download_url, autor_email: it.autor_email, autor_nome: it.autor_nome, created_at: it.created_at,
+        field_key: it.field_key,
+      })));
+      // Valor plano por campo: o decidido (valor_efetivo) ou, sem decisao, a sugestao
+      const valores = {};
+      for (const b of view.blocos) for (const c of b.campos) valores[c.key] = c.decidido ? c.valor_efetivo : c.sugerido;
       res.json({
         success: true,
         job_id: req.job.id,
@@ -220,10 +247,66 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
         reviewed_at: ficha.reviewed_at,
         last_user_activity_at: ficha.last_user_activity_at,
         decididos,
+        valores,
+        contexto,
         ...view,
       });
     } catch (error) {
       console.error('Error in GET /api/jobs/:id/ficha:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // PUT /api/jobs/:id/campo  { field_key, sugerido, classe, fonte, alternativas?, nota_interna? }
+  // Nova sugestao para UM campo (job refinar). Volta o campo para `sugerido` mesmo se estava decidido:
+  // o valor anterior fica em alternativas[0] ("sua versão anterior"). Regra "sem a definir" aplicada.
+  router.put('/api/jobs/:id/campo', loadJob, validateBody(jobCampoSchema), async (req, res) => {
+    try {
+      const slug = req.job.club_slug;
+      const key = req.body.field_key;
+      if (!SF.FIELD_BY_KEY[key]) return res.status(400).json({ success: false, message: `Campo desconhecido: ${key}.` });
+      const ficha = await SF.ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
+      const r = SF.applyWorkerSuggestion(safeJsonParse(ficha.fields, {}), key, req.body, { job_id: req.job.id });
+      // Campo decidido reaberto numa ficha confirmada: a ficha volta para em_revisao (o mentor precisa olhar de novo)
+      const nextStatus = r.reaberto && ficha.ficha_status === 'confirmada' ? 'em_revisao' : (ficha.ficha_status === 'vazia' ? 'pre_preenchida' : ficha.ficha_status);
+      await dbRun(
+        `UPDATE script_fichas SET fields = ?, ficha_status = ?, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
+        [JSON.stringify(r.fields), nextStatus, slug]
+      );
+      const view = SF.buildFichaView(r.fields, { includeInternal: true });
+      const campo = view.blocos.flatMap((b) => b.campos).find((c) => c.key === key);
+      const warnings = [];
+      if (r.limpo) warnings.push(`${key}: a sugestão era um "a definir"; o campo ficou vazio e o texto foi para nota_interna.`);
+      if (String(req.body.sugerido || '').includes('—')) warnings.push(`${key}: contém travessão.`);
+      res.json({ success: true, field_key: key, reaberto: r.reaberto, limpo: r.limpo, ficha_status: nextStatus, campo, warnings });
+    } catch (error) {
+      console.error('Error in PUT /api/jobs/:id/campo:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // PUT /api/jobs/:id/script  { content_md, resumo?, meta? }  -> nova versao (max + 1) do script do clube
+  router.put('/api/jobs/:id/script', loadJob, validateBody(SV.scriptVersionBodySchema), async (req, res) => {
+    try {
+      const slug = req.job.club_slug;
+      const club = await getClub(slug);
+      if (!club) return res.status(404).json({ success: false, message: `Clube "${slug}" não encontrado.` });
+      const versao = await SV.insertVersion({ dbGet, dbRun, uuidv4 }, {
+        club_slug: slug, content_md: req.body.content_md, resumo: req.body.resumo || '', meta: req.body.meta ?? null, job_id: req.job.id,
+      });
+      const warnings = [];
+      if (req.body.content_md.includes('—')) warnings.push('content_md contém travessão.');
+      if (/diagn[oó]stico/i.test(req.body.content_md)) warnings.push('content_md contém a palavra "diagnóstico".');
+      res.json({
+        success: true,
+        versao: versao.versao,
+        id: versao.id,
+        status: versao.status,
+        url: `${appUrl(req)}/prosperus-mentor-diagnosis/dashboard/script`,
+        warnings,
+      });
+    } catch (error) {
+      console.error('Error in PUT /api/jobs/:id/script:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

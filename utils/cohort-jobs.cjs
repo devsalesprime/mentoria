@@ -1,15 +1,27 @@
 /**
- * Fila de jobs do cohort (tabela cohort_jobs): o app enfileira quando o mentor clica em
- * "Confirmar e ir para a ficha"; um worker externo (a Naia, no VPS) puxa pelo /api/jobs/*.
+ * Fila de jobs do cohort (tabela cohort_jobs). Um worker externo (a Naia, no VPS) puxa pelo /api/jobs/*.
+ *
+ * Tipos (VM.JOB_TIPOS):
+ *   prefill : "Confirmar e ir para a ficha" (materiais). 1 ativo por (club_slug, email).
+ *   script  : ficha confirmada (complete / gerar-script). 1 ativo por club_slug.
+ *   refinar : nova sugestao para 1 campo (payload.field_key). 1 ativo por (club_slug, field_key).
  *
  * Regras:
- *   - 1 job ativo (queued|running) por (tipo, club_slug, email): enfileirar de novo devolve o existente.
+ *   - job ativo = queued|running; enfileirar de novo dentro do escopo devolve o existente.
  *   - claim atomico: UPDATE ... WHERE id = (SELECT ... LIMIT 1) AND status = 'queued' RETURNING *.
  *   - terminal = done | error | needs_human (grava finished_at). Requeue volta para queued.
  */
 const VM = require('./validation-materials.cjs');
 
 const TERMINAL = ['done', 'error', 'needs_human'];
+const ACTIVE = ['queued', 'running'];
+
+/** Escopo de deduplicacao por tipo: onde 1 job ativo basta. */
+function dedupeScope(tipo) {
+  if (tipo === 'script') return 'club';
+  if (tipo === 'refinar') return 'club_field';
+  return 'pessoa';
+}
 
 function parseJson(s, fallback = null) {
   if (s == null || s === '') return fallback;
@@ -42,30 +54,56 @@ async function getJob({ dbGet }, id) {
   return rowToJob(await dbGet(`SELECT * FROM cohort_jobs WHERE id = ?`, [id]));
 }
 
-/** Job ativo (queued|running) da pessoa para o tipo, se existir. */
-async function findActiveJob({ dbGet }, { tipo = 'prefill', club_slug, email }) {
+/**
+ * Job ativo (queued|running) no escopo do tipo, se existir:
+ * prefill = (club, email) · script = (club) · refinar = (club, payload.field_key).
+ */
+async function findActiveJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null }) {
+  const scope = dedupeScope(tipo);
+  const where = [`tipo = ?`, `club_slug = ?`, `status IN ('queued', 'running')`];
+  const params = [tipo, club_slug];
+  if (scope === 'pessoa') { where.push('email = ?'); params.push(VM.normEmail(email)); }
+  if (scope === 'club_field') { where.push(`json_extract(payload, '$.field_key') = ?`); params.push(String(field_key || '')); }
   return rowToJob(await dbGet(
-    `SELECT * FROM cohort_jobs WHERE tipo = ? AND club_slug = ? AND email = ? AND status IN ('queued', 'running')
-      ORDER BY created_at DESC LIMIT 1`,
-    [tipo, club_slug, VM.normEmail(email)]
+    `SELECT * FROM cohort_jobs WHERE ${where.join(' AND ')} ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    params
   ));
 }
 
-/** Ultimo job da pessoa (qualquer status). */
-async function findLatestJob({ dbGet }, { tipo = 'prefill', club_slug, email }) {
+/** Ultimo job (qualquer status) no escopo do tipo (prefill = da pessoa; script = do clube; refinar = do campo). */
+async function findLatestJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null }) {
+  const scope = dedupeScope(tipo);
+  const where = [`tipo = ?`, `club_slug = ?`];
+  const params = [tipo, club_slug];
+  if (scope === 'pessoa') { where.push('email = ?'); params.push(VM.normEmail(email)); }
+  if (scope === 'club_field') { where.push(`json_extract(payload, '$.field_key') = ?`); params.push(String(field_key || '')); }
   return rowToJob(await dbGet(
-    `SELECT * FROM cohort_jobs WHERE tipo = ? AND club_slug = ? AND email = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
-    [tipo, club_slug, VM.normEmail(email)]
+    `SELECT * FROM cohort_jobs WHERE ${where.join(' AND ')} ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    params
   ));
+}
+
+/** Chaves de campo com job `refinar` ativo (queued|running) no clube: a ficha marca `refinando: true`. */
+async function listRefiningKeys({ dbAll }, club_slug) {
+  const rows = await dbAll(
+    `SELECT DISTINCT json_extract(payload, '$.field_key') AS k FROM cohort_jobs
+      WHERE tipo = 'refinar' AND club_slug = ? AND status IN ('queued', 'running')`,
+    [club_slug]
+  );
+  return rows.map((r) => r.k).filter(Boolean);
 }
 
 /**
- * Enfileira (ou devolve o job ativo existente da mesma pessoa).
+ * Enfileira (ou devolve o job ativo existente no escopo do tipo).
+ * Para `refinar`, `payload.field_key` e obrigatorio (escopo da deduplicacao).
  * @returns {{ job: object, existing: boolean }}
  */
 async function enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo = 'prefill', club_slug, email, notify_phone = null, payload = null }) {
+  if (!VM.JOB_TIPOS.includes(tipo)) throw new Error(`tipo de job inválido: ${tipo}`);
   const key = VM.normEmail(email);
-  const active = await findActiveJob({ dbGet }, { tipo, club_slug, email: key });
+  const field_key = payload && payload.field_key ? String(payload.field_key) : null;
+  if (tipo === 'refinar' && !field_key) throw new Error('job refinar exige payload.field_key');
+  const active = await findActiveJob({ dbGet }, { tipo, club_slug, email: key, field_key });
   if (active) {
     // Atualiza o telefone se a pessoa informou um novo (o job ainda nao rodou)
     if (notify_phone && notify_phone !== active.notify_phone) {
@@ -84,17 +122,19 @@ async function enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo = 'prefill', club_slu
 }
 
 /**
- * Reivindica o job mais antigo em `queued` do tipo, de forma atomica (1 statement, RETURNING).
+ * Reivindica o job mais antigo em `queued`, de forma atomica (1 statement, RETURNING).
+ * tipo = 'prefill' | 'script' | 'refinar' filtra; null, '' ou 'any' pega o mais antigo de qualquer tipo.
  * Devolve null quando a fila esta vazia.
  */
-async function claimNextJob({ dbGet }, tipo = 'prefill') {
+async function claimNextJob({ dbGet }, tipo = null) {
+  const any = !tipo || tipo === 'any';
   const row = await dbGet(
     `UPDATE cohort_jobs
         SET status = 'running', started_at = CURRENT_TIMESTAMP, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = (SELECT id FROM cohort_jobs WHERE status = 'queued' AND tipo = ? ORDER BY created_at ASC, rowid ASC LIMIT 1)
+      WHERE id = (SELECT id FROM cohort_jobs WHERE status = 'queued' ${any ? '' : 'AND tipo = ?'} ORDER BY created_at ASC, rowid ASC LIMIT 1)
         AND status = 'queued'
       RETURNING *`,
-    [tipo]
+    any ? [] : [tipo]
   );
   return rowToJob(row);
 }
@@ -150,10 +190,13 @@ async function listPhones({ dbAll }) {
 
 module.exports = {
   TERMINAL,
+  ACTIVE,
+  dedupeScope,
   rowToJob,
   getJob,
   findActiveJob,
   findLatestJob,
+  listRefiningKeys,
   enqueueJob,
   claimNextJob,
   updateJobStatus,

@@ -3,10 +3,11 @@ import { NIVEL_LABEL } from './estrutura';
 import { Area, BotaoAdd, BotaoIcone, Campo, CartaoOpcao, Contador, Entrada, Numero, Observacao, Painel, Rotulo, TAP, lista, move, type WidgetProps } from './ui';
 
 /** historia_podio: textarea "história" + 3 cartoes ouro / prata / bronze (estilo do pódio do MentorModule). */
+// Pódio sem emoji: numeral em serifa dentro de um círculo na cor da medalha
 const MEDALHAS = [
-  { key: 'ouro', label: 'Ouro', medal: '🥇', border: 'border-medal-gold/50', text: 'text-medal-gold', elevated: true },
-  { key: 'prata', label: 'Prata', medal: '🥈', border: 'border-medal-silver/50', text: 'text-medal-silver', elevated: false },
-  { key: 'bronze', label: 'Bronze', medal: '🥉', border: 'border-medal-bronze/50', text: 'text-medal-bronze', elevated: false },
+  { key: 'ouro', label: 'Ouro', medal: '1', border: 'border-medal-gold/50', text: 'text-medal-gold', elevated: true },
+  { key: 'prata', label: 'Prata', medal: '2', border: 'border-medal-silver/50', text: 'text-medal-silver', elevated: false },
+  { key: 'bronze', label: 'Bronze', medal: '3', border: 'border-medal-bronze/50', text: 'text-medal-bronze', elevated: false },
 ];
 export const HistoriaPodioWidget: React.FC<WidgetProps> = ({ campo, value, onChange }) => {
   const set = (k: string, v: string) => onChange({ ...value, [k]: v });
@@ -18,7 +19,7 @@ export const HistoriaPodioWidget: React.FC<WidgetProps> = ({ campo, value, onCha
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-end">
         {MEDALHAS.map((m) => (
           <div key={m.key} className={`bg-prosperus-navy-mid border ${m.border} rounded-lg p-3 flex md:flex-col items-start md:items-stretch gap-2 ${m.elevated ? 'md:pt-5' : ''}`}>
-            <span className="text-2xl md:text-3xl md:text-center block leading-none" aria-hidden="true">{m.medal}</span>
+            <span className={`w-9 h-9 md:mx-auto rounded-full border ${m.border} ${m.text} font-serif text-xl leading-none flex items-center justify-center shrink-0`} aria-hidden="true">{m.medal}</span>
             <div className="flex-1 space-y-1">
               <span className={`block text-xs font-semibold font-sans md:text-center ${m.text}`}>{m.label}</span>
               <Area value={value[m.key] || ''} onChange={(e) => set(m.key, e.target.value)} rows={2} aria-label={`Prova ${m.label}`} placeholder="Uma conquista contada" />

@@ -20,6 +20,35 @@ const DAYS = DEFS.dias;
 const FIELD_STATUSES = ['sugerido', 'confirmado', 'editado', 'vazio', 'aceito_vazio'];
 const DECIDED_STATUSES = ['confirmado', 'editado', 'aceito_vazio'];
 const CLASSES = ['Fato', 'DER', 'VZ'];
+const MAX_ALTERNATIVAS = 3; // contrato de prefill aceita 2; a 3a vaga e "sua versao anterior" (PUT /api/jobs/:id/campo)
+
+/**
+ * Regra "sem a definir" (feedback do dono): um campo nunca carrega sugestao do tipo "a definir",
+ * "a definir com a gente", "a confirmar", "nao encontramos", "nao sei", "???". Quem gerou a sugestao
+ * nao sabia; entao o campo e VZ (vazio) e o texto vai para nota_interna.
+ * Vale no import do prefill, no PUT /api/jobs/:id/campo e no scripts/limpar-a-definir.cjs.
+ * (O "???" nao tem \b ao redor: "?" nao e caractere de palavra, entao \b nunca casaria.)
+ */
+const PLACEHOLDER_RE = /(\b(a definir|a confirmar|n[a\u00e3]o (sei|encontramos|localizado))\b|\?\?\?)/i;
+
+function isPlaceholder(text) {
+  return PLACEHOLDER_RE.test(String(text || ''));
+}
+
+/**
+ * Aplica a regra a uma sugestao vinda de fora (worker ou JSON). Devolve { sugerido, classe, fonte, nota_interna, limpo }.
+ * limpo = true quando a sugestao foi descartada (virou VZ) e o texto original foi guardado em nota_interna.
+ */
+function sanitizeSugestao({ sugerido, classe, fonte, nota_interna }) {
+  const s = String(sugerido == null ? '' : sugerido).trim();
+  const nota = String(nota_interna == null ? '' : nota_interna);
+  if (classe !== 'VZ' && s && isPlaceholder(s)) {
+    const marca = `[sugestão descartada: "${s}"]`;
+    return { sugerido: '', classe: 'VZ', fonte: '', nota_interna: nota ? `${nota}\n${marca}` : marca, limpo: true };
+  }
+  if (classe === 'VZ') return { sugerido: '', classe: 'VZ', fonte: '', nota_interna: nota, limpo: false };
+  return { sugerido: s, classe, fonte: String(fonte == null ? '' : fonte).trim(), nota_interna: nota, limpo: false };
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -55,7 +84,7 @@ function normalizeFieldState(raw) {
   if (!Array.isArray(out.alternativas)) out.alternativas = [];
   out.alternativas = out.alternativas
     .filter((a) => a && typeof a === 'object' && typeof a.sugerido === 'string' && a.sugerido.trim())
-    .slice(0, 2)
+    .slice(0, MAX_ALTERNATIVAS)
     .map((a) => ({ sugerido: a.sugerido, fonte: typeof a.fonte === 'string' ? a.fonte : '' }));
   if (typeof out.nota_interna !== 'string') out.nota_interna = '';
   if (!FIELD_STATUSES.includes(out.status)) out.status = out.sugerido ? 'sugerido' : 'vazio';
@@ -139,30 +168,104 @@ function applyPrefill(fields, campos) {
   const next = normalizeFields(fields);
   const imported = [];
   const skipped = [];
+  const limpos = [];
 
   for (const key of FIELD_KEYS) {
     const cur = next[key];
     const inc = campos[key];
     if (isDecided(cur)) { skipped.push(key); continue; }
-    const sugerido = (inc.classe === 'VZ') ? '' : String(inc.sugerido || '').trim();
+    const san = sanitizeSugestao(inc);
+    if (san.limpo) limpos.push(key);
     next[key] = {
       ...cur,
-      sugerido,
-      classe: inc.classe,
-      fonte: inc.classe === 'VZ' ? '' : String(inc.fonte || '').trim(),
-      alternativas: (inc.alternativas || []).slice(0, 2).map((a) => ({
-        sugerido: String(a.sugerido || '').trim(),
-        fonte: String(a.fonte || '').trim(),
-      })).filter((a) => a.sugerido),
-      nota_interna: String(inc.nota_interna || ''),
-      status: sugerido ? 'sugerido' : 'vazio',
+      sugerido: san.sugerido,
+      classe: san.classe,
+      fonte: san.fonte,
+      alternativas: cleanAlternativas(inc.alternativas, 2),
+      nota_interna: san.nota_interna,
+      status: san.sugerido ? 'sugerido' : 'vazio',
       valor: '',
       estrutura: null,
     };
     imported.push(key);
   }
 
-  return { fields: next, imported, skipped };
+  return { fields: next, imported, skipped, limpos };
+}
+
+/** Alternativas limpas (sem placeholder, sem vazias), no maximo `max`. */
+function cleanAlternativas(list, max = 2) {
+  return (Array.isArray(list) ? list : [])
+    .map((a) => ({ sugerido: String((a && a.sugerido) || '').trim(), fonte: String((a && a.fonte) || '').trim() }))
+    .filter((a) => a.sugerido && !isPlaceholder(a.sugerido))
+    .slice(0, max);
+}
+
+/**
+ * Nova sugestao vinda do worker para UM campo (PUT /api/jobs/:id/campo, job `refinar`).
+ * Volta o campo para `sugerido` MESMO se ja estava decidido: o valor anterior do mentor vai para
+ * alternativas[0] com fonte "sua versão anterior" (ele pode voltar atras com 1 toque). Se o campo nao
+ * estava decidido mas tinha sugestao diferente, ela fica como "sugestão anterior".
+ * Aplica a regra "sem a definir": placeholder vira vazio e o texto vai para nota_interna.
+ * @returns {{ fields, field, reaberto: boolean, limpo: boolean }}
+ */
+function applyWorkerSuggestion(fields, key, inc, { job_id = null } = {}) {
+  if (!FIELD_BY_KEY[key]) throw new Error(`campo desconhecido: ${key}`);
+  const next = normalizeFields(fields);
+  const cur = next[key];
+  const reaberto = isDecided(cur);
+  const san = sanitizeSugestao(inc);
+  const anterior = reaberto ? effectiveValue(cur) : '';
+  const alts = [];
+  if (anterior && anterior !== san.sugerido) alts.push({ sugerido: anterior, fonte: 'sua versão anterior' });
+  else if (!reaberto && cur.sugerido && cur.sugerido !== san.sugerido) alts.push({ sugerido: cur.sugerido, fonte: 'sugestão anterior' });
+  for (const a of cleanAlternativas(inc.alternativas, 2)) {
+    if (alts.length >= MAX_ALTERNATIVAS) break;
+    if (a.sugerido === san.sugerido || alts.some((x) => x.sugerido === a.sugerido)) continue;
+    alts.push(a);
+  }
+  const ts = nowIso();
+  next[key] = {
+    ...cur,
+    sugerido: san.sugerido,
+    classe: san.classe,
+    fonte: san.fonte,
+    alternativas: alts,
+    nota_interna: san.nota_interna,
+    status: san.sugerido ? 'sugerido' : 'vazio',
+    valor: '',
+    estrutura: null,
+    atualizado_por: job_id ? `worker:${job_id}` : 'worker',
+    atualizado_em: ts,
+  };
+  return { fields: next, field: next[key], reaberto, limpo: san.limpo };
+}
+
+/**
+ * Limpa placeholders ("a definir" etc.) de campos NAO decididos: viram `vazio` (classe VZ, sugerido '',
+ * texto em nota_interna); alternativas com placeholder somem. Campo decidido nunca e tocado.
+ * Usado por scripts/limpar-a-definir.cjs.
+ * @returns {{ fields, alterados: [{ key, antes, alternativas_removidas }] }}
+ */
+function limparADefinir(fields) {
+  const next = normalizeFields(fields);
+  const alterados = [];
+  for (const key of FIELD_KEYS) {
+    const cur = next[key];
+    if (isDecided(cur)) continue;
+    const altsAntes = cur.alternativas.length;
+    const alts = cur.alternativas.filter((a) => !isPlaceholder(a.sugerido));
+    const sugPlaceholder = !!cur.sugerido && isPlaceholder(cur.sugerido);
+    if (!sugPlaceholder && alts.length === altsAntes) continue;
+    const san = sugPlaceholder ? sanitizeSugestao({ ...cur, classe: cur.classe === 'VZ' ? 'Fato' : cur.classe }) : null;
+    next[key] = {
+      ...cur,
+      ...(san ? { sugerido: '', classe: 'VZ', fonte: '', nota_interna: san.nota_interna, status: 'vazio', valor: '' } : {}),
+      alternativas: alts,
+    };
+    alterados.push({ key, antes: cur.sugerido, alternativas_removidas: altsAntes - alts.length });
+  }
+  return { fields: next, alterados };
 }
 
 /**
@@ -220,7 +323,7 @@ async function ensureFichaRow({ dbGet, dbRun, uuidv4 }, clubSlug) {
 async function importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, body, extraMeta = {}) {
   const parse = safeJsonParse || ((s, fb) => { try { return s ? JSON.parse(s) : fb; } catch { return fb; } });
   const ficha = await ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
-  const { fields, imported, skipped } = applyPrefill(parse(ficha.fields, {}), body.campos);
+  const { fields, imported, skipped, limpos } = applyPrefill(parse(ficha.fields, {}), body.campos);
   const nextStatus = ficha.ficha_status === 'vazia' ? 'pre_preenchida' : ficha.ficha_status;
   const meta = {
     club_nome: body.club_nome || null,
@@ -237,7 +340,7 @@ async function importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, body
       WHERE club_slug = ?`,
     [JSON.stringify(fields), nextStatus, JSON.stringify(meta), slug]
   );
-  return { fields, imported, skipped, ficha_status: nextStatus, resumo: summarize(fields), meta };
+  return { fields, imported, skipped, limpos, ficha_status: nextStatus, resumo: summarize(fields), meta };
 }
 
 /** Chaves obrigatorias ainda sem decisao. */
@@ -371,6 +474,13 @@ module.exports = {
   FIELD_STATUSES,
   DECIDED_STATUSES,
   CLASSES,
+  MAX_ALTERNATIVAS,
+  PLACEHOLDER_RE,
+  isPlaceholder,
+  sanitizeSugestao,
+  cleanAlternativas,
+  applyWorkerSuggestion,
+  limparADefinir,
   emptyFieldState,
   normalizeEstrutura,
   normalizeFieldState,

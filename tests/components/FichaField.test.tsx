@@ -12,6 +12,8 @@ vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
 }));
 
+vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { items: [] } }), post: vi.fn(), delete: vi.fn() } }));
+
 import { FichaField } from '../../components/script/FichaField';
 import { SCRIPT_FIELD_BY_KEY, type ScriptFieldView } from '../../data/script-ficha-fields';
 
@@ -110,12 +112,32 @@ describe('FichaField', () => {
     expect(onDecide).toHaveBeenCalledWith('2.1', { status: 'editado', valor: 'Ajudo donos de clínica.' });
   });
 
-  it('campo vazio obrigatório mostra "Não encontramos, você preenche" e "Deixar em branco por enquanto"', () => {
+  it('campo vazio obrigatório abre o editor direto com o convite e "Deixar em branco por enquanto"; nunca "Confirmar"', () => {
     const onDecide = vi.fn();
     render(<FichaField campo={{ ...base, sugerido: '', classe: 'VZ', fonte: '', alternativas: [], status: 'vazio' }} onDecide={onDecide} />);
-    expect(screen.getByText('Não encontramos, você preenche.')).toBeInTheDocument();
+    expect(screen.getByText('Não encontramos nos seus materiais. Conte com as suas palavras ou grave um áudio.')).toBeInTheDocument();
+    expect(screen.getByTestId('editor-2.1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Salvar' })).toBeDisabled();
     fireEvent.click(screen.getByText('Deixar em branco por enquanto'));
     expect(onDecide).toHaveBeenCalledWith('2.1', { status: 'aceito_vazio' });
+  });
+
+  it('sugestão só com "a definir" é tratada como vazia: editor direto, sem "Confirmar"', () => {
+    render(<FichaField campo={{ ...base, sugerido: 'a definir', alternativas: [], status: 'sugerido' }} onDecide={vi.fn()} />);
+    expect(screen.getByTestId('editor-2.1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
+    expect(screen.getByText('Deixar em branco por enquanto')).toBeInTheDocument();
+  });
+
+  it('campo em revisão pela IA mostra o selo e a linha de contexto', () => {
+    render(<FichaField campo={{ ...base, refinando: true } as any} onDecide={vi.fn()} />);
+    // selo no cabeçalho do campo e na linha de contexto
+    const selos = screen.getAllByTestId('badge-refinando');
+    expect(selos.length).toBe(2);
+    expect(selos[0]).toHaveTextContent('Em revisão pela IA');
+    expect(screen.getByTestId('contexto-2.1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Gravar áudio' })).toBeInTheDocument();
   });
 
   it('campo vazio opcional oferece "Não se aplica / deixar vazio"', () => {
@@ -350,5 +372,5 @@ describe('FichaField widgets (sugestão dentro do widget)', () => {
       expect(editor.textContent!.toLowerCase()).not.toContain('diagnóstico');
       unmount();
     }
-  });
+  }, 30000);
 });

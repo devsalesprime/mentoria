@@ -14,7 +14,10 @@
  *           nao chegam a B; submit por pessoa; admin ve tudo; prazo via cohort_config)
  *        -> prompt da IA + resposta colada -> "Confirmar e ir para a ficha" com WhatsApp -> job na fila
  *        -> worker (POST /api/jobs/next com COHORT_JOBS_TOKEN) le materiais/ficha, grava o prefill, fecha o job
- *        -> admin ve a fila e reprocessa -> overview admin.
+ *        -> admin ve a fila e reprocessa -> overview admin
+ *        -> ship 2 (passos 16 a 19): contexto por pergunta (nota + link em 3.3, visiveis no GET context e na ficha do job),
+ *           complete -> job `script` -> worker PUT script -> membro le v1, comenta e aprova; refinar -> worker pega (any)
+ *           -> PUT campo volta o campo para sugerido com "sua versão anterior"; "a definir" vira vazio; limpar-a-definir.
  * O token admin e cunhado com o JWT_SECRET do .env (mesmo padrao de scripts/deliver.cjs).
  * COHORT_JOBS_TOKEN precisa estar no ambiente DOS DOIS processos (servidor e este script), com o mesmo valor:
  *   COHORT_JOBS_TOKEN=e2e-token DB_PATH=/tmp/e2e.db PORT=3999 node server.cjs
@@ -80,6 +83,18 @@ async function upload(token, category, name, content, expectOk = true) {
 async function raw(method, url, token) {
   const res = await fetch(BASE + url, { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
   return { status: res.status, text: await res.text() };
+}
+
+/** Contexto por pergunta: POST /api/script/context (multipart), como o front faz. */
+async function contexto(token, fields, file, expectOk = true) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  if (file) fd.append('file', new Blob([file.content], { type: file.type }), file.name);
+  const res = await fetch(BASE + '/api/script/context', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (expectOk && !res.ok) throw new Error(`contexto ${fields.tipo} -> ${res.status}: ${JSON.stringify(data)}`);
+  return { status: res.status, data };
 }
 
 /** Chamadas do worker (a Naia): Authorization: Bearer <COHORT_JOBS_TOKEN>. */
@@ -408,6 +423,113 @@ function step(msg) { console.log(`\n== ${msg}`); }
   await call('DELETE', `/api/files/${fileId}`, memberToken);
   const afterDel = await call('GET', '/api/script/materials/files', memberToken);
   console.log('arquivos de A depois:', afterDel.data.data.length);
+
+  step('16. Contexto por pergunta: A anexa nota e B anexa link em 3.3; imagem por multipart; validacoes; visivel para o clube');
+  const badCtx = await contexto(memberToken, { field_key: '3.3', tipo: 'link', url: 'sem-protocolo' }, null, false);
+  if (badCtx.status !== 400) throw new Error('link sem http deveria dar 400');
+  const badKey = await contexto(memberToken, { field_key: '9.9', tipo: 'nota', texto: 'x' }, null, false);
+  if (badKey.status !== 400) throw new Error('campo desconhecido deveria dar 400');
+  const nota = await contexto(memberToken, { field_key: '3.3', tipo: 'nota', texto: 'Ele fala: "não consigo sair do operacional"' });
+  const link = await contexto(memberBToken, { field_key: '3.3', tipo: 'link', url: 'https://instagram.com/p/depoimento', legenda: 'depoimento no Instagram' });
+  const img = await contexto(memberToken, { field_key: '1.1', tipo: 'imagem', legenda: 'print do site' }, { name: 'print.png', type: 'image/png', content: 'PNG-FAKE' });
+  console.log('nota:', nota.data.item.id, '| link:', link.data.item.id, '| imagem:', img.data.item.file_name, img.data.item.download_url);
+  const ctx33 = await call('GET', '/api/script/context?field=3.3', memberBToken);
+  console.log('B ve em 3.3:', ctx33.data.items.map((i) => `${i.tipo} por ${i.autor_nome || i.autor_email}`));
+  if (ctx33.data.items.length !== 2 || !ctx33.data.items.some((i) => i.id === nota.data.item.id) || !ctx33.data.items.some((i) => i.id === link.data.item.id)) throw new Error('contexto de 3.3 deveria ter a nota de A e o link de B');
+  const ctxAll = await call('GET', '/api/script/context', memberToken);
+  if (!ctxAll.data.por_campo['3.3'] || !ctxAll.data.por_campo['1.1']) throw new Error('GET context sem field deveria agrupar por campo');
+  const ctxDl = await raw('GET', img.data.item.download_url, memberBToken);
+  if (ctxDl.status !== 200 || ctxDl.text !== 'PNG-FAKE') throw new Error('socio deveria baixar o anexo de contexto');
+  const delB = await call('DELETE', `/api/script/context/${nota.data.item.id}`, memberBToken, null, false);
+  if (delB.status !== 403) throw new Error('so o autor apaga o contexto');
+  await call('DELETE', `/api/script/context/${img.data.item.id}`, memberToken);
+  const matA = await call('GET', '/api/script/materials/files', memberToken);
+  if (matA.data.data.some((f) => f.category === 'script_contexto')) throw new Error('anexo de contexto nao pode aparecer entre os materiais');
+  const fichaCtx = await call('GET', '/api/script/ficha', memberToken);
+  const c33 = fichaCtx.data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === '3.3');
+  console.log('ficha 3.3:', { contexto_count: c33.contexto_count, refinando: c33.refinando }, '| script:', fichaCtx.data.data.script);
+  if (c33.contexto_count !== 2 || c33.refinando !== false) throw new Error('GET ficha deveria trazer contexto_count = 2 e refinando = false em 3.3');
+
+  step('17. Ficha confirmada (passo 10) -> gerar-script enfileira job `script` (1 por clube); worker (next any) grava v1; membro le, comenta e aprova');
+  const gs = await call('POST', '/api/script/ficha/gerar-script', memberToken, {});
+  console.log('gerar-script ->', gs.data.job.id, gs.data.job.tipo, gs.data.job.status, '| existing:', gs.data.job.existing);
+  if (gs.data.job.tipo !== 'script' || gs.data.job.status !== 'queued') throw new Error('gerar-script deveria enfileirar um job script');
+  const gs2 = await call('POST', '/api/script/ficha/gerar-script', memberBToken, {});
+  if (gs2.data.job.id !== gs.data.job.id || gs2.data.job.existing !== true) throw new Error('1 job script ativo por clube');
+  const vs0 = await call('GET', '/api/script/versoes', memberToken);
+  if (vs0.data.versoes.length !== 0 || !vs0.data.job || vs0.data.job.id !== gs.data.job.id) throw new Error('sem versao ainda; GET versoes deveria trazer o job');
+  const wn = await worker('POST', '/api/jobs/next', {});
+  console.log('worker next (any) ->', wn.data.job.tipo, wn.data.job.id, '| payload:', wn.data.job.payload);
+  if (wn.data.job.id !== gs.data.job.id || wn.data.job.tipo !== 'script') throw new Error('worker deveria pegar o job script');
+  const wfCtx = await worker('GET', `/api/jobs/${wn.data.job.id}/ficha`);
+  console.log('ficha do job: contexto 3.3 =', (wfCtx.data.contexto['3.3'] || []).map((i) => i.tipo), '| valores[1.1] =', JSON.stringify(wfCtx.data.valores['1.1']).slice(0, 60));
+  if (!wfCtx.data.contexto['3.3'] || wfCtx.data.contexto['3.3'].length !== 2 || !wfCtx.data.valores || !wfCtx.data.valores['1.1']) throw new Error('ficha do job deveria trazer contexto por campo e valores planos');
+  const md = '# Script\n\nAbertura.\n\n## Passo 1: Entregar o controle\n\nTexto do passo 1.\n\n## Passo 2: Dor\n\nTexto do passo 2.';
+  const put1 = await worker('PUT', `/api/jobs/${wn.data.job.id}/script`, { content_md: md, resumo: 'v1 de teste' });
+  console.log('PUT script ->', put1.data.versao, put1.data.status, put1.data.url);
+  if (put1.data.versao !== 1 || !/\/dashboard\/script$/.test(put1.data.url)) throw new Error('PUT script deveria criar a v1 com url');
+  await worker('PATCH', `/api/jobs/${wn.data.job.id}`, { status: 'done', result: { versao: 1 } });
+  const vs1 = await call('GET', '/api/script/versoes', memberToken);
+  const v1 = await call('GET', '/api/script/versoes/1', memberToken);
+  console.log('membro: versoes =', vs1.data.versoes.map((v) => `v${v.versao} ${v.status}`), '| v1 chars:', v1.data.versao.content_md.length);
+  if (vs1.data.versoes.length !== 1 || v1.data.versao.content_md !== md) throw new Error('membro deveria ler a v1');
+  const com = await call('POST', '/api/script/versoes/1/comentarios', memberBToken, { passo: 2, texto: 'A dor está genérica' });
+  const coms = await call('GET', '/api/script/versoes/1/comentarios', memberToken);
+  if (!coms.data.comentarios.some((c) => c.id === com.data.comentario.id && c.passo === 2)) throw new Error('comentario por passo deveria aparecer para o socio');
+  const apr = await call('POST', '/api/script/versoes/1/aprovar', memberToken, {});
+  console.log('aprovar ->', apr.data.versao.status, apr.data.versao.aprovado_por);
+  if (apr.data.versao.status !== 'aprovado') throw new Error('aprovar deveria marcar a v1');
+  const fichaScript = await call('GET', '/api/script/ficha', memberToken);
+  if (fichaScript.data.data.script.versoes !== 1 || fichaScript.data.data.script.aprovada !== 1) throw new Error('GET ficha .script deveria refletir a v1 aprovada');
+
+  step('18. Refinar 3.3 -> job refinar (1 por campo); ficha marca refinando; worker PUT campo volta para sugerido com "sua versão anterior"; "a definir" vira vazio');
+  const rf = await call('POST', '/api/script/ficha/refinar', memberToken, { field_key: '3.3', pedido: 'usar as frases do áudio' });
+  const rf2 = await call('POST', '/api/script/ficha/refinar', memberBToken, { field_key: '3.3' });
+  console.log('refinar ->', rf.data.job.id, rf.data.job.status, '| de novo (B): existing =', rf2.data.job.existing);
+  if (rf.data.job.tipo !== 'refinar' || rf2.data.job.id !== rf.data.job.id) throw new Error('1 job refinar ativo por clube + campo');
+  const fichaRef = await call('GET', '/api/script/ficha', memberToken);
+  const c33r = fichaRef.data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === '3.3');
+  if (c33r.refinando !== true) throw new Error('GET ficha deveria marcar 3.3 como refinando');
+  const valorAntes = c33r.valor_efetivo;
+  const wr = await worker('POST', '/api/jobs/next', { tipo: 'refinar' });
+  if (wr.data.job.id !== rf.data.job.id || wr.data.job.payload.field_key !== '3.3') throw new Error('worker deveria pegar o refinar de 3.3');
+  const pc = await worker('PUT', `/api/jobs/${wr.data.job.id}/campo`, {
+    field_key: '3.3', sugerido: 'Não consigo sair do operacional\nA equipe não anda sem mim\nPerdi cliente por atraso', classe: 'DER', fonte: 'contexto: nota de A + link de B',
+    alternativas: [{ sugerido: 'Alternativa do worker', fonte: 'link' }],
+  });
+  console.log('PUT campo ->', { reaberto: pc.data.reaberto, status: pc.data.campo.status, ficha_status: pc.data.ficha_status, alt0: pc.data.campo.alternativas[0] });
+  if (!pc.data.reaberto || pc.data.campo.status !== 'sugerido' || pc.data.ficha_status !== 'em_revisao') throw new Error('PUT campo deveria reabrir o campo decidido e a ficha');
+  if (pc.data.campo.alternativas[0].fonte !== 'sua versão anterior' || pc.data.campo.alternativas[0].sugerido !== valorAntes) throw new Error('valor anterior deveria estar em alternativas[0]');
+  const pcBad = await worker('PUT', `/api/jobs/${wr.data.job.id}/campo`, { field_key: '3.5', sugerido: 'a definir com a gente', classe: 'Fato', fonte: 'x' });
+  console.log('PUT campo "a definir" ->', { limpo: pcBad.data.limpo, status: pcBad.data.campo.status, classe: pcBad.data.campo.classe, warnings: pcBad.data.warnings });
+  if (!pcBad.data.limpo || pcBad.data.campo.status !== 'vazio' || pcBad.data.campo.sugerido !== '') throw new Error('"a definir" nunca vira sugestao');
+  await worker('PATCH', `/api/jobs/${wr.data.job.id}`, { status: 'done' });
+  const fichaPos = await call('GET', '/api/script/ficha', memberToken);
+  const c33p = fichaPos.data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === '3.3');
+  if (c33p.refinando !== false || c33p.status !== 'sugerido') throw new Error('depois do done, 3.3 sugerido e sem refinando');
+  const volta = await call('PUT', '/api/script/ficha/fields', memberToken, { updates: { '3.3': { status: 'editado', valor: valorAntes }, '3.5': { status: 'editado', valor: 'Mais um ano igual: perde a equipe' } } });
+  if (volta.data.applied.length !== 2) throw new Error('mentor deveria voltar para a versao anterior com 1 toque');
+  const fecha2 = await call('POST', '/api/script/ficha/complete', memberToken, {});
+  console.log('fecha de novo ->', fecha2.data.ficha_status, '| job script novo:', fecha2.data.job.id, fecha2.data.job.status, '| existing:', fecha2.data.job.existing);
+  if (fecha2.data.job.tipo !== 'script' || fecha2.data.job.existing !== false) throw new Error('fechar de novo (depois do done) deveria nascer job script novo');
+  const wn2 = await worker('POST', '/api/jobs/next', { tipo: 'script' });
+  await worker('PATCH', `/api/jobs/${wn2.data.job.id}`, { status: 'done' });
+  const adminDet2 = await call('GET', `/api/admin/clubs/${SLUG}/script-ficha`, adminToken);
+  console.log('admin detalhe: versoes =', adminDet2.data.data.versoes.map((v) => `v${v.versao} ${v.status}`), '| comentarios =', adminDet2.data.data.comentarios.length, '| tipos de job =', [...new Set(adminDet2.data.data.jobs.map((j) => j.tipo))]);
+  if (adminDet2.data.data.versoes.length !== 1 || adminDet2.data.data.comentarios.length !== 1) throw new Error('admin deveria ver a v1 e o comentario');
+  const adminV1 = await call('GET', `/api/admin/clubs/${SLUG}/script-versoes/1`, adminToken);
+  if (adminV1.data.versao.content_md !== md) throw new Error('admin deveria baixar o conteudo da v1');
+  const emptyQ2 = await worker('POST', '/api/jobs/next', {}, JOBS_TOKEN, false);
+  if (emptyQ2.status !== 204) throw new Error('fila deveria estar vazia depois do ship 2');
+
+  step('19. scripts/limpar-a-definir.cjs (dry-run) contra o banco do servidor, se DB_PATH estiver no ambiente');
+  if (process.env.DB_PATH) {
+    const { run } = require('./limpar-a-definir.cjs');
+    const rel = await run();
+    console.log('limpar-a-definir (dry-run):', rel);
+  } else {
+    console.log('DB_PATH ausente neste processo: pulei (rode: DB_PATH=<mesmo do servidor> node scripts/limpar-a-definir.cjs)');
+  }
 
   step('14. Usuario fora do cohort -> 403 { enabled: false }');
   const outsider = jwt.sign({ userId: 'user-fora-do-cohort', user: 'fora@teste.local', role: 'member', name: 'Fora' }, process.env.JWT_SECRET, { expiresIn: '1h' });

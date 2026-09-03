@@ -7,6 +7,7 @@ import React from 'react';
 import type { ScriptFieldView } from '../../../data/script-ficha-fields';
 import { CANAIS, NIVEL_LABEL, type Estrutura, type ParseContext, type WidgetTemplate, type WidgetType } from './estrutura';
 import { Numero, Painel, Rotulo, lista } from './ui';
+import { textoLimpo } from './vazio';
 
 export interface DisplayProps {
   campo: ScriptFieldView;
@@ -17,10 +18,11 @@ export interface DisplayProps {
 
 const TXT = 'text-sm sm:text-base text-white/90 font-sans leading-relaxed whitespace-pre-line';
 
-const Vazio: React.FC = () => <span className="text-white/30 italic font-sans text-sm">a definir</span>;
+const Vazio: React.FC = () => <span className="text-white/30 italic font-sans text-sm">em branco</span>;
 
+/** Texto de exibição: marcador ("a definir", "a confirmar", "não sei", "???") conta como vazio. */
 const Texto: React.FC<{ v?: any; className?: string }> = ({ v, className = '' }) => {
-  const s = typeof v === 'string' ? v.trim() : v == null ? '' : String(v);
+  const s = textoLimpo(typeof v === 'string' ? v : v == null ? '' : String(v));
   return s ? <p className={`${TXT} ${className}`}>{s}</p> : <Vazio />;
 };
 
@@ -107,16 +109,18 @@ const MetaDisplay: React.FC<DisplayProps> = ({ value }) => {
   );
 };
 
-const FraseDisplay: React.FC<DisplayProps> = ({ value }) => (
-  value.frase ? <p className="font-serif text-lg sm:text-xl text-white leading-snug">{value.frase}</p> : <Vazio />
-);
+const FraseDisplay: React.FC<DisplayProps> = ({ value }) => {
+  const f = textoLimpo(value.frase);
+  return f ? <p className="font-serif text-lg sm:text-xl text-white leading-snug">{f}</p> : <Vazio />;
+};
 
 const TextoDisplay: React.FC<DisplayProps> = ({ value }) => <Texto v={value.texto} />;
 
+// Pódio sem emoji: numeral em serifa dentro de um círculo na cor da medalha
 const MEDALHAS = [
-  { key: 'ouro', label: 'Ouro', medal: '🥇', border: 'border-medal-gold/50', text: 'text-medal-gold', order: 'md:order-2', pad: 'md:pt-6' },
-  { key: 'prata', label: 'Prata', medal: '🥈', border: 'border-medal-silver/50', text: 'text-medal-silver', order: 'md:order-1', pad: '' },
-  { key: 'bronze', label: 'Bronze', medal: '🥉', border: 'border-medal-bronze/50', text: 'text-medal-bronze', order: 'md:order-3', pad: '' },
+  { key: 'ouro', label: 'Ouro', medal: '1', border: 'border-medal-gold/50', text: 'text-medal-gold', order: 'md:order-2', pad: 'md:pt-6' },
+  { key: 'prata', label: 'Prata', medal: '2', border: 'border-medal-silver/50', text: 'text-medal-silver', order: 'md:order-1', pad: '' },
+  { key: 'bronze', label: 'Bronze', medal: '3', border: 'border-medal-bronze/50', text: 'text-medal-bronze', order: 'md:order-3', pad: '' },
 ];
 const HistoriaPodioDisplay: React.FC<DisplayProps> = ({ value }) => (
   <div className="space-y-3">
@@ -124,7 +128,7 @@ const HistoriaPodioDisplay: React.FC<DisplayProps> = ({ value }) => (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-end">
       {MEDALHAS.map((m) => (
         <div key={m.key} data-testid={`podio-${m.key}`} className={`bg-prosperus-navy-mid border ${m.border} rounded-lg p-3 flex md:flex-col items-start md:items-stretch gap-3 ${m.order} ${m.pad}`}>
-          <span className="text-2xl md:text-3xl md:text-center block leading-none" aria-hidden="true">{m.medal}</span>
+          <span className={`w-9 h-9 md:mx-auto rounded-full border ${m.border} ${m.text} font-serif text-xl leading-none flex items-center justify-center shrink-0`} aria-hidden="true">{m.medal}</span>
           <div className="flex-1 min-w-0 space-y-1">
             <span className={`block text-xs font-semibold font-sans md:text-center ${m.text}`}>{m.label}</span>
             <div className="md:text-center"><Texto v={value[m.key]} /></div>

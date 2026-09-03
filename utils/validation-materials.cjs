@@ -82,7 +82,8 @@ function ensureCohortConfigTable(dbRun) {
 // ─── cohort_jobs (fila para o worker externo, a Naia) ────────────────────────
 
 const JOB_STATUSES = ['queued', 'running', 'done', 'error', 'needs_human'];
-const JOB_TIPOS = ['prefill'];
+// prefill = pre-preenchimento da ficha; script = escrever o script (ficha confirmada); refinar = nova sugestao para 1 campo (payload.field_key)
+const JOB_TIPOS = ['prefill', 'script', 'refinar'];
 
 const COHORT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS cohort_jobs (
   id TEXT PRIMARY KEY,

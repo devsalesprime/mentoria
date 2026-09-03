@@ -10,6 +10,7 @@ import {
   type Estrutura, type ParseContext, type ParseResult, type WidgetTemplate, type WidgetType,
 } from './estrutura';
 import type { WidgetProps } from './ui';
+import { textoVazio } from './vazio';
 import { CamposRotuladosWidget, CanalWidget, DoisNumerosWidget, EscolhaWidget, FraseWidget, IcpWidget, MetaWidget, TextoWidget } from './SimpleWidgets';
 import { ChipsTextoWidget, CitacoesWidget, EscolhaDeListaWidget, ListaNumeradaWidget, TabelaWidget } from './ListWidgets';
 import { CasosWidget, ChecklistCondicoesWidget, EscadaWidget, HistoriaPodioWidget, PilaresWidget, VsWidget } from './StructuredWidgets';
@@ -80,7 +81,8 @@ function textoAtual(c?: ScriptFieldView | null): string {
 export function buildContext(campo: ScriptFieldView, todos?: Record<string, ScriptFieldView>): ParseContext {
   const template: WidgetTemplate = campo.template && typeof campo.template === 'object' ? campo.template : {};
   const opcoes: string[] = [];
-  const add = (o?: string | null) => { const v = (o || '').trim(); if (v && !opcoes.includes(v)) opcoes.push(v); };
+  // Marcador ("a definir" etc.) nunca vira opção de escolha
+  const add = (o?: string | null) => { const v = (o || '').trim(); if (v && !textoVazio(v) && !opcoes.includes(v)) opcoes.push(v); };
   if (Array.isArray(campo.opcoes)) campo.opcoes.forEach(add);
   if (Array.isArray(template.opcoes)) template.opcoes.forEach(add);
   if (campo.widget === 'escolha' && template.estilo !== 'radio') {

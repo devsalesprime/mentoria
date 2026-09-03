@@ -13,7 +13,7 @@ import path from 'path';
 import sqlite3 from 'sqlite3';
 import createDbHelpers from '../../utils/db-helpers.cjs';
 import { normalizePhone, ensureCohortJobsTable } from '../../utils/validation-materials.cjs';
-import { enqueueJob, claimNextJob, getJob, updateJobStatus, requeueJob, listJobs, listPhones, findActiveJob } from '../../utils/cohort-jobs.cjs';
+import { enqueueJob, claimNextJob, getJob, updateJobStatus, requeueJob, listJobs, listPhones, findActiveJob, findLatestJob, listRefiningKeys, dedupeScope } from '../../utils/cohort-jobs.cjs';
 
 describe('normalizePhone', () => {
   it('vazio = sem telefone (ok, null)', () => {
@@ -152,5 +152,77 @@ describe('cohort_jobs em arquivo temporario', () => {
     const r = await enqueueJob({ ...h, uuidv4 }, { club_slug: 'clube-x', email: 'a@x.com' });
     expect(r.existing).toBe(false);
     expect(r.job.status).toBe('queued');
+  });
+});
+
+describe('tipos script e refinar: escopo de deduplicacao e claim "any"', () => {
+  let dir; let file; let db; let h;
+  const uuidv4 = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+  beforeAll(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cohort-jobs-tipos-'));
+    file = path.join(dir, 'jobs.db');
+    db = await openDb(file);
+    h = createDbHelpers(db);
+    await ensureCohortJobsTable(h.dbRun);
+  });
+
+  afterAll(async () => {
+    await closeDb(db);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('dedupeScope: prefill por pessoa, script por clube, refinar por clube + campo', () => {
+    expect(dedupeScope('prefill')).toBe('pessoa');
+    expect(dedupeScope('script')).toBe('club');
+    expect(dedupeScope('refinar')).toBe('club_field');
+  });
+
+  it('script: 1 ativo por clube (socio diferente recebe o mesmo job); refinar: 1 ativo por campo', async () => {
+    const s1 = await enqueueJob({ ...h, uuidv4 }, { tipo: 'script', club_slug: 'clube-x', email: 'a@x.com', payload: { motivo: 'complete' } });
+    const s2 = await enqueueJob({ ...h, uuidv4 }, { tipo: 'script', club_slug: 'clube-x', email: 'b@x.com', payload: { motivo: 'gerar-script' } });
+    const sy = await enqueueJob({ ...h, uuidv4 }, { tipo: 'script', club_slug: 'clube-y', email: 'c@y.com' });
+    expect(s1.existing).toBe(false);
+    expect(s2.existing).toBe(true);
+    expect(s2.job.id).toBe(s1.job.id);
+    expect(sy.job.id).not.toBe(s1.job.id);
+
+    await expect(enqueueJob({ ...h, uuidv4 }, { tipo: 'refinar', club_slug: 'clube-x', email: 'a@x.com' })).rejects.toThrow(/field_key/);
+    await expect(enqueueJob({ ...h, uuidv4 }, { tipo: 'outro', club_slug: 'clube-x', email: 'a@x.com' })).rejects.toThrow(/inválido/);
+    const r33 = await enqueueJob({ ...h, uuidv4 }, { tipo: 'refinar', club_slug: 'clube-x', email: 'a@x.com', payload: { field_key: '3.3' } });
+    const r33b = await enqueueJob({ ...h, uuidv4 }, { tipo: 'refinar', club_slug: 'clube-x', email: 'b@x.com', payload: { field_key: '3.3' } });
+    const r41 = await enqueueJob({ ...h, uuidv4 }, { tipo: 'refinar', club_slug: 'clube-x', email: 'a@x.com', payload: { field_key: '4.1' } });
+    expect(r33b.existing).toBe(true);
+    expect(r33b.job.id).toBe(r33.job.id);
+    expect(r41.existing).toBe(false);
+    expect((await listRefiningKeys(h, 'clube-x')).sort()).toEqual(['3.3', '4.1']);
+    expect(await listRefiningKeys(h, 'clube-y')).toEqual([]);
+
+    // prefill da mesma pessoa nao colide com o script dela
+    const p = await enqueueJob({ ...h, uuidv4 }, { tipo: 'prefill', club_slug: 'clube-x', email: 'a@x.com' });
+    expect(p.existing).toBe(false);
+    expect((await findActiveJob(h, { tipo: 'script', club_slug: 'clube-x' })).id).toBe(s1.job.id);
+    expect((await findLatestJob(h, { tipo: 'refinar', club_slug: 'clube-x', field_key: '4.1' })).id).toBe(r41.job.id);
+  });
+
+  it('claim "any" pega o mais antigo de qualquer tipo; claim por tipo filtra', async () => {
+    const first = await claimNextJob(h, null); // s1 (script, clube-x) e o mais antigo
+    expect(first.tipo).toBe('script');
+    expect(first.club_slug).toBe('clube-x');
+    expect(first.status).toBe('running');
+    const onlyPrefill = await claimNextJob(h, 'prefill');
+    expect(onlyPrefill.tipo).toBe('prefill');
+    const anyAgain = await claimNextJob(h, 'any');
+    expect(anyAgain.tipo).toBe('script'); // sy (clube-y) e o proximo mais antigo
+    expect(anyAgain.club_slug).toBe('clube-y');
+    const ref = await claimNextJob(h, 'refinar');
+    expect(ref.tipo).toBe('refinar');
+    expect(ref.payload.field_key).toBe('3.3');
+    // depois de rodar, refinar de 3.3 sai da lista de "refinando"
+    await updateJobStatus(h, ref.id, { status: 'done' });
+    expect(await listRefiningKeys(h, 'clube-x')).toEqual(['4.1']);
+    await claimNextJob(h, null);
+    expect(await claimNextJob(h, null)).toBeNull();
+    expect((await listJobs(h, { tipo: 'script' })).length).toBe(2);
   });
 });

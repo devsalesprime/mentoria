@@ -84,6 +84,63 @@ export interface SubmitMaterialsResult {
   message?: string;
 }
 
+/** Resumo do script escrito (GET /api/script/ficha .script): versoes do clube + ultimo job `script`. */
+export interface ScriptSummary {
+  versoes: number;
+  ultima: { versao: number; status: 'rascunho' | 'aprovado'; created_at: string } | null;
+  aprovada: number | null;
+  job: ScriptJobInfo | null;
+}
+
+/** Item de contexto por pergunta (GET /api/script/context). Do clube, com autor. */
+export interface ContextItem {
+  id: string;
+  field_key: string;
+  tipo: 'audio' | 'imagem' | 'video' | 'link' | 'nota';
+  file_id: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  url: string;
+  texto: string;
+  legenda: string;
+  transcricao: string | null;
+  erro_transcricao: string | null;
+  autor_email: string | null;
+  autor_nome: string | null;
+  autor_user_id: string;
+  created_at: string;
+  /** Relativo (/api/script/context/files/:id/download); adicione ?token= ou o header. */
+  download_url: string | null;
+}
+
+/** Versao do script (GET /api/script/versoes). content_md so em GET /api/script/versoes/:versao. */
+export interface ScriptVersion {
+  id: string;
+  club_slug: string;
+  versao: number;
+  status: 'rascunho' | 'aprovado';
+  resumo: string;
+  meta: any;
+  job_id: string | null;
+  aprovado_em: string | null;
+  aprovado_por: string | null;
+  created_at: string;
+  comentarios_count?: number;
+  content_md?: string;
+}
+
+export interface ScriptComment {
+  id: string;
+  versao: number;
+  /** 0 = geral, 1..7 = passo. */
+  passo: number;
+  texto: string;
+  autor_email: string | null;
+  autor_nome: string | null;
+  created_at: string;
+}
+
 export interface ScriptFichaData {
   club: { slug: string; nome: string };
   ficha_status: FichaStatus;
@@ -92,6 +149,7 @@ export interface ScriptFichaData {
   materials_submitted_at: string | null;
   materials: ScriptMaterials;
   job?: ScriptJobInfo | null;
+  script?: ScriptSummary;
   config: ScriptConfig;
   prefilled_at: string | null;
   reviewed_at: string | null;
@@ -310,19 +368,73 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     schedule();
   }, [schedule, userEmail]);
 
-  const complete = useCallback(async (): Promise<{ ok: boolean; faltam?: string[]; message?: string }> => {
+  const toJobInfo = (j: any): ScriptJobInfo | null => (j
+    ? { id: j.id, tipo: j.tipo, status: j.status, attempts: j.attempts, created_at: j.created_at, started_at: j.started_at, finished_at: j.finished_at }
+    : null);
+
+  /** Fecha a ficha; o servidor enfileira o job `script` (1 ativo por clube) e devolve `job`. */
+  const complete = useCallback(async (): Promise<{ ok: boolean; faltam?: string[]; message?: string; job?: ScriptJobInfo | null; existing?: boolean }> => {
     await flush();
     try {
       const res = await axios.post('/api/script/ficha/complete', {}, authHeaders(token));
       if (res.data?.success) {
-        setData((prev) => (prev ? { ...prev, ficha_status: 'confirmada', reviewed_at: new Date().toISOString() } : prev));
-        return { ok: true };
+        const job = toJobInfo(res.data.job);
+        setData((prev) => (prev ? {
+          ...prev,
+          ficha_status: 'confirmada',
+          reviewed_at: new Date().toISOString(),
+          script: { ...(prev.script || { versoes: 0, ultima: null, aprovada: null, job: null }), job: job ?? prev.script?.job ?? null },
+        } : prev));
+        return { ok: true, job, existing: !!res.data.job?.existing };
       }
       return { ok: false, message: res.data?.message };
     } catch (e: any) {
       return { ok: false, faltam: e?.response?.data?.faltam, message: e?.response?.data?.message || e?.message };
     }
   }, [flush, token]);
+
+  /** "Pedir nova versão": job `script` (so com a ficha confirmada; 400 com `faltam` caso contrario). */
+  const gerarScript = useCallback(async (): Promise<{ ok: boolean; job?: ScriptJobInfo | null; existing?: boolean; faltam?: string[]; message?: string }> => {
+    try {
+      const res = await axios.post('/api/script/ficha/gerar-script', {}, authHeaders(token));
+      if (res.data?.success) {
+        const job = toJobInfo(res.data.job);
+        setData((prev) => (prev ? {
+          ...prev,
+          script: { ...(prev.script || { versoes: 0, ultima: null, aprovada: null, job: null }), job: job ?? prev.script?.job ?? null },
+        } : prev));
+        return { ok: true, job, existing: !!res.data.job?.existing };
+      }
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      return { ok: false, faltam: e?.response?.data?.faltam, message: e?.response?.data?.message || e?.message };
+    }
+  }, [token]);
+
+  /** "Quero outra sugestão" para 1 campo: job `refinar` (1 ativo por clube + campo). Marca campo.refinando localmente. */
+  const refinar = useCallback(async (key: string, pedido: string = ''): Promise<{ ok: boolean; job?: ScriptJobInfo | null; existing?: boolean; message?: string }> => {
+    try {
+      const res = await axios.post('/api/script/ficha/refinar', { field_key: key, pedido }, authHeaders(token));
+      if (res.data?.success) {
+        setData((prev) => (prev ? {
+          ...prev,
+          blocos: prev.blocos.map((b) => ({ ...b, campos: b.campos.map((c) => (c.key === key ? { ...c, refinando: true } : c)) })),
+        } : prev));
+        return { ok: true, job: toJobInfo(res.data.job), existing: !!res.data.job?.existing };
+      }
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.message || e?.message };
+    }
+  }, [token]);
+
+  /** Atualiza contexto_count de um campo (a tela de contexto chama depois de anexar/apagar). */
+  const setContextoCount = useCallback((key: string, count: number) => {
+    setData((prev) => (prev ? {
+      ...prev,
+      blocos: prev.blocos.map((b) => ({ ...b, campos: b.campos.map((c) => (c.key === key ? { ...c, contexto_count: count } : c)) })),
+    } : prev));
+  }, []);
 
   /** Salva so o que veio no patch (links, observacoes e/ou acessos) da propria pessoa; o resto e mantido no servidor. */
   const saveMaterials = useCallback(async (patch: ScriptMaterialsPatch): Promise<boolean> => {
@@ -405,6 +517,9 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     flush,
     flushKeepalive,
     complete,
+    gerarScript,
+    refinar,
+    setContextoCount,
     saveMaterials,
     submitMaterials,
     setFiles,

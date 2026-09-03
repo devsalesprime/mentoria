@@ -22,12 +22,13 @@ async function listClubMembers({ dbAll }, slug) {
   );
 }
 
+/** Materiais do clube (arquivos script_*), SEM os anexos de contexto por campo (script_contexto: utils/script-context.cjs). */
 async function listClubFiles({ dbAll }, slug) {
   const rows = await dbAll(
     `SELECT f.id, f.user_id, f.category, f.file_name, f.file_type, f.file_size, f.created_at,
             u.email AS owner_email, u.name AS owner_name
        FROM uploaded_files f JOIN users u ON u.id = f.user_id
-      WHERE u.club_slug = ? AND f.category LIKE 'script_%'
+      WHERE u.club_slug = ? AND f.category LIKE 'script_%' AND f.category <> 'script_contexto'
       ORDER BY f.created_at ASC`,
     [slug]
   );
@@ -38,7 +39,7 @@ async function listClubFiles({ dbAll }, slug) {
   }));
 }
 
-/** Arquivo do clube (para stream): so se o dono esta no clube e a categoria e de script. */
+/** Arquivo do clube (para stream): so se o dono esta no clube e a categoria e de script (inclui script_contexto). */
 async function getClubFile({ dbGet }, slug, fileId) {
   return dbGet(
     `SELECT f.* FROM uploaded_files f JOIN users u ON u.id = f.user_id

@@ -1,9 +1,17 @@
 import React from 'react';
 import type { ScriptFieldView } from '../../data/script-ficha-fields';
 import type { FieldDecision } from '../../hooks/useScriptFicha';
+import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
 import { Button } from '../ui/Button';
 import { FieldEditor, useFieldEditor } from './widgets/editor';
 import { FichaDisplay, Fonte, TextoOriginal } from './widgets/FichaDisplay';
+import { BadgeRefinando, ContextoCampo } from './contexto/ContextoCampo';
+
+/** Convite do campo sem sugestão: o widget já abre em edição, com esta frase em cima. */
+export const COPY_VAZIO = 'Não encontramos nos seus materiais. Conte com as suas palavras ou grave um áudio.';
+
+/** Campo obrigatório deixado em branco: o que acontece no script. */
+export const COPY_EM_BRANCO = 'Fica em branco no script até você preencher.';
 
 interface FichaFieldProps {
   campo: ScriptFieldView;
@@ -11,6 +19,8 @@ interface FichaFieldProps {
   readOnly?: boolean;
   /** Todos os campos da ficha por chave (4.3 e 4.4 leem os pilares do 4.2). */
   contexto?: Record<string, ScriptFieldView>;
+  /** Recarrega a ficha (flush + GET) depois de pedir uma nova sugestão com contexto. */
+  onRecarregar?: () => Promise<void> | void;
 }
 
 // Alvo de toque no celular: 44 px de altura minima (desktop mantem o tamanho do Button)
@@ -26,11 +36,12 @@ export const StatusChip: React.FC<{ status: ScriptFieldView['status'] }> = ({ st
 
 /** "Também encontramos:" com as alternativas da sugestão (toque para usar). */
 export const Alternativas: React.FC<{ campo: ScriptFieldView; onUse: (texto: string) => void }> = ({ campo, onUse }) => {
-  if (!campo.alternativas.length) return null;
+  const alts = campo.alternativas.filter((a) => !sugestaoVazia(a.sugerido));
+  if (!alts.length) return null;
   return (
     <div className="space-y-2">
       <p className="text-xs text-white/50 font-sans">Também encontramos:</p>
-      {campo.alternativas.slice(0, 2).map((alt, i) => (
+      {alts.slice(0, 2).map((alt, i) => (
         <button
           key={i}
           type="button"
@@ -45,13 +56,19 @@ export const Alternativas: React.FC<{ campo: ScriptFieldView; onUse: (texto: str
   );
 };
 
-export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnly = false, contexto }) => {
+/** Estado que a tela usa: sugestão só de marcador ("a definir") vira vazio. Nunca "Confirmar" para valor vazio. */
+export function statusDaTela(campo: ScriptFieldView): ScriptFieldView['status'] {
+  return campo.status === 'sugerido' && sugestaoVazia(campo.sugerido) ? 'vazio' : campo.status;
+}
+
+export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnly = false, contexto, onRecarregar }) => {
   const editor = useFieldEditor(campo, contexto);
   const { editing, canSave } = editor;
 
-  const isEmptySource = !campo.sugerido.trim();
-  const status = campo.status;
+  const isEmptySource = sugestaoVazia(campo.sugerido);
+  const status = statusDaTela(campo);
   const decided = campo.decidido;
+  const refinando = campoRefinando(campo as { refinando?: boolean });
 
   const saveEdit = () => {
     const d = editor.decision();
@@ -62,7 +79,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
 
   const confirm = () => onDecide(campo.key, { status: 'confirmado' });
   const acceptEmpty = () => onDecide(campo.key, { status: 'aceito_vazio' });
-  const undo = () => onDecide(campo.key, { status: campo.sugerido.trim() ? 'sugerido' : 'vazio' });
+  const undo = () => onDecide(campo.key, { status: isEmptySource ? 'vazio' : 'sugerido' });
   const useAlternative = (text: string) => onDecide(campo.key, { status: 'editado', valor: text });
 
   const badge = campo.obrigatorio
@@ -91,6 +108,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
         <span className="font-sans text-xs text-prosperus-gold-dark font-bold mt-0.5">{campo.key}</span>
         <h4 className="font-serif text-base sm:text-lg text-white flex-1 min-w-0 leading-snug">{campo.nome}</h4>
         {badge}
+        {refinando && <BadgeRefinando />}
       </div>
       <p className="text-sm text-white/70 font-sans leading-relaxed">{campo.pergunta}</p>
 
@@ -136,7 +154,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
 
           {status === 'vazio' && (
             <div className="space-y-3">
-              <p className="text-sm text-white/60 font-sans italic">Não encontramos, você preenche.</p>
+              <p className="text-sm text-white/60 font-sans italic">{COPY_VAZIO}</p>
               {!readOnly && (
                 <>
                   {renderEditor(false)}
@@ -153,7 +171,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               <div className="flex flex-wrap items-center gap-3">
                 <StatusChip status={status} />
                 {campo.obrigatorio && (
-                  <span className="text-[11px] text-prosperus-gold-light/80 font-sans">No script vai como "a definir com a gente na mentoria".</span>
+                  <span className="text-[11px] text-prosperus-gold-light/80 font-sans">{COPY_EM_BRANCO}</span>
                 )}
               </div>
               {!readOnly && (
@@ -166,6 +184,9 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
           )}
         </>
       )}
+
+      {/* Contexto por pergunta: áudio, foto, vídeo, link, nota e o pedido de nova sugestão */}
+      {!readOnly && <ContextoCampo campo={campo} onRecarregar={onRecarregar} />}
     </div>
   );
 };

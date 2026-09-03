@@ -1,22 +1,47 @@
 const { Router } = require('express');
+const { z } = require('zod');
 const SF = require('../utils/script-ficha.cjs');
 const { scriptFieldsUpdateSchema, validateBody } = require('../utils/validation.cjs');
 const VM = require('../utils/validation-materials.cjs');
 const PIA = require('../utils/script-prompt-ia.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
+const CTX = require('../utils/script-context.cjs');
+const SV = require('../utils/script-versions.cjs');
 
 /**
- * Script 7 Passos (membro): Materiais + Ficha do Script.
+ * Script 7 Passos (membro): Materiais + Ficha do Script + contexto por pergunta + versoes do script.
  * Ficha (campos) e por CLUBE: socios do mesmo clube leem e editam a mesma ficha.
  * Materiais (arquivos, links, observacoes, acessos) sao por PESSOA: cada membro ve so o que ele mesmo enviou;
  * socios nao veem uns aos outros; so o admin ve tudo (routes/admin-cohort.cjs).
+ * Contexto por campo (audio/imagem/video/link/nota) e do CLUBE, com autor (so o autor apaga).
+ * Versoes do script sao do CLUBE (o worker grava; o membro le, comenta e aprova).
  * Habilitado so para users.cohort != NULL (403 { enabled: false } caso contrario).
  */
-module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddleware, uuidv4, fs, path, safeJsonParse }) {
+module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddleware, uuidv4, fs, path, safeJsonParse, multer, DATA_DIR }) {
   const router = Router();
+  const multerLib = multer || require('multer');
+  const dataDir = DATA_DIR || path.join(__dirname, '..', 'data');
 
   VM.ensureCohortConfigTable(dbRun).catch((e) => console.error('cohort_config DDL error:', e.message));
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
+  CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
+  SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
+
+  // Mesmo diskStorage de routes/files.cjs (data/uploads/<userId>/<timestamp>-<nome>); limite por tipo em CTX.fileError
+  const contextStorage = multerLib.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = path.join(dataDir, 'uploads', req.user.userId);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  });
+  const uploadContext = multerLib({ storage: contextStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+  const refinarSchema = z.object({
+    field_key: z.string().trim().min(3).max(8),
+    pedido: z.string().trim().max(2000).optional().default(''),
+  });
 
   const SCRIPT_CATEGORIES = [
     'script_transcricao_venda',
@@ -45,14 +70,14 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return dbGet(`SELECT * FROM script_fichas WHERE club_slug = ?`, [clubSlug]);
   }
 
-  /** Arquivos do PROPRIO usuario (nunca os dos socios). */
+  /** Arquivos de MATERIAIS do PROPRIO usuario (nunca os dos socios; anexos de contexto ficam fora). */
   async function listOwnFiles(userId) {
     const rows = await dbAll(
       `SELECT id, user_id, category, file_name, file_type, file_size, created_at
          FROM uploaded_files
-        WHERE user_id = ? AND category LIKE 'script_%'
+        WHERE user_id = ? AND category LIKE 'script_%' AND category <> ?
         ORDER BY created_at ASC`,
-      [userId]
+      [userId, CTX.CONTEXT_CATEGORY]
     );
     return rows.map((r) => ({
       id: r.id,
@@ -97,10 +122,17 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     };
   }
 
-  function fichaPayload(ficha, user, files, config, job) {
+  function fichaPayload(ficha, user, files, config, job, extra = {}) {
     const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: false });
     const materials = VM.normalizeMaterials(ficha.materials);
     const mine = VM.memberMaterialsView(materials, user.email);
+    // Por campo: quantos itens de contexto o clube anexou e se ha job `refinar` na fila para ele
+    const counts = extra.contextoCounts || {};
+    const refinando = new Set(extra.refinandoKeys || []);
+    view.blocos = view.blocos.map((b) => ({
+      ...b,
+      campos: b.campos.map((c) => ({ ...c, contexto_count: counts[c.key] || 0, refinando: refinando.has(c.key) })),
+    }));
     return {
       club: { slug: user.club_slug, nome: user.club_nome },
       ficha_status: ficha.ficha_status,
@@ -110,6 +142,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       materials: mine,
       // Ultimo job de pre-preenchimento DESTA pessoa (queued/running = "ja estamos processando")
       job: jobView(job),
+      // Script escrito: versoes do clube + ultimo job `script` do clube (a tela "Seu script" usa)
+      script: { ...(extra.scriptSummary || { versoes: 0, ultima: null, aprovada: null }), job: jobView(extra.scriptJob) },
       config,
       prefilled_at: ficha.prefilled_at,
       reviewed_at: ficha.reviewed_at,
@@ -136,12 +170,21 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // GET /api/script/ficha
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
-      const [files, config, job] = await Promise.all([
+      const slug = req.cohort.club_slug;
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
-        JOBS.findLatestJob({ dbGet }, { club_slug: req.cohort.club_slug, email: req.cohort.email }),
+        JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
+        CTX.countByField({ dbAll }, slug),
+        JOBS.listRefiningKeys({ dbAll }, slug),
+        SV.scriptSummary({ dbGet }, slug),
+        JOBS.findLatestJob({ dbGet }, { tipo: 'script', club_slug: slug }),
       ]);
-      res.json({ success: true, enabled: true, data: fichaPayload(req.ficha, req.cohort, files, config, job) });
+      res.json({
+        success: true,
+        enabled: true,
+        data: fichaPayload(req.ficha, req.cohort, files, config, job, { contextoCounts, refinandoKeys, scriptSummary, scriptJob }),
+      });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
@@ -210,7 +253,26 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // POST /api/script/ficha/complete
+  /** Enfileira o job `script` do clube (1 ativo por clube). motivo = 'complete' | 'gerar-script'. */
+  async function enqueueScriptJob(req, motivo) {
+    const key = VM.normEmail(req.cohort.email);
+    return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+      tipo: 'script',
+      club_slug: req.cohort.club_slug,
+      email: key,
+      notify_phone: await lastNotifyPhone(req.cohort.club_slug, key),
+      payload: { nome: req.cohort.name || null, motivo, pedido_em: new Date().toISOString() },
+    });
+  }
+
+  /** WhatsApp que a pessoa deixou no "Confirmar e ir para a ficha" (para o aviso de script pronto), se houver. */
+  async function lastNotifyPhone(clubSlug, email) {
+    const materials = await freshMaterials(clubSlug);
+    const p = materials.por_pessoa[email];
+    return p && p.notify_phone ? p.notify_phone : null;
+  }
+
+  // POST /api/script/ficha/complete  -> ficha confirmada + job `script` na fila (1 ativo por clube)
   router.post('/api/script/ficha/complete', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const missing = SF.missingRequired(safeJsonParse(req.ficha.fields, {}));
@@ -228,9 +290,234 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
           WHERE club_slug = ?`,
         [req.cohort.club_slug]
       );
-      res.json({ success: true, ficha_status: 'confirmada' });
+      const { job, existing } = await enqueueScriptJob(req, 'complete');
+      res.json({ success: true, ficha_status: 'confirmada', job: { ...jobView(job), existing } });
     } catch (error) {
       console.error('Error in POST /api/script/ficha/complete:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/ficha/gerar-script  -> pede (de novo) o script; so com a ficha confirmada
+  router.post('/api/script/ficha/gerar-script', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      if (req.ficha.ficha_status !== 'confirmada') {
+        const missing = SF.missingRequired(safeJsonParse(req.ficha.fields, {}));
+        return res.status(400).json({
+          success: false,
+          message: missing.length ? `Feche a ficha antes: faltam ${missing.length} campos obrigatórios.` : 'Feche a ficha antes de pedir o script.',
+          faltam: missing,
+        });
+      }
+      const { job, existing } = await enqueueScriptJob(req, 'gerar-script');
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, job: { ...jobView(job), existing } });
+    } catch (error) {
+      console.error('Error in POST /api/script/ficha/gerar-script:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/ficha/refinar  { field_key, pedido? }  -> job `refinar` (1 ativo por clube + campo); vale mesmo com o campo decidido
+  router.post('/api/script/ficha/refinar', authMiddleware, cohortGuard, validateBody(refinarSchema), async (req, res) => {
+    try {
+      const key = req.body.field_key;
+      if (!SF.FIELD_BY_KEY[key]) return res.status(400).json({ success: false, message: 'Campo desconhecido.' });
+      const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+        tipo: 'refinar',
+        club_slug: req.cohort.club_slug,
+        email: VM.normEmail(req.cohort.email),
+        payload: { field_key: key, nome: req.cohort.name || null, pedido: req.body.pedido || '', pedido_em: new Date().toISOString() },
+      });
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, field_key: key, job: { ...jobView(job), existing } });
+    } catch (error) {
+      console.error('Error in POST /api/script/ficha/refinar:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Contexto por pergunta (do clube, com autor) ───────────────────────────
+
+  const contextFileUrl = (fileId) => `/api/script/context/files/${encodeURIComponent(fileId)}/download`;
+
+  // GET /api/script/context?field=3.3  -> { items } ; sem field -> { items, por_campo }
+  router.get('/api/script/context', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const field = req.query.field ? String(req.query.field) : null;
+      if (field && !SF.FIELD_BY_KEY[field]) return res.status(400).json({ success: false, message: 'Campo desconhecido.' });
+      const items = await CTX.listContext({ dbAll }, req.cohort.club_slug, { field, fileUrl: contextFileUrl });
+      res.json({ success: true, field, items, ...(field ? {} : { por_campo: CTX.groupByField(items) }) });
+    } catch (error) {
+      console.error('Error in GET /api/script/context:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/context  multipart: field_key, tipo, file?, url?, texto?, legenda?
+  router.post('/api/script/context', authMiddleware, cohortGuard, (req, res, next) => {
+    uploadContext.single('file')(req, res, (err) => {
+      if (!err) return next();
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      res.status(400).json({ success: false, message: tooBig ? 'Arquivo grande demais (máximo 50 MB).' : `Upload inválido: ${err.message}` });
+    });
+  }, async (req, res) => {
+    const dropFile = () => { if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* ignore */ } } };
+    try {
+      const parsed = CTX.contextBodySchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        dropFile();
+        return res.status(400).json({ success: false, message: 'Dados inválidos', errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+      }
+      const v = CTX.validateContextRequest(parsed.data, req.file, SF.FIELD_KEYS);
+      if (!v.ok) { dropFile(); return res.status(400).json({ success: false, message: v.message }); }
+      const { item } = v;
+      const fieldKey = parsed.data.field_key;
+
+      let fileId = null;
+      if (req.file) {
+        fileId = uuidv4();
+        await dbRun(
+          `INSERT INTO uploaded_files (id, user_id, category, module, file_name, file_path, file_type, file_size)
+           VALUES (?, ?, ?, 'script', ?, ?, ?, ?)`,
+          [fileId, req.user.userId, CTX.CONTEXT_CATEGORY, req.file.originalname, req.file.path, req.file.mimetype, req.file.size]
+        );
+      }
+
+      let transcricao = null;
+      let erro = null;
+      if (item.tipo === 'audio') {
+        const t = await CTX.transcribeAudio(req.file.path, { mimetype: req.file.mimetype, fileName: req.file.originalname, fs });
+        if (t.ok) transcricao = t.texto; else erro = t.erro;
+      }
+
+      const id = `ctx-${uuidv4()}`;
+      await CTX.insertContext({ dbRun }, {
+        id, club_slug: req.cohort.club_slug, user_id: req.user.userId, field_key: fieldKey,
+        tipo: item.tipo, file_id: fileId, url: item.url, texto: item.texto, legenda: item.legenda,
+        transcricao, erro_transcricao: erro,
+      });
+      await touchActivity(req.cohort.club_slug);
+      const saved = await CTX.getContextItem({ dbGet }, req.cohort.club_slug, id, contextFileUrl);
+      res.json({
+        success: true,
+        item: saved,
+        ...(erro ? { warning: `Áudio guardado, mas a transcrição falhou (${erro}). Você pode escrever o essencial numa nota.` } : {}),
+      });
+    } catch (error) {
+      dropFile();
+      console.error('Error in POST /api/script/context:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // DELETE /api/script/context/:id  (so o autor)
+  router.delete('/api/script/context/:id', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const item = await CTX.getContextItem({ dbGet }, req.cohort.club_slug, req.params.id);
+      if (!item) return res.status(404).json({ success: false, message: 'Item não encontrado.' });
+      if (item.autor_user_id !== req.user.userId) return res.status(403).json({ success: false, message: 'Só quem enviou pode apagar.' });
+      await CTX.deleteContext({ dbGet, dbRun }, req.cohort.club_slug, req.params.id, { fs });
+      res.json({ success: true, id: req.params.id, field_key: item.field_key });
+    } catch (error) {
+      console.error('Error in DELETE /api/script/context/:id:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/script/context/files/:fileId/download  (qualquer socio do clube)
+  router.get('/api/script/context/files/:fileId/download', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const row = await CTX.getContextFile({ dbGet }, req.cohort.club_slug, req.params.fileId);
+      if (!row) return res.status(404).json({ success: false, message: 'Arquivo não encontrado.' });
+      if (!fs.existsSync(row.file_path)) return res.status(404).json({ success: false, message: 'Arquivo não encontrado no disco.' });
+      const inline = req.query.inline === '1';
+      res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(row.file_name)}"`);
+      if (row.file_type) res.setHeader('Content-Type', row.file_type);
+      fs.createReadStream(row.file_path).pipe(res);
+    } catch (error) {
+      console.error('Error in GET /api/script/context/files/:fileId/download:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Versoes do script (do clube) ─────────────────────────────────────────
+
+  function parseVersao(req, res) {
+    const n = Number(req.params.versao);
+    if (!Number.isInteger(n) || n < 1) { res.status(400).json({ success: false, message: 'Versão inválida.' }); return null; }
+    return n;
+  }
+
+  // GET /api/script/versoes  -> { versoes: [...sem conteudo], job }
+  router.get('/api/script/versoes', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const slug = req.cohort.club_slug;
+      const [versoes, job] = await Promise.all([
+        SV.listVersions({ dbAll }, slug),
+        JOBS.findLatestJob({ dbGet }, { tipo: 'script', club_slug: slug }),
+      ]);
+      res.json({ success: true, versoes, job: jobView(job), ficha_status: req.ficha.ficha_status });
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/script/versoes/:versao  -> { versao: { ..., content_md }, comentarios }
+  router.get('/api/script/versoes/:versao', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n);
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const comentarios = await SV.listComments({ dbAll }, req.cohort.club_slug, n);
+      res.json({ success: true, versao, comentarios });
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes/:versao:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/script/versoes/:versao/comentarios
+  router.get('/api/script/versoes/:versao/comentarios', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      res.json({ success: true, comentarios: await SV.listComments({ dbAll }, req.cohort.club_slug, n) });
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes/:versao/comentarios:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/versoes/:versao/comentarios  { passo (0 = geral, 1..7), texto }
+  router.post('/api/script/versoes/:versao/comentarios', authMiddleware, cohortGuard, validateBody(SV.scriptCommentSchema), async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const comentario = await SV.insertComment({ dbGet, dbRun, uuidv4 }, {
+        club_slug: req.cohort.club_slug, versao: n, passo: req.body.passo, texto: req.body.texto, autor_email: req.cohort.email,
+      });
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, comentario });
+    } catch (error) {
+      console.error('Error in POST /api/script/versoes/:versao/comentarios:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/versoes/:versao/aprovar
+  router.post('/api/script/versoes/:versao/aprovar', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.approveVersion({ dbGet, dbRun }, req.cohort.club_slug, n, VM.normEmail(req.cohort.email));
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, versao });
+    } catch (error) {
+      console.error('Error in POST /api/script/versoes/:versao/aprovar:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

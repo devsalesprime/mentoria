@@ -74,6 +74,8 @@ export interface CohortJob {
   notify_phone: string | null;
   status: CohortJobStatus;
   attempts: number;
+  /** { nome, submitted_at, notify } (prefill) · { nome, motivo } (script) · { field_key, nome, pedido } (refinar) */
+  payload?: any;
   error: string | null;
   created_at: string;
   started_at: string | null;
@@ -87,6 +89,19 @@ const JOB_STATUS_LABEL: Record<CohortJobStatus, string> = {
   error: 'Erro',
   needs_human: 'Precisa de humano',
 };
+
+export const JOB_TIPO_LABEL: Record<string, string> = {
+  prefill: 'Pré-preenchimento',
+  script: 'Script',
+  refinar: 'Refinar campo',
+};
+
+/** Etiqueta do tipo do job (prefill / script / refinar + campo). */
+export const JobTipoBadge: React.FC<{ job: { tipo: string; payload?: any } }> = ({ job }) => (
+  <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white/10 text-white/70">
+    {JOB_TIPO_LABEL[job.tipo] || job.tipo}{job.tipo === 'refinar' && job.payload?.field_key ? ` ${job.payload.field_key}` : ''}
+  </span>
+);
 
 const JOB_STATUS_CLASS: Record<CohortJobStatus, string> = {
   queued: 'bg-blue-600/20 text-blue-300',
@@ -131,7 +146,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
   const requeue = async (job: CohortJob) => {
-    if (!window.confirm(`Reprocessar o pré-preenchimento de ${job.pessoa_nome || job.email}?`)) return;
+    if (!window.confirm(`Reprocessar o job "${JOB_TIPO_LABEL[job.tipo] || job.tipo}" de ${job.pessoa_nome || job.email}?`)) return;
     setRequeuing(job.id);
     try {
       const res = await axios.post(`/api/admin/cohort/jobs/${job.id}/requeue`, {}, { headers: { Authorization: `Bearer ${token}` } });
@@ -158,7 +173,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
         className="w-full flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-left hover:bg-white/5 transition"
       >
         <span className="text-sm font-semibold text-white">
-          Fila de pré-preenchimento
+          Fila do worker (pré-preenchimento, script, refinar)
           <span className="ml-2 text-xs font-normal text-white/50">
             {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'}{pendentes ? ` · ${pendentes} pendentes` : ''}{problemas ? ` · ${problemas} com problema` : ''}
           </span>
@@ -190,6 +205,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
                     <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/50">
                       <th className="px-3 py-2 text-left">Pessoa</th>
                       <th className="px-3 py-2 text-left">Clube</th>
+                      <th className="px-3 py-2 text-left">Tipo</th>
                       <th className="px-3 py-2 text-left">Status</th>
                       <th className="px-3 py-2 text-left">Tentativas</th>
                       <th className="px-3 py-2 text-left">Criado</th>
@@ -205,6 +221,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
                           <p className="text-white/40">{j.email}{j.notify_phone ? ` · ${j.notify_phone}` : ''}</p>
                         </td>
                         <td className="px-3 py-2 text-white/70">{j.club_nome || j.club_slug}</td>
+                        <td className="px-3 py-2"><JobTipoBadge job={j} /></td>
                         <td className="px-3 py-2"><JobStatusBadge status={j.status} /></td>
                         <td className="px-3 py-2 text-white/70">{j.attempts}</td>
                         <td className="px-3 py-2 text-white/60">{formatDateTime(j.created_at)}{j.finished_at ? <span className="block text-white/40">fim {formatDateTime(j.finished_at)}</span> : null}</td>

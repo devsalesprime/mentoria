@@ -75,6 +75,10 @@ export interface ScriptFieldView {
   nota_interna?: string;
   passo?: string;
   fontes_precedencia?: string;
+  /** Itens de contexto (audio/imagem/video/link/nota) que o clube anexou a este campo. */
+  contexto_count?: number;
+  /** true enquanto ha job `refinar` na fila para este campo. */
+  refinando?: boolean;
 }
 
 export interface ScriptBlockView {

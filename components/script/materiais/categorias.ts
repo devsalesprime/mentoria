@@ -15,31 +15,31 @@ export const MATERIAL_CATEGORIAS: MaterialCategoria[] = [
     id: 'script_transcricao_venda',
     label: 'Transcrições e gravações de reuniões de venda',
     descricao: 'Transcrição (txt, docx) de reuniões reais com clientes ou prospects. Áudio e vídeo: mande o link do Drive ou pelo WhatsApp. Quanto mais reuniões, melhor o script.',
-    icon: '🗣️',
+    icon: '',
   },
   {
     id: 'script_apostila_slides',
     label: 'Apostila, slides e material da mentoria',
     descricao: 'Apostila, e-book, slides de aula, Canva exportado em PDF, manual do método. O que você entrega ou apresenta ao cliente.',
-    icon: '📚',
+    icon: '',
   },
   {
     id: 'script_proposta_roteiro',
     label: 'Proposta, roteiro e material de venda',
     descricao: 'Proposta comercial, deck de vendas, roteiro que você usa hoje, página de vendas, tabela de preços, contrato ou termo.',
-    icon: '📝',
+    icon: '',
   },
   {
     id: 'script_crm',
     label: 'CRM e planilhas',
     descricao: 'Export do CRM (csv, xlsx) ou planilha de leads e negócios: nome, origem, etapa, valor, resultado. Ajuda a ver ciclo, ticket e objeções reais.',
-    icon: '📊',
+    icon: '',
   },
   {
     id: 'script_outros',
     label: 'Outros',
     descricao: 'Depoimentos, cases, prints de resultado, pesquisa de mercado, podcasts, entrevistas, reportagens, posts de blog: o que mais contar a história da sua mentoria.',
-    icon: '📎',
+    icon: '',
   },
 ];
 
