@@ -48,14 +48,14 @@ export const MATERIAL_CATEGORIA_LABEL: Record<string, string> = Object.fromEntri
 );
 
 export const COMO_FUNCIONA_PASSOS: string[] = [
-  'Você envia o que tiver (hoje).',
-  'A gente monta a sua ficha do script com o que enviou e com o que já temos de você, cada campo com a fonte ao lado.',
-  'Você revisa e ajusta, 10 a 30 minutos por dia.',
-  'Com a ficha aprovada, geramos o seu script dos 7 passos, o conector para a sua IA e o material de treino.',
+  'Você envia o que tiver, aqui em Materiais. Só você e o Danilo veem o que você enviou.',
+  'A gente monta a sua ficha com o que você enviou e com o que já sabemos de você, cada item com a fonte ao lado.',
+  'Você revisa e aprova: confirma o que está certo, ajusta o que mudou, preenche o que faltou.',
+  'Com a ficha aprovada, sai o seu script dos 7 passos da venda, na sua voz, personalizado para a sua mentoria e para o seu cliente.',
 ];
 
 export const COMO_FUNCIONA_FRASE =
-  'Foi assim que construímos o script de agendamento do nosso time a partir das transcrições históricas das ligações: quanto mais contexto entra, mais fiel sai.';
+  'Quem faz antes recebe antes. Mandou os arquivos e revisou a ficha? Em menos de um dia o seu script está na sua mão para a próxima reunião.';
 
 export const ACESSO_PLATAFORMA_AVISO =
   'Guardamos este acesso só para extrair o conteúdo das suas aulas e transformar em base de conhecimento da sua IA. Só o Danilo vê. Você pode trocar a senha depois.';
