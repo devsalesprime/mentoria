@@ -11,6 +11,18 @@ interface FileUploadProps {
   token: string;
   maxFiles?: number;
   allowUrls?: boolean;
+  /** Override do accept do input (default: imagens, PDF, Office, TXT). */
+  accept?: string;
+  /** Override dos prefixos MIME aceitos no cliente. */
+  allowedMimePrefixes?: string[];
+  /** Extensoes extras aceitas mesmo sem MIME conhecido (ex.: .md, .csv, .json). */
+  allowedExtensions?: string[];
+  /** Texto de ajuda abaixo da zona de upload. */
+  hint?: string;
+  /** Quando informado, so arquivos com true mostram o botao de remover. */
+  canDelete?: (file: UploadedFile) => boolean;
+  /** Rotulo extra por arquivo (ex.: quem enviou). */
+  fileMeta?: (file: UploadedFile) => React.ReactNode;
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -26,13 +38,21 @@ const ALLOWED_MIME_PREFIXES = [
 
 const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.sh', '.cmd', '.ps1', '.msi', '.com', '.scr'];
 
-function isAllowedFile(file: File): string | null {
+function isAllowedFile(
+  file: File,
+  mimePrefixes: string[] = ALLOWED_MIME_PREFIXES,
+  extraExtensions: string[] = [],
+): string | null {
   const ext = '.' + file.name.split('.').pop()?.toLowerCase();
   if (BLOCKED_EXTENSIONS.includes(ext)) {
     return `Tipo de arquivo "${ext}" não é permitido.`;
   }
-  const mimeOk = ALLOWED_MIME_PREFIXES.some(prefix => file.type.startsWith(prefix));
-  if (!mimeOk && file.type) {
+  if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+    return `Áudio e vídeo não sobem por aqui ("${file.name}").`;
+  }
+  const mimeOk = mimePrefixes.some(prefix => file.type.startsWith(prefix));
+  const extOk = extraExtensions.includes(ext);
+  if (!mimeOk && !extOk && file.type) {
     return `Tipo de arquivo "${file.type}" não é suportado. Permitido: imagens, PDFs, documentos, apresentações, planilhas.`;
   }
   if (file.size > MAX_FILE_SIZE) {
@@ -50,6 +70,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   token,
   maxFiles = MAX_BATCH,
   allowUrls = false,
+  accept,
+  allowedMimePrefixes,
+  allowedExtensions,
+  hint,
+  canDelete,
+  fileMeta,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -67,7 +93,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     const validationErrors: string[] = [];
     const validFiles: File[] = [];
     for (const file of fileList) {
-      const err = isAllowedFile(file);
+      const err = isAllowedFile(file, allowedMimePrefixes, allowedExtensions);
       if (err) validationErrors.push(err);
       else validFiles.push(file);
     }
@@ -94,14 +120,15 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         });
         newFiles.push(res.data.data);
       } catch (err: any) {
-        validationErrors.push(`Falha ao enviar "${file.name}": ${err.message}`);
+        const serverMsg = err?.response?.data?.message;
+        validationErrors.push(`Falha ao enviar "${file.name}": ${serverMsg || err.message}`);
       }
     }
 
     if (validationErrors.length) setErrors(validationErrors);
     if (newFiles.length) onFilesChange([...files, ...newFiles]);
     setUploading(false);
-  }, [files, onFilesChange, category, token, maxFiles]);
+  }, [files, onFilesChange, category, token, maxFiles, allowedMimePrefixes, allowedExtensions]);
 
   const deleteFile = useCallback(async (fileId: string) => {
     try {
@@ -156,13 +183,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           {uploading ? 'Enviando...' : 'Arraste arquivos aqui ou clique para selecionar'}
         </p>
         <p className="text-xs text-white/50 font-sans">
-          Máx. 50MB por arquivo · {maxFiles} arquivos · Imagens, PDFs, documentos
+          {hint ?? `Máx. 50MB por arquivo · ${maxFiles} arquivos · Imagens, PDFs, documentos`}
         </p>
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept={ACCEPT}
+          accept={accept ?? ACCEPT}
           onChange={handleInputChange}
           className="hidden"
         />
@@ -193,23 +220,26 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             exit={{ opacity: 0, x: 10 }}
             className="flex items-center justify-between gap-3 p-3 bg-prosperus-navy-mid border border-white/10 rounded-lg"
           >
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
               <span className="text-white/50">📄</span>
               <span className="text-sm text-white/70 font-sans truncate">{file.fileName}</span>
               {file.fileSize != null && (
                 <span className="text-xs text-white/50 font-sans flex-shrink-0">{formatSize(file.fileSize)}</span>
               )}
+              {fileMeta && <span className="text-[11px] text-white/40 font-sans flex-shrink-0">{fileMeta(file)}</span>}
             </div>
-            <Button
-              variant="icon"
-              size="xs"
-              type="button"
-              onClick={() => deleteFile(file.id)}
-              className="!text-white/50 hover:!text-red-400 flex-shrink-0"
-              aria-label={`Remover ${file.fileName}`}
-            >
-              ✕
-            </Button>
+            {(!canDelete || canDelete(file)) && (
+              <Button
+                variant="icon"
+                size="xs"
+                type="button"
+                onClick={() => deleteFile(file.id)}
+                className="!text-white/50 hover:!text-red-400 flex-shrink-0"
+                aria-label={`Remover ${file.fileName}`}
+              >
+                ✕
+              </Button>
+            )}
           </motion.div>
         ))}
       </AnimatePresence>

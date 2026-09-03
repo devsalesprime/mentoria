@@ -61,6 +61,11 @@ interface DiagnosticState {
   currentStep: number;
   diagnosticStatus: string;
   isLegacy: boolean;
+  // Cohort (Script 7 Passos)
+  cohort: string | null;
+  clubSlug: string | null;
+  clubNome: string | null;
+  diagnosticLoaded: boolean;
 }
 
 // ─── Pipeline status state ────────────────────────────────────────────────────
@@ -113,6 +118,10 @@ const INITIAL_STATE: DiagnosticState = {
   currentStep: 0,
   diagnosticStatus: 'in_progress',
   isLegacy: false,
+  cohort: null,
+  clubSlug: null,
+  clubNome: null,
+  diagnosticLoaded: false,
 };
 
 const INITIAL_PIPELINE: PipelineState = {
@@ -198,10 +207,17 @@ export const useDiagnosticPersistence = (token: string) => {
           currentStep: d.current_step || 0,
           diagnosticStatus: d.status || 'in_progress',
           isLegacy: d.is_legacy === true,
+          cohort: d.cohort || null,
+          clubSlug: d.club_slug || null,
+          clubNome: d.club_nome || null,
+          diagnosticLoaded: true,
         });
+      } else {
+        setState(prev => ({ ...prev, diagnosticLoaded: true }));
       }
     } catch (error: any) {
       console.error('Error loading diagnostic:', error.message);
+      setState(prev => ({ ...prev, diagnosticLoaded: true }));
     }
   };
 
@@ -424,6 +440,12 @@ export const useDiagnosticPersistence = (token: string) => {
     progressPercentage,
     diagnosticStatus: state.diagnosticStatus,
     isLegacy: state.isLegacy,
+    diagnosticLoaded: state.diagnosticLoaded,
+
+    // Cohort (Script 7 Passos)
+    cohort: state.cohort,
+    clubSlug: state.clubSlug,
+    clubNome: state.clubNome,
 
     // Actions
     submitDiagnostic,

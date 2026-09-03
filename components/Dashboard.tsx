@@ -24,7 +24,11 @@ import { EducationalSuggestionsView } from './suggestions/EducationalSuggestions
 import { InsightsHub } from './insights/InsightsHub';
 import { PrioritiesScreen } from './modules/PrioritiesScreen';
 import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
+import { FichaScreen } from './script/FichaScreen';
+import { MateriaisScreen } from './script/MateriaisScreen';
+import { useScriptFicha } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
+import type { FichaStatus, MaterialsStatus } from '../data/script-ficha-fields';
 
 // ─── URL slug ↔ internal module ID mapping ───────────────────────────────────
 const SLUG_TO_ID: Record<string, string> = {
@@ -39,6 +43,9 @@ const SLUG_TO_ID: Record<string, string> = {
   'assets': 'deliverables',
   'suggestions': 'suggestions',
   'insights': 'insights',
+  // Script 7 Passos (cohort Exclusive)
+  'materiais': 'script_materiais',
+  'ficha': 'script_ficha',
 };
 
 const ID_TO_SLUG: Record<string, string> = Object.fromEntries(
@@ -64,6 +71,7 @@ interface DashboardProps {
 
 type MenuItem = { id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold' };
 type MenuSection = { id: string; title: string; items: MenuItem[] };
+type ScriptMenuState = { enabled: boolean; fichaStatus: FichaStatus | null; materialsStatus: MaterialsStatus | null };
 
 // ─── Dynamic sidebar menu ──────────────────────────────────────────────────────
 
@@ -81,6 +89,7 @@ const getSidebarMenu = (
   feedbackStatus: string,
   showAssetsToUser: boolean,
   hasEducationalSuggestions: boolean,
+  script: ScriptMenuState = { enabled: false, fichaStatus: null, materialsStatus: null },
 ): MenuSection[] => {
   const moduleStatus = (id: string, complete: boolean): 'green' | 'yellow' | 'gold' => {
     if (complete) return 'green';
@@ -95,6 +104,21 @@ const getSidebarMenu = (
       items: [{ id: 'overview', label: 'Visão Geral' }],
     },
   ];
+
+  // SCRIPT 7 PASSOS — so para o cohort do Exclusive (users.cohort)
+  if (script.enabled) {
+    const fichaDot: 'green' | 'yellow' | 'gold' =
+      script.fichaStatus === 'confirmada' ? 'green' :
+      script.fichaStatus === 'em_revisao' ? 'gold' : 'yellow';
+    menu.push({
+      id: 'script',
+      title: 'SCRIPT 7 PASSOS',
+      items: [
+        { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
+        { id: 'script_ficha', label: 'Ficha do Script', statusDot: fichaDot },
+      ],
+    });
+  }
 
   // DIAGNÓSTICO
   menu.push({
@@ -210,7 +234,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       navigate(`/dashboard/${slug}`, { replace: true });
     }
   };
-  const [openSections, setOpenSections] = useState<string[]>(['geral', 'diagnostic', 'entregaveis', 'inteligencia']);
+  const [openSections, setOpenSections] = useState<string[]>(['geral', 'script', 'diagnostic', 'entregaveis', 'inteligencia']);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [editName, setEditName] = useState(resolvedName);
@@ -229,18 +253,39 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     pipelineStatus, brandBrainStatus, assetsStatus, researchStatus,
     feedbackStatus, showAssetsToUser, hasEducationalSuggestions,
     refreshPipelineStatus,
+    // Cohort (Script 7 Passos)
+    cohort, diagnosticLoaded,
   } = useDiagnosticPersistence(token);
 
+  // Script 7 Passos: uma instancia so, compartilhada entre Materiais e Ficha (nao faz nada sem cohort)
+  const scriptFicha = useScriptFicha(token, !!cohort, resolvedEmail);
+  const scriptEnabled = !!cohort && scriptFicha.enabled;
+  const scriptMenu: ScriptMenuState = {
+    enabled: scriptEnabled,
+    fichaStatus: scriptFicha.data?.ficha_status ?? null,
+    materialsStatus: scriptFicha.data?.materials_status ?? null,
+  };
+
   // PV-1.2/PV-3.1: Default route post-login — redirect to insights when submitted
-  // or when admin has delivered feedback for an in_progress user
+  // or when admin has delivered feedback for an in_progress user.
+  // Cohort do Exclusive cai na Ficha (ou em Materiais, se a ficha ainda esta vazia).
   const [hasRedirected, setHasRedirected] = useState(false);
   useEffect(() => {
     if (hasRedirected || urlModule) return; // Don't redirect if user navigated via URL
+    if (!diagnosticLoaded) return; // cohort vem no mesmo GET /api/diagnostic
+    if (cohort) {
+      if (!scriptFicha.loaded) return;
+      if (scriptFicha.enabled && scriptFicha.data) {
+        navigateTo(scriptFicha.data.ficha_status !== 'vazia' ? 'script_ficha' : 'script_materiais');
+        setHasRedirected(true);
+        return;
+      }
+    }
     if (diagnosticStatus === 'submitted' || feedbackStatus === 'delivered') {
       navigateTo('insights');
       setHasRedirected(true);
     }
-  }, [diagnosticStatus, feedbackStatus, hasRedirected, urlModule]);
+  }, [diagnosticStatus, feedbackStatus, hasRedirected, urlModule, diagnosticLoaded, cohort, scriptFicha.loaded, scriptFicha.enabled, scriptFicha.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
   const mentorComplete    = isLegacy || isMentorComplete(mentor);
@@ -268,6 +313,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     feedbackStatus,
     showAssetsToUser,
     hasEducationalSuggestions,
+    scriptMenu,
   );
 
   // Ensure newly visible sections are open automatically
@@ -497,6 +543,24 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       return (
         <ModuleErrorBoundary moduleName="Sugestões Educacionais">
           <EducationalSuggestionsView token={token} />
+        </ModuleErrorBoundary>
+      );
+    }
+
+    // ─── Script 7 Passos (cohort Exclusive) ─────────────────────────────────
+
+    if (activeItem === 'script_materiais') {
+      return (
+        <ModuleErrorBoundary moduleName="Materiais">
+          <MateriaisScreen ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
+        </ModuleErrorBoundary>
+      );
+    }
+
+    if (activeItem === 'script_ficha') {
+      return (
+        <ModuleErrorBoundary moduleName="Ficha do Script">
+          <FichaScreen ficha={scriptFicha} onNavigate={(id) => navigateTo(id)} />
         </ModuleErrorBoundary>
       );
     }

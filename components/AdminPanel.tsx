@@ -5,9 +5,10 @@ import { Toast } from './admin/Toast';
 import { AdminUserList } from './admin/AdminUserList';
 import { AdminUserDetail } from './admin/AdminUserDetail';
 import { PipelineOverview } from './admin/PipelineOverview';
+import { CohortOverview } from './admin/CohortOverview';
 
 export const AdminPanel: React.FC<{ token: string; onLogout: () => void }> = ({ token, onLogout }) => {
-    const [activeTab, setActiveTab] = useState<'users' | 'pipeline'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'pipeline' | 'cohort'>('users');
     const [pipelineUserId, setPipelineUserId] = useState<string | null>(null);
 
     const {
@@ -67,11 +68,24 @@ export const AdminPanel: React.FC<{ token: string; onLogout: () => void }> = ({ 
                     >
                         Pipeline
                     </button>
+                    <button
+                        onClick={() => { setActiveTab('cohort'); setPipelineUserId(null); }}
+                        className={`px-5 py-2 rounded-lg text-sm font-semibold transition ${
+                            activeTab === 'cohort' ? 'bg-prosperus-gold text-black' : 'text-white/60 hover:text-white'
+                        }`}
+                    >
+                        Cohort
+                    </button>
                 </div>
 
                 {/* Pipeline tab */}
                 {activeTab === 'pipeline' && (
                     <PipelineOverview token={token} showToast={showToast} initialUserId={pipelineUserId} />
+                )}
+
+                {/* Cohort tab (Script 7 Passos) */}
+                {activeTab === 'cohort' && (
+                    <CohortOverview token={token} showToast={showToast} />
                 )}
 
                 {/* Users tab */}
