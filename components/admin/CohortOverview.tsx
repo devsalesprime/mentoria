@@ -74,7 +74,7 @@ export interface CohortJob {
   notify_phone: string | null;
   status: CohortJobStatus;
   attempts: number;
-  /** { nome, submitted_at, notify } (prefill) · { nome, motivo } (script) · { field_key, nome, pedido } (refinar) */
+  /** { nome, submitted_at, notify } (prefill) · { nome, motivo } (script) · { field_key, nome, pedido } (refinar) · { versao, content_md, comentarios[], pedido? } (revisar) */
   payload?: any;
   error: string | null;
   created_at: string;
@@ -94,12 +94,15 @@ export const JOB_TIPO_LABEL: Record<string, string> = {
   prefill: 'Pré-preenchimento',
   script: 'Script',
   refinar: 'Refinar campo',
+  revisar: 'Revisar script',
 };
 
-/** Etiqueta do tipo do job (prefill / script / refinar + campo). */
+/** Etiqueta do tipo do job (prefill / script / refinar + campo / revisar + versao base). */
 export const JobTipoBadge: React.FC<{ job: { tipo: string; payload?: any } }> = ({ job }) => (
   <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white/10 text-white/70">
-    {JOB_TIPO_LABEL[job.tipo] || job.tipo}{job.tipo === 'refinar' && job.payload?.field_key ? ` ${job.payload.field_key}` : ''}
+    {JOB_TIPO_LABEL[job.tipo] || job.tipo}
+    {job.tipo === 'refinar' && job.payload?.field_key ? ` ${job.payload.field_key}` : ''}
+    {job.tipo === 'revisar' && job.payload?.versao ? ` v${job.payload.versao}` : ''}
   </span>
 );
 
@@ -173,7 +176,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
         className="w-full flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-left hover:bg-white/5 transition"
       >
         <span className="text-sm font-semibold text-white">
-          Fila do worker (pré-preenchimento, script, refinar)
+          Fila do worker (pré-preenchimento, script, refinar, revisar)
           <span className="ml-2 text-xs font-normal text-white/50">
             {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'}{pendentes ? ` · ${pendentes} pendentes` : ''}{problemas ? ` · ${problemas} com problema` : ''}
           </span>

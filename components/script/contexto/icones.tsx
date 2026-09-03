@@ -147,3 +147,59 @@ export const ICONE_TIPO: Record<ContextoTipo, React.FC<IconeProps>> = {
   link: IconeLink,
   nota: IconeNota,
 };
+
+/** Telefone (cena "ligação"). */
+export const IconeTelefone: React.FC<IconeProps> = (p) => base(p, (
+  <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" />
+));
+
+/** Duas cadeiras frente a frente (cena "presencial"). */
+export const IconeCadeiras: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <path d="M3 8v12M3 13h5v7M8 13V8" />
+    <path d="M21 8v12M21 13h-5v7M16 13V8" />
+    <path d="M10 16h4" />
+  </>
+));
+
+/** Duas setas em sentidos opostos: os dois canais (cena "misto"). */
+export const IconeMisto: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <path d="M4 8h12l-3-3" />
+    <path d="M20 16H8l3 3" />
+  </>
+));
+
+/** Calendário (data e hora do retorno). */
+export const IconeCalendario: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M3 10h18M8 3v4M16 3v4" />
+  </>
+));
+
+/** Chave (o bônus que abre a objeção). */
+export const IconeChave: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <circle cx="8" cy="14" r="4" />
+    <path d="M11 11l9-9M16 6l2 2M13 9l2 2" />
+  </>
+));
+
+/** Marco na linha do tempo (círculo com traço). */
+export const IconeMarco: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v6M12 16v6" />
+  </>
+));
+
+/** Balança de dois pratos. */
+export const IconeBalanca: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <path d="M12 3v18M4 21h16" />
+    <path d="M12 6l-6 2M12 6l6 2" />
+    <path d="M3 14l3-6 3 6a3 3 0 0 1-6 0z" />
+    <path d="M15 14l3-6 3 6a3 3 0 0 1-6 0z" />
+  </>
+));

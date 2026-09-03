@@ -8,6 +8,8 @@
  * - worker: POST next sem tipo (any) e com tipo; PUT campo reabre campo decidido com "sua versão anterior"
  *   e aplica a regra "sem a definir"; PUT script numera max + 1 e devolve url
  * - membro: versoes, conteudo, comentarios por passo, aprovar; admin: detalhe com versoes/comentarios e conteudo
+ * - "Pedir nova versao": POST versoes/:versao/revisar -> job `revisar` com versao + content_md + comentarios no payload,
+ *   dedupe por clube junto com `script`; worker le GET :id/script e :id/script/:versao; PUT script marca meta.tipo = 'revisao'
  */
 import fs from 'fs';
 import os from 'os';
@@ -339,5 +341,86 @@ describe('complete -> job script; worker any; PUT campo; PUT script', () => {
     expect((await api('GET', '/api/admin/cohort/jobs?tipo=xyz', 'admin')).status).toBe(400);
     const ov = await api('GET', '/api/admin/cohort', 'admin');
     expect(ov.data.data.find((r) => r.club_slug === 'clube-x').materiais_count).toBe(0);
+  });
+});
+
+describe('pedir nova versao -> job revisar; worker le a versao base; PUT script marca a revisao', () => {
+  let revisarJob;
+
+  it('POST versoes/:versao/revisar cria o job com versao, conteudo e todos os comentarios no payload; dedupe por clube junto com script', async () => {
+    // O complete anterior deixou um job `script` na fila: o worker fecha para liberar o escopo script|revisar do clube
+    const pend = await worker('POST', '/api/jobs/next', { tipo: 'script' });
+    expect(pend.status).toBe(200);
+    await worker('PATCH', `/api/jobs/${pend.data.job.id}`, { status: 'done' });
+
+    expect((await api('POST', '/api/script/versoes/abc/revisar', 'userA', {})).status).toBe(400);
+    expect((await api('POST', '/api/script/versoes/9/revisar', 'userA', {})).status).toBe(404);
+    expect((await api('POST', '/api/script/versoes/1/revisar', 'userZ', {})).status).toBe(404); // outro clube
+
+    const r = await api('POST', '/api/script/versoes/1/revisar', 'userA', { pedido: 'Mais curto no passo 2' });
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ versao: 1, comentarios: 2, job: { tipo: 'revisar', status: 'queued', existing: false } });
+    revisarJob = r.data.job;
+    const raw = await worker('GET', `/api/jobs/${revisarJob.id}`);
+    expect(raw.data.job.payload).toMatchObject({ versao: 1, pedido: 'Mais curto no passo 2', nome: 'Ana' });
+    expect(raw.data.job.payload.content_md).toMatch(/## Passo 1/);
+    expect(raw.data.job.payload.comentarios).toEqual([
+      { passo: 0, texto: 'Gostei do todo', autor: 'Beto', created_at: expect.any(String) },
+      { passo: 2, texto: 'Trocar a frase da dor', autor: 'Ana', created_at: expect.any(String) },
+    ]);
+    // dedupe: B pedindo de novo (em outra versao) e A pedindo "do zero" recebem o mesmo job
+    const again = await api('POST', '/api/script/versoes/2/revisar', 'userB', {});
+    expect(again.data.job).toMatchObject({ id: revisarJob.id, existing: true });
+    const zero = await api('POST', '/api/script/ficha/gerar-script', 'userA', {});
+    expect(zero.data.job).toMatchObject({ id: revisarJob.id, tipo: 'revisar', existing: true });
+    // o membro ve o job revisar como o job do script
+    const v = await api('GET', '/api/script/versoes', 'userA');
+    expect(v.data.job).toMatchObject({ id: revisarJob.id, tipo: 'revisar', status: 'queued' });
+    expect((await api('GET', '/api/script/ficha', 'userA')).data.data.script.job.tipo).toBe('revisar');
+  });
+
+  it('worker: GET :id/script (ultima) e :id/script/:versao (base) com comentarios; PUT script grava meta.tipo revisao + base_versao', async () => {
+    const n = await worker('POST', '/api/jobs/next', { tipo: 'revisar' });
+    expect(n.status).toBe(200);
+    expect(n.data.job.id).toBe(revisarJob.id);
+    const last = await worker('GET', `/api/jobs/${revisarJob.id}/script`);
+    expect(last.status).toBe(200);
+    expect(last.data).toMatchObject({ job_id: revisarJob.id, club_slug: 'clube-x', versao: 2, status: 'rascunho', comentarios: [] });
+    expect(last.data.content_md).toMatch(/^# v2/);
+    const base = await worker('GET', `/api/jobs/${revisarJob.id}/script/${n.data.job.payload.versao}`);
+    expect(base.data.versao).toBe(1);
+    expect(base.data.content_md).toMatch(/## Passo 1/);
+    expect(base.data.meta).toEqual({ modelo: 'x' });
+    expect(base.data.comentarios.map((c) => c.passo)).toEqual([0, 2]);
+    expect(base.data.comentarios[1]).toMatchObject({ versao: 1, texto: 'Trocar a frase da dor', autor_email: 'a@x.com', autor_nome: 'Ana' });
+    expect((await worker('GET', `/api/jobs/${revisarJob.id}/script/9`)).status).toBe(404);
+    expect((await worker('GET', `/api/jobs/${revisarJob.id}/script/abc`)).status).toBe(400);
+
+    const put = await worker('PUT', `/api/jobs/${revisarJob.id}/script`, { content_md: '# v3\n\n## Passo 1: Revisado\n\nTexto.', resumo: 'revisão', meta: { modelo: 'y' } });
+    expect(put.status).toBe(200);
+    expect(put.data).toMatchObject({ versao: 3, meta: { modelo: 'y', tipo: 'revisao', base_versao: 1 } });
+    await worker('PATCH', `/api/jobs/${revisarJob.id}`, { status: 'done', result: { versao: 3 } });
+    const v3 = await api('GET', '/api/script/versoes/3', 'userB');
+    expect(v3.data.versao.meta).toEqual({ modelo: 'y', tipo: 'revisao', base_versao: 1 });
+    expect(v3.data.versao.job_id).toBe(revisarJob.id);
+    // depois de done, o clube pode pedir de novo (job novo); sem pedido e sem comentarios o payload vem enxuto
+    const again = await api('POST', '/api/script/versoes/3/revisar', 'userB', {});
+    expect(again.data.job).toMatchObject({ tipo: 'revisar', existing: false });
+    expect(again.data.job.id).not.toBe(revisarJob.id);
+    const raw = await worker('GET', `/api/jobs/${again.data.job.id}`);
+    expect(raw.data.job.payload.pedido).toBeUndefined();
+    expect(raw.data.job.payload.comentarios).toEqual([]);
+    expect(raw.data.job.payload.versao).toBe(3);
+  });
+
+  it('admin: fila filtra por revisar; detalhe traz os jobs revisar e a v3 com meta de revisao', async () => {
+    const fila = await api('GET', '/api/admin/cohort/jobs?tipo=revisar', 'admin');
+    expect(fila.status).toBe(200);
+    expect(fila.data.data.map((j) => j.tipo)).toEqual(['revisar', 'revisar']);
+    expect(fila.data.data.map((j) => j.payload.versao).sort()).toEqual([1, 3]);
+    const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
+    expect(det.data.data.jobs.filter((j) => j.tipo === 'revisar')).toHaveLength(2);
+    expect(det.data.data.versoes[0]).toMatchObject({ versao: 3, meta: { tipo: 'revisao', base_versao: 1 } });
+    expect(det.data.data.comentarios.filter((c) => c.versao === 1)).toHaveLength(2);
   });
 });

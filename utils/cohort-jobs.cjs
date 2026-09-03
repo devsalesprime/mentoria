@@ -3,7 +3,9 @@
  *
  * Tipos (VM.JOB_TIPOS):
  *   prefill : "Confirmar e ir para a ficha" (materiais). 1 ativo por (club_slug, email).
- *   script  : ficha confirmada (complete / gerar-script). 1 ativo por club_slug.
+ *   script  : ficha confirmada (complete / gerar-script = "Gerar do zero"). 1 ativo por club_slug.
+ *   revisar : nova versao a partir de uma versao + comentarios (payload.versao). Divide o escopo com `script`:
+ *             1 ativo por club_slug entre script|revisar (os dois escrevem a proxima versao do mesmo clube).
  *   refinar : nova sugestao para 1 campo (payload.field_key). 1 ativo por (club_slug, field_key).
  *
  * Regras:
@@ -15,12 +17,19 @@ const VM = require('./validation-materials.cjs');
 
 const TERMINAL = ['done', 'error', 'needs_human'];
 const ACTIVE = ['queued', 'running'];
+/** Tipos que escrevem a proxima versao do script do clube: dividem o mesmo escopo de deduplicacao. */
+const SCRIPT_FAMILY = ['script', 'revisar'];
 
 /** Escopo de deduplicacao por tipo: onde 1 job ativo basta. */
 function dedupeScope(tipo) {
-  if (tipo === 'script') return 'club';
+  if (SCRIPT_FAMILY.includes(tipo)) return 'club';
   if (tipo === 'refinar') return 'club_field';
   return 'pessoa';
+}
+
+/** Tipos que contam no escopo: script|revisar juntos; os demais so o proprio. */
+function scopeTipos(tipo) {
+  return SCRIPT_FAMILY.includes(tipo) ? SCRIPT_FAMILY : [tipo];
 }
 
 function parseJson(s, fallback = null) {
@@ -56,12 +65,13 @@ async function getJob({ dbGet }, id) {
 
 /**
  * Job ativo (queued|running) no escopo do tipo, se existir:
- * prefill = (club, email) · script = (club) · refinar = (club, payload.field_key).
+ * prefill = (club, email) · script|revisar = (club, qualquer um dos dois) · refinar = (club, payload.field_key).
  */
 async function findActiveJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null }) {
   const scope = dedupeScope(tipo);
-  const where = [`tipo = ?`, `club_slug = ?`, `status IN ('queued', 'running')`];
-  const params = [tipo, club_slug];
+  const tipos = scopeTipos(tipo);
+  const where = [`tipo IN (${tipos.map(() => '?').join(', ')})`, `club_slug = ?`, `status IN ('queued', 'running')`];
+  const params = [...tipos, club_slug];
   if (scope === 'pessoa') { where.push('email = ?'); params.push(VM.normEmail(email)); }
   if (scope === 'club_field') { where.push(`json_extract(payload, '$.field_key') = ?`); params.push(String(field_key || '')); }
   return rowToJob(await dbGet(
@@ -70,11 +80,12 @@ async function findActiveJob({ dbGet }, { tipo = 'prefill', club_slug, email, fi
   ));
 }
 
-/** Ultimo job (qualquer status) no escopo do tipo (prefill = da pessoa; script = do clube; refinar = do campo). */
+/** Ultimo job (qualquer status) no escopo do tipo (prefill = da pessoa; script|revisar = do clube, o mais recente dos dois; refinar = do campo). */
 async function findLatestJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null }) {
   const scope = dedupeScope(tipo);
-  const where = [`tipo = ?`, `club_slug = ?`];
-  const params = [tipo, club_slug];
+  const tipos = scopeTipos(tipo);
+  const where = [`tipo IN (${tipos.map(() => '?').join(', ')})`, `club_slug = ?`];
+  const params = [...tipos, club_slug];
   if (scope === 'pessoa') { where.push('email = ?'); params.push(VM.normEmail(email)); }
   if (scope === 'club_field') { where.push(`json_extract(payload, '$.field_key') = ?`); params.push(String(field_key || '')); }
   return rowToJob(await dbGet(
@@ -191,7 +202,9 @@ async function listPhones({ dbAll }) {
 module.exports = {
   TERMINAL,
   ACTIVE,
+  SCRIPT_FAMILY,
   dedupeScope,
+  scopeTipos,
   rowToJob,
   getJob,
   findActiveJob,

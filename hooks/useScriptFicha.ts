@@ -393,7 +393,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [flush, token]);
 
-  /** "Pedir nova versão": job `script` (so com a ficha confirmada; 400 com `faltam` caso contrario). */
+  /** "Gerar do zero": job `script` so a partir da ficha (so com a ficha confirmada; 400 com `faltam` caso contrario). */
   const gerarScript = useCallback(async (): Promise<{ ok: boolean; job?: ScriptJobInfo | null; existing?: boolean; faltam?: string[]; message?: string }> => {
     try {
       const res = await axios.post('/api/script/ficha/gerar-script', {}, authHeaders(token));
@@ -408,6 +408,27 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
       return { ok: false, message: res.data?.message };
     } catch (e: any) {
       return { ok: false, faltam: e?.response?.data?.faltam, message: e?.response?.data?.message || e?.message };
+    }
+  }, [token]);
+
+  /**
+   * "Pedir nova versão": job `revisar` a partir da versao N e de TODOS os comentarios dela (1 ativo por clube, no mesmo
+   * escopo do job `script`: se ja ha um ativo, o servidor devolve esse com `existing: true`). Atualiza `data.script.job`.
+   */
+  const pedirRevisao = useCallback(async (versao: number, pedido: string = ''): Promise<{ ok: boolean; job?: ScriptJobInfo | null; existing?: boolean; message?: string }> => {
+    try {
+      const res = await axios.post(`/api/script/versoes/${versao}/revisar`, pedido ? { pedido } : {}, authHeaders(token));
+      if (res.data?.success) {
+        const job = toJobInfo(res.data.job);
+        setData((prev) => (prev ? {
+          ...prev,
+          script: { ...(prev.script || { versoes: 0, ultima: null, aprovada: null, job: null }), job: job ?? prev.script?.job ?? null },
+        } : prev));
+        return { ok: true, job, existing: !!res.data.job?.existing };
+      }
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.errors?.join('; ') || e?.response?.data?.message || e?.message };
     }
   }, [token]);
 
@@ -518,6 +539,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     flushKeepalive,
     complete,
     gerarScript,
+    pedirRevisao,
     refinar,
     setContextoCount,
     saveMaterials,

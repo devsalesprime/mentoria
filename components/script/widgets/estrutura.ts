@@ -20,6 +20,10 @@ export interface ParseContext {
   opcoes?: string[];
   /** Nomes dos pilares do 4.2 (para 4.3 e 4.4). */
   pilares?: string[];
+  /** A dor principal do 3.3 (primeira citação), para a linha dor -> pilar do 4.3. */
+  dor?: string;
+  /** Objeções do 6.3 (linhas + clássicas do template), para o bônus -> objeção do 5.7. */
+  objecoes?: string[];
 }
 
 export interface ParseResult {

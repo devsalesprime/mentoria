@@ -102,7 +102,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
 
   router.use('/api/jobs', jobsAuth);
 
-  // POST /api/jobs/next  { tipo?: 'prefill'|'script'|'refinar'|'any' }  -> reivindica o job mais antigo em queued (atomico) ou 204
+  // POST /api/jobs/next  { tipo?: 'prefill'|'script'|'refinar'|'revisar'|'any' }  -> reivindica o job mais antigo em queued (atomico) ou 204
   router.post('/api/jobs/next', validateBody(jobNextSchema), async (req, res) => {
     try {
       const job = await JOBS.claimNextJob({ dbGet }, req.body.tipo === 'any' ? null : req.body.tipo);
@@ -285,14 +285,68 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     }
   });
 
+  /** Uma versao do script do clube do job, com conteudo e comentarios (n = null -> a ultima). 404 se nao existe. */
+  async function sendScriptVersion(req, res, n) {
+    const slug = req.job.club_slug;
+    const versao = n == null
+      ? await SV.getLatestVersion({ dbGet }, slug)
+      : await SV.getVersion({ dbGet }, slug, n);
+    if (!versao) {
+      return res.status(404).json({ success: false, message: n == null ? 'O clube ainda não tem versão do script.' : 'Versão não encontrada.' });
+    }
+    const comentarios = await SV.listComments({ dbAll }, slug, versao.versao);
+    res.json({
+      success: true,
+      job_id: req.job.id,
+      club_slug: slug,
+      versao: versao.versao,
+      status: versao.status,
+      resumo: versao.resumo,
+      meta: versao.meta,
+      created_at: versao.created_at,
+      content_md: versao.content_md,
+      comentarios,
+    });
+  }
+
+  // GET /api/jobs/:id/script  -> ULTIMA versao do script do clube do job { versao, content_md, meta, comentarios }
+  router.get('/api/jobs/:id/script', loadJob, async (req, res) => {
+    try {
+      await sendScriptVersion(req, res, null);
+    } catch (error) {
+      console.error('Error in GET /api/jobs/:id/script:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/jobs/:id/script/:versao  -> aquela versao (a base do job `revisar` e payload.versao)
+  router.get('/api/jobs/:id/script/:versao', loadJob, async (req, res) => {
+    try {
+      const n = Number(req.params.versao);
+      if (!Number.isInteger(n) || n < 1) return res.status(400).json({ success: false, message: 'Versão inválida.' });
+      await sendScriptVersion(req, res, n);
+    } catch (error) {
+      console.error('Error in GET /api/jobs/:id/script/:versao:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
   // PUT /api/jobs/:id/script  { content_md, resumo?, meta? }  -> nova versao (max + 1) do script do clube
+  // Job `revisar`: meta ganha { tipo: 'revisao', base_versao: payload.versao } (o resto do meta do worker e mantido).
   router.put('/api/jobs/:id/script', loadJob, validateBody(SV.scriptVersionBodySchema), async (req, res) => {
     try {
       const slug = req.job.club_slug;
       const club = await getClub(slug);
       if (!club) return res.status(404).json({ success: false, message: `Clube "${slug}" não encontrado.` });
+      let meta = req.body.meta ?? null;
+      if (req.job.tipo === 'revisar') {
+        const baseRaw = req.job.payload && req.job.payload.versao != null ? Number(req.job.payload.versao) : NaN;
+        const base = Number.isInteger(baseRaw) && baseRaw >= 1 ? baseRaw : null;
+        const extra = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : (meta == null ? {} : { meta_original: meta });
+        meta = { ...extra, tipo: 'revisao', base_versao: base };
+      }
       const versao = await SV.insertVersion({ dbGet, dbRun, uuidv4 }, {
-        club_slug: slug, content_md: req.body.content_md, resumo: req.body.resumo || '', meta: req.body.meta ?? null, job_id: req.job.id,
+        club_slug: slug, content_md: req.body.content_md, resumo: req.body.resumo || '', meta, job_id: req.job.id,
       });
       const warnings = [];
       if (req.body.content_md.includes('—')) warnings.push('content_md contém travessão.');
@@ -302,6 +356,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
         versao: versao.versao,
         id: versao.id,
         status: versao.status,
+        meta: versao.meta,
         url: `${appUrl(req)}/prosperus-mentor-diagnosis/dashboard/script`,
         warnings,
       });

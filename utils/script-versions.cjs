@@ -1,6 +1,7 @@
 /**
  * Versoes do script (tabela script_versions) e comentarios por passo (script_comments).
  * 1 clube tem N versoes (versao = max + 1, gravada pelo worker em PUT /api/jobs/:id/script).
+ * meta: JSON livre do worker; quando o job e `revisar`, a rota grava meta.tipo = 'revisao' e meta.base_versao (a versao comentada).
  * status: rascunho | aprovado (o membro aprova em POST /api/script/versoes/:versao/aprovar).
  * Comentario: passo 0 = geral, 1..7 = "## Passo N" do markdown.
  */
@@ -111,6 +112,13 @@ async function getVersion({ dbGet }, club_slug, versao, { withContent = true } =
   return rowToVersion(r, { withContent });
 }
 
+/** Ultima versao (maior numero) do clube, ou null. */
+async function getLatestVersion({ dbGet }, club_slug, { withContent = true } = {}) {
+  const r = await dbGet(`SELECT MAX(versao) AS m FROM script_versions WHERE club_slug = ?`, [club_slug]);
+  if (!r || !r.m) return null;
+  return getVersion({ dbGet }, club_slug, r.m, { withContent });
+}
+
 async function approveVersion({ dbGet, dbRun }, club_slug, versao, email) {
   const r = await dbRun(
     `UPDATE script_versions SET status = 'aprovado', aprovado_em = CURRENT_TIMESTAMP, aprovado_por = ? WHERE club_slug = ? AND versao = ?`,
@@ -168,6 +176,7 @@ module.exports = {
   insertVersion,
   listVersions,
   getVersion,
+  getLatestVersion,
   approveVersion,
   listComments,
   insertComment,

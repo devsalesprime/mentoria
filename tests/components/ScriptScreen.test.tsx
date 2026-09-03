@@ -26,6 +26,7 @@ function fichaMock(over: Partial<any> = {}) {
   return {
     data: { club: { slug: 'x', nome: 'Elos Club' }, ficha_status: 'confirmada', script: { versoes: 0, ultima: null, aprovada: null, job: null } },
     gerarScript: vi.fn(async () => ({ ok: true, job: { id: 'j2', tipo: 'script', status: 'queued' }, existing: false })),
+    pedirRevisao: vi.fn(async () => ({ ok: true, job: { id: 'j3', tipo: 'revisar', status: 'queued' }, existing: false })),
     refresh: vi.fn(),
     ...over,
   } as any;
@@ -249,9 +250,41 @@ describe('ScriptScreen', () => {
     expect(ficha.refresh).toHaveBeenCalled();
 
     fireEvent.click(screen.getByText('Pedir nova versão'));
-    await waitFor(() => expect(ficha.gerarScript).toHaveBeenCalled());
-    expect(await screen.findByText(/Pedido feito/)).toBeInTheDocument();
+    await waitFor(() => expect(ficha.pedirRevisao).toHaveBeenCalledWith(1));
+    expect(ficha.gerarScript).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Pedido feito: a próxima versão parte da v1 e dos comentários dela/)).toBeInTheDocument();
+    expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
   }, 30000);
+
+  it('"Gerar do zero" chama gerarScript (job script), separado de "Pedir nova versão"; com job ativo os dois travam', async () => {
+    mockVersao(MD_V1);
+    const ficha = fichaMock();
+    render(<ScriptScreen ficha={ficha} token="t" />);
+    // espera a versao carregar antes de clicar: o mock do framer-motion remonta o <button> a cada render
+    await screen.findAllByText('Comentar este passo');
+    expect(screen.getByText(/Comente os passos e peça a nova versão/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Gerar do zero'));
+    await waitFor(() => expect(ficha.gerarScript).toHaveBeenCalled());
+    expect(ficha.pedirRevisao).not.toHaveBeenCalled();
+    expect(await screen.findByText(/^Pedido feito\. Você recebe/)).toBeInTheDocument();
+    expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
+    expect(screen.getByText('Gerar do zero').closest('button')).toBeDisabled();
+    expect(screen.queryByText(/Comente os passos e peça a nova versão/)).toBeNull();
+  });
+
+  it('com job revisar na fila: estado do job aparece e os botoes ficam travados', async () => {
+    mockVersao(MD_V1);
+    (axios.get as any).mockImplementation(async (url: string) => {
+      if (url === '/api/script/versoes') return { data: { success: true, versoes: [{ id: 'v1', versao: 1, status: 'rascunho', resumo: '', created_at: '2026-09-03 12:00:00', comentarios_count: 0 }], job: { id: 'j3', tipo: 'revisar', status: 'running' } } };
+      if (url === '/api/script/versoes/1') return { data: { success: true, versao: { id: 'v1', versao: 1, status: 'rascunho', content_md: MD_V1, created_at: '2026-09-03 12:00:00' }, comentarios: [] } };
+      throw new Error('url inesperada ' + url);
+    });
+    render(<ScriptScreen ficha={fichaMock()} token="t" />);
+    await screen.findAllByText('Comentar este passo');
+    expect(await screen.findByText(/Uma nova versão está sendo escrita a partir dos seus comentários\./)).toBeInTheDocument();
+    expect(screen.getByText('Nova versão a caminho').closest('button')).toBeDisabled();
+    expect(screen.getByText('Gerar do zero').closest('button')).toBeDisabled();
+  });
 
   it('versao v1 antiga (um documento, com marcas) tambem renderiza limpa, sem seletor de documento', async () => {
     const v1 = '# Script v1 · Os 7 Passos · Elos Club\n\n> Gerado só a partir da ficha `[ficha X.Y]`.\n\n**Para quem eu vendo:** o dono `[ficha 3.1]`\n\n' +

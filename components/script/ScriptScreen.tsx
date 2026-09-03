@@ -15,7 +15,8 @@ export { splitScript };
  * falas em cartoes com "copiar", perguntas em checklist, notas lado a lado, Mapa de preparacao, Cartao de bolso.
  * Scripts com dois documentos (treinamento e campo) ganham um seletor; a impressao leva os dois.
  * Comentarios por passo ficam recolhidos ("Comentar este passo"). Acoes: Baixar (.md), Imprimir ou salvar em PDF,
- * Aprovar, Pedir nova versao. A folha de impressao (@media print) e as classes .script-* vivem em styles/globals.css.
+ * Aprovar, Pedir nova versao (job `revisar`: parte da versao aberta + comentarios dela) e Gerar do zero (job `script`, so da ficha).
+ * A folha de impressao (@media print) e as classes .script-* vivem em styles/globals.css.
  */
 
 interface ScriptScreenProps {
@@ -184,13 +185,30 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }
   };
 
-  const pedirNova = async () => {
+  /** "Gerar do zero" (e o pedido sem versao nenhuma): job `script`, so a partir da ficha. */
+  const gerarDoZero = async () => {
     setPedindo(true);
     const r = await ficha.gerarScript();
     setPedindo(false);
     if (r.ok) {
       setJob(r.job || null);
       setAviso(r.existing ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.' : 'Pedido feito. Você recebe um aviso no WhatsApp quando a nova versão ficar pronta.');
+    } else {
+      setAviso(r.message || 'Não deu para pedir agora.');
+    }
+  };
+
+  /** "Pedir nova versão": job `revisar` a partir da versao aberta e de todos os comentarios dela. */
+  const pedirNova = async () => {
+    if (!versao) return gerarDoZero();
+    setPedindo(true);
+    const r = await ficha.pedirRevisao(versao.versao);
+    setPedindo(false);
+    if (r.ok) {
+      setJob(r.job || null);
+      setAviso(r.existing
+        ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.'
+        : `Pedido feito: a próxima versão parte da v${versao.versao} e dos comentários dela. Você recebe um aviso no WhatsApp quando ficar pronta.`);
     } else {
       setAviso(r.message || 'Não deu para pedir agora.');
     }
@@ -279,10 +297,10 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                 </p>
               )}
               {job?.status === 'error' && (
-                <Button variant="outline" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo}>Pedir nova versão</Button>
+                <Button variant="outline" size="md" onClick={gerarDoZero} loading={pedindo} disabled={pedindo}>Pedir nova versão</Button>
               )}
               {!job && fichaConfirmada && (
-                <Button variant="outline" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo}>Pedir o script agora</Button>
+                <Button variant="outline" size="md" onClick={gerarDoZero} loading={pedindo} disabled={pedindo}>Pedir o script agora</Button>
               )}
             </>
           ) : (
@@ -339,9 +357,10 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           <Button variant="outline" size="md" onClick={download} disabled={!versao?.content_md}>Baixar (.md)</Button>
           <Button variant="outline" size="md" onClick={print} disabled={!versao?.content_md}>Imprimir ou salvar em PDF</Button>
           {!aprovado && <Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar</Button>}
-          <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || !!scriptJobAtivo}>
+          <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || !!scriptJobAtivo || !versao}>
             {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
           </Button>
+          <Button variant="outline" size="md" onClick={gerarDoZero} disabled={pedindo || !!scriptJobAtivo}>Gerar do zero</Button>
           {parsed && parsed.documentos.length > 1 && (
             <div role="tablist" aria-label="Documento do script" className="inline-flex rounded-lg border border-white/15 overflow-hidden ml-auto">
               {parsed.documentos.map((d) => (
@@ -361,7 +380,19 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         </div>
         {aviso && <p className="text-xs text-prosperus-gold-light">{aviso}</p>}
         {scriptJobAtivo && !aviso && (
-          <p className="text-xs text-white/60">Uma nova versão está sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.</p>
+          <p className="text-xs text-white/60 flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${job?.status === 'running' ? 'bg-prosperus-gold-dark animate-pulse' : 'bg-yellow-400'}`} />
+            <span>
+              {job?.tipo === 'revisar' ? 'Uma nova versão está sendo escrita a partir dos seus comentários.' : 'Uma nova versão está sendo escrita do zero, a partir da ficha.'}
+              {' '}{jobStatusLabel(job)} Você recebe um aviso no WhatsApp quando ficar pronta.
+            </span>
+          </p>
+        )}
+        {!scriptJobAtivo && !aviso && (job?.status === 'error' || job?.status === 'needs_human') && (
+          <p className="text-xs text-red-300">{jobStatusLabel(job)}</p>
+        )}
+        {!scriptJobAtivo && (
+          <p className="text-xs text-white/50">Comente os passos e peça a nova versão: ela parte desta versão e dos seus comentários. "Gerar do zero" ignora os comentários e escreve tudo de novo a partir da ficha.</p>
         )}
       </div>
 

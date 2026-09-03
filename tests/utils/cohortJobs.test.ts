@@ -176,6 +176,7 @@ describe('tipos script e refinar: escopo de deduplicacao e claim "any"', () => {
     expect(dedupeScope('prefill')).toBe('pessoa');
     expect(dedupeScope('script')).toBe('club');
     expect(dedupeScope('refinar')).toBe('club_field');
+    expect(dedupeScope('revisar')).toBe('club');
   });
 
   it('script: 1 ativo por clube (socio diferente recebe o mesmo job); refinar: 1 ativo por campo', async () => {
@@ -224,5 +225,29 @@ describe('tipos script e refinar: escopo de deduplicacao e claim "any"', () => {
     await claimNextJob(h, null);
     expect(await claimNextJob(h, null)).toBeNull();
     expect((await listJobs(h, { tipo: 'script' })).length).toBe(2);
+  });
+
+  it('revisar divide o escopo com script: 1 ativo por clube entre os dois; depois de done, nasce outro', async () => {
+    const comentarios = [{ passo: 2, texto: 'Trocar a dor', autor: 'Ana', created_at: '2026-09-03 12:00:00' }];
+    const rv = await enqueueJob({ ...h, uuidv4 }, { tipo: 'revisar', club_slug: 'clube-r', email: 'a@r.com', payload: { versao: 1, content_md: '# v1', comentarios } });
+    expect(rv.existing).toBe(false);
+    expect(rv.job.payload).toEqual({ versao: 1, content_md: '# v1', comentarios });
+    const rv2 = await enqueueJob({ ...h, uuidv4 }, { tipo: 'revisar', club_slug: 'clube-r', email: 'b@r.com', payload: { versao: 1, content_md: '# v1', comentarios: [] } });
+    expect(rv2).toMatchObject({ existing: true, job: { id: rv.job.id } });
+    // "gerar do zero" com um revisar ativo devolve o revisar (os dois escrevem a proxima versao do mesmo clube)
+    const sc = await enqueueJob({ ...h, uuidv4 }, { tipo: 'script', club_slug: 'clube-r', email: 'a@r.com', payload: { motivo: 'gerar-script' } });
+    expect(sc).toMatchObject({ existing: true, job: { id: rv.job.id, tipo: 'revisar' } });
+    expect((await findActiveJob(h, { tipo: 'script', club_slug: 'clube-r' })).id).toBe(rv.job.id);
+    expect((await findLatestJob(h, { tipo: 'script', club_slug: 'clube-r' })).tipo).toBe('revisar');
+    // outro clube nao colide; prefill da pessoa tambem nao
+    expect((await enqueueJob({ ...h, uuidv4 }, { tipo: 'revisar', club_slug: 'clube-s', email: 'c@s.com', payload: { versao: 1, content_md: '#', comentarios: [] } })).existing).toBe(false);
+    expect((await enqueueJob({ ...h, uuidv4 }, { tipo: 'prefill', club_slug: 'clube-r', email: 'a@r.com' })).existing).toBe(false);
+    const claimed = await claimNextJob(h, 'revisar');
+    expect(claimed.id).toBe(rv.job.id);
+    await updateJobStatus(h, claimed.id, { status: 'done', result: { versao: 2 } });
+    const sc2 = await enqueueJob({ ...h, uuidv4 }, { tipo: 'script', club_slug: 'clube-r', email: 'a@r.com' });
+    expect(sc2.existing).toBe(false);
+    expect(sc2.job.tipo).toBe('script');
+    expect((await listJobs(h, { tipo: 'revisar' })).length).toBe(2);
   });
 });

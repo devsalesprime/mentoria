@@ -14,7 +14,7 @@ const SV = require('../utils/script-versions.cjs');
  * Materiais (arquivos, links, observacoes, acessos) sao por PESSOA: cada membro ve so o que ele mesmo enviou;
  * socios nao veem uns aos outros; so o admin ve tudo (routes/admin-cohort.cjs).
  * Contexto por campo (audio/imagem/video/link/nota) e do CLUBE, com autor (so o autor apaga).
- * Versoes do script sao do CLUBE (o worker grava; o membro le, comenta e aprova).
+ * Versoes do script sao do CLUBE (o worker grava; o membro le, comenta, aprova e pede a proxima versao a partir dos comentarios).
  * Habilitado so para users.cohort != NULL (403 { enabled: false } caso contrario).
  */
 module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddleware, uuidv4, fs, path, safeJsonParse, multer, DATA_DIR }) {
@@ -41,6 +41,11 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   const refinarSchema = z.object({
     field_key: z.string().trim().min(3).max(8),
     pedido: z.string().trim().max(2000).optional().default(''),
+  });
+
+  // POST /api/script/versoes/:versao/revisar  { pedido? }
+  const revisarSchema = z.object({
+    pedido: z.string().trim().max(5000).optional().default(''),
   });
 
   const SCRIPT_CATEGORIES = [
@@ -253,7 +258,10 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  /** Enfileira o job `script` do clube (1 ativo por clube). motivo = 'complete' | 'gerar-script'. */
+  /**
+   * Enfileira o job `script` do clube: escreve o script DO ZERO a partir da ficha (1 ativo por clube, junto com `revisar`).
+   * motivo = 'complete' (fechou a ficha) | 'gerar-script' (botao "Gerar do zero").
+   */
   async function enqueueScriptJob(req, motivo) {
     const key = VM.normEmail(req.cohort.email);
     return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
@@ -298,7 +306,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // POST /api/script/ficha/gerar-script  -> pede (de novo) o script; so com a ficha confirmada
+  // POST /api/script/ficha/gerar-script  -> "Gerar do zero": job `script` (ignora versoes e comentarios); so com a ficha confirmada.
+  // "Pedir nova versao" a partir dos comentarios e POST /api/script/versoes/:versao/revisar.
   router.post('/api/script/ficha/gerar-script', authMiddleware, cohortGuard, async (req, res) => {
     try {
       if (req.ficha.ficha_status !== 'confirmada') {
@@ -518,6 +527,42 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       res.json({ success: true, versao });
     } catch (error) {
       console.error('Error in POST /api/script/versoes/:versao/aprovar:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/versoes/:versao/revisar  { pedido? }  -> "Pedir nova versao": job `revisar` (1 ativo por clube, junto com `script`)
+  // payload = a versao base (content_md) + TODOS os comentarios dela + pedido livre; o worker escreve a proxima versao a partir disso.
+  // Nao exige ficha confirmada: a base e a versao ja escrita.
+  router.post('/api/script/versoes/:versao/revisar', authMiddleware, cohortGuard, validateBody(revisarSchema), async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const slug = req.cohort.club_slug;
+      const versao = await SV.getVersion({ dbGet }, slug, n);
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const comentarios = (await SV.listComments({ dbAll }, slug, n)).map((c) => ({
+        passo: c.passo, texto: c.texto, autor: c.autor_nome || c.autor_email || null, created_at: c.created_at,
+      }));
+      const key = VM.normEmail(req.cohort.email);
+      const payload = {
+        versao: n,
+        content_md: versao.content_md,
+        comentarios,
+        nome: req.cohort.name || null,
+        pedido_em: new Date().toISOString(),
+      };
+      if (req.body.pedido) payload.pedido = req.body.pedido;
+      const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+        tipo: 'revisar',
+        club_slug: slug,
+        email: key,
+        notify_phone: await lastNotifyPhone(slug, key),
+        payload,
+      });
+      await touchActivity(slug);
+      res.json({ success: true, versao: n, comentarios: comentarios.length, job: { ...jobView(job), existing } });
+    } catch (error) {
+      console.error('Error in POST /api/script/versoes/:versao/revisar:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

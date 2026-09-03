@@ -14,7 +14,11 @@ export interface WidgetProps {
 
 // Alvo de toque no celular: 44 px
 export const TAP = 'min-h-[44px]';
-export const INPUT = `w-full ${TAP} bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 font-sans outline-none transition-colors`;
+/** Estado de foco visível (teclado): anel dourado, sem contorno nativo. */
+export const FOCO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-prosperus-gold-dark/60 focus-visible:ring-offset-2 focus-visible:ring-offset-prosperus-navy-mid';
+/** Micro-interação padrão da ficha: 200 ms. */
+export const ANIMA = 'transition duration-200 ease-out';
+export const INPUT = `w-full ${TAP} bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 font-sans outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-prosperus-gold-dark/40`;
 export const TEXTAREA = `${INPUT} resize-y leading-relaxed`;
 
 export const Rotulo: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
@@ -55,7 +59,7 @@ export const Chip: React.FC<{ selected: boolean; onClick: () => void; children: 
     aria-pressed={role ? undefined : selected}
     aria-checked={role === 'radio' ? selected : undefined}
     onClick={onClick}
-    className={`${TAP} px-3.5 py-2 rounded-full text-sm font-sans border transition ${
+    className={`${TAP} ${FOCO} px-3.5 py-2 rounded-full text-sm font-sans border ${ANIMA} ${
       selected
         ? 'bg-prosperus-gold-dark text-black border-prosperus-gold-dark font-semibold'
         : 'border-white/20 text-white/70 hover:border-prosperus-gold-dark/60 hover:text-white'
@@ -73,7 +77,7 @@ export const CartaoOpcao: React.FC<{ selected: boolean; onClick: () => void; tit
     aria-checked={selected}
     aria-label={title}
     onClick={onClick}
-    className={`${TAP} w-full text-left rounded-lg border p-3 transition ${
+    className={`${TAP} ${FOCO} w-full text-left rounded-lg border p-3 ${ANIMA} ${
       selected
         ? 'bg-prosperus-gold-dark/10 border-prosperus-gold-dark/60 text-white'
         : 'bg-white/[0.03] border-white/10 text-white/70 hover:border-prosperus-gold-dark/40 hover:text-white'
@@ -115,7 +119,7 @@ export const BotaoAdd: React.FC<{ onClick: () => void; children: React.ReactNode
     type="button"
     onClick={onClick}
     disabled={disabled}
-    className={`${TAP} w-full rounded-lg border-2 border-dashed border-white/15 hover:border-prosperus-gold-dark/50 text-white/60 hover:text-prosperus-gold-light text-sm font-sans font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed`}
+    className={`${TAP} ${FOCO} w-full rounded-lg border-2 border-dashed border-white/15 hover:border-prosperus-gold-dark/50 text-white/60 hover:text-prosperus-gold-light text-sm font-sans font-semibold ${ANIMA} disabled:opacity-40 disabled:cursor-not-allowed`}
   >
     {children}
   </button>
@@ -128,7 +132,7 @@ export const BotaoIcone: React.FC<{ onClick: () => void; label: string; children
     disabled={disabled}
     aria-label={label}
     title={label}
-    className={`${TAP} min-w-[44px] px-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition disabled:opacity-25 disabled:cursor-not-allowed font-sans text-base inline-flex items-center justify-center ${className}`}
+    className={`${TAP} ${FOCO} min-w-[44px] px-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 ${ANIMA} disabled:opacity-25 disabled:cursor-not-allowed font-sans text-base inline-flex items-center justify-center ${className}`}
   >
     {children}
   </button>
@@ -218,7 +222,7 @@ export const Stepper: React.FC<{ value: string; onChange: (v: string) => void; l
   const inc = () => onChange(String(Math.min(max, (Number.isNaN(n) ? min - 1 : n) + 1)));
   return (
     <div className={`inline-flex items-stretch rounded-lg border border-white/10 bg-prosperus-navy-mid overflow-hidden ${className}`} data-testid="stepper">
-      <button type="button" onClick={dec} aria-label={`${label}: menos`} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"><IconeMenos /></button>
+      <button type="button" onClick={dec} aria-label={`${label}: menos`} className={`min-h-[44px] min-w-[44px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 ${ANIMA} ${FOCO}`}><IconeMenos /></button>
       <input
         inputMode="numeric"
         value={value}
@@ -227,7 +231,7 @@ export const Stepper: React.FC<{ value: string; onChange: (v: string) => void; l
         placeholder={placeholder}
         className="w-16 min-h-[44px] text-center bg-transparent border-x border-white/10 text-white font-serif text-xl outline-none placeholder-white/30"
       />
-      <button type="button" onClick={inc} aria-label={`${label}: mais`} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"><IconeMais /></button>
+      <button type="button" onClick={inc} aria-label={`${label}: mais`} className={`min-h-[44px] min-w-[44px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 ${ANIMA} ${FOCO}`}><IconeMais /></button>
     </div>
   );
 };
@@ -288,3 +292,127 @@ export function move<T>(arr: T[], from: number, to: number): T[] {
   next.splice(to, 0, item);
   return next;
 }
+
+// ── teclado em listas ────────────────────────────────────────────────────────
+
+/** Foca a entrada do item `to` dentro da lista mais próxima (`data-lista` > `data-item`). */
+export function focarItem(origem: HTMLElement | null, to: number): void {
+  if (!origem || typeof origem.closest !== 'function') return;
+  const lista = origem.closest('[data-lista]');
+  const item = lista?.querySelector<HTMLElement>(`[data-item="${to}"] input, [data-item="${to}"] textarea`);
+  item?.focus();
+}
+
+export interface TeclasLista {
+  i: number;
+  total: number;
+  /** Alt + seta para cima ou para baixo reordena. */
+  onMover?: (de: number, para: number) => void;
+  /** Enter na última entrada de uma linha adiciona um item. */
+  onAdd?: () => void;
+}
+
+/**
+ * Navegação por teclado numa lista de entradas: seta para cima ou para baixo pula de item (em entradas de uma
+ * linha), Alt + seta reordena, Enter no último item adiciona outro. Use com `data-lista` no contêiner e
+ * `data-item={i}` em cada linha.
+ */
+export function teclasLista(o: TeclasLista): (e: React.KeyboardEvent<HTMLElement>) => void {
+  return (e) => {
+    const alvo = e.target as HTMLElement;
+    const multilinha = alvo?.tagName === 'TEXTAREA';
+    const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+    const para = e.key === 'ArrowUp' ? o.i - 1 : o.i + 1;
+    if (vertical && e.altKey && o.onMover) {
+      e.preventDefault();
+      if (para >= 0 && para < o.total) {
+        o.onMover(o.i, para);
+        setTimeout(() => focarItem(alvo, para), 0);
+      }
+      return;
+    }
+    if (vertical && !multilinha && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      if (para >= 0 && para < o.total) { e.preventDefault(); focarItem(alvo, para); }
+      return;
+    }
+    if (e.key === 'Enter' && !multilinha && !e.shiftKey && o.onAdd && o.i === o.total - 1) {
+      e.preventDefault();
+      o.onAdd();
+      setTimeout(() => focarItem(alvo, o.i + 1), 0);
+    }
+  };
+}
+
+/** Dica curta de teclado, só no desktop. */
+export const DicaTeclado: React.FC<{ reordena?: boolean }> = ({ reordena = true }) => (
+  <span className="hidden lg:inline text-[10px] text-white/30 font-sans">
+    setas mudam de linha{reordena ? ' · Alt + seta reordena' : ''}
+  </span>
+);
+
+// ── capa tipográfica do bloco ────────────────────────────────────────────────
+
+/**
+ * Capa do bloco sem imagem: numeral em EB Garamond (72 px), filete dourado, nome do bloco e a linha
+ * de abertura. `tom` navy (cockpit) ou creme (papel); `compacto` é a miniatura para o topo da primeira pergunta.
+ */
+export const CapaBloco: React.FC<{ numero: number; nome: string; intro?: string; tom?: 'navy' | 'creme'; compacto?: boolean; className?: string }> = ({ numero, nome, intro, tom = 'navy', compacto = false, className = '' }) => {
+  const creme = tom === 'creme';
+  const cor = creme ? 'text-prosperus-navy' : 'text-white';
+  const suave = creme ? 'text-prosperus-navy/70' : 'text-white/60';
+  if (compacto) {
+    return (
+      <div className={`flex items-center gap-4 ${className}`} data-testid={`capa-bloco-${numero}`} data-tom={tom}>
+        <span className={`font-serif leading-none text-[40px] ${creme ? 'text-prosperus-gold-dark' : 'text-prosperus-gold-light'}`} aria-hidden="true">{numero}</span>
+        <span className="h-10 w-px bg-gradient-to-b from-prosperus-gold-dark to-transparent" aria-hidden="true" />
+        <div className="min-w-0">
+          <p className={`text-[11px] uppercase tracking-widest font-sans ${creme ? 'text-prosperus-gold-dark' : 'text-prosperus-gold-light'}`}>Bloco {numero} · {nome}</p>
+          {intro && <p className={`text-sm font-serif italic ${suave}`}>{intro}</p>}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`rounded-lg border p-5 sm:p-6 space-y-3 ${creme ? 'border-prosperus-gold-dark/30 bg-prosperus-neutral-white' : 'border-white/10 bg-prosperus-navy'} ${className}`} data-testid={`capa-bloco-${numero}`} data-tom={tom}>
+      <span className={`block font-serif leading-none text-[72px] ${creme ? 'text-prosperus-gold-dark' : 'text-prosperus-gold-light'}`} aria-hidden="true">{numero}</span>
+      <span className="block h-px w-24 bg-gradient-to-r from-prosperus-gold-dark to-transparent" aria-hidden="true" />
+      <p className={`font-serif text-2xl leading-tight ${cor}`}>{nome}</p>
+      {intro && <p className={`text-sm font-serif italic ${suave}`}>{intro}</p>}
+    </div>
+  );
+};
+
+// ── peças das metáforas ──────────────────────────────────────────────────────
+
+/** Etiqueta de preço (prateleira, escada): recorte com furo e o valor em serifa; vazia mostra "em branco". */
+export const Etiqueta: React.FC<{ valor?: string; className?: string; testId?: string }> = ({ valor, className = '', testId }) => {
+  const v = (valor || '').trim();
+  return (
+    <span
+      data-testid={testId}
+      className={`inline-flex items-center gap-2 rounded-r-md rounded-l-sm border px-2.5 py-1 font-serif text-sm ${
+        v ? 'border-prosperus-gold-dark/60 bg-prosperus-gold-dark/10 text-prosperus-gold-light' : 'border-white/15 bg-white/[0.03] text-white/35 italic'
+      } ${className}`}
+    >
+      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${v ? 'bg-prosperus-gold-dark' : 'bg-white/20'}`} />
+      {v ? (/R\$/i.test(v) ? v : `R$ ${v}`) : 'em branco'}
+    </span>
+  );
+};
+
+/** Régua de 12 meses: segmentos que se preenchem em dourado até `meses`. */
+export const Regua12: React.FC<{ meses: number | null; label?: string; className?: string }> = ({ meses, label = 'Régua de 12 meses', className = '' }) => {
+  const n = meses == null ? 0 : Math.max(0, Math.min(12, meses));
+  return (
+    <div className={`space-y-1 ${className}`} role="img" aria-label={meses == null ? `${label}: sem duração lida` : `${label}: ${n} de 12`} data-testid="regua-12" data-meses={meses ?? ''}>
+      <div className="flex gap-0.5">
+        {Array.from({ length: 12 }, (_, k) => (
+          <span key={k} className={`h-1.5 flex-1 rounded-sm ${ANIMA} ${k < n ? 'bg-prosperus-gold-dark' : 'bg-white/10'}`} />
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-white/40 font-sans" aria-hidden="true">
+        <span>hoje</span><span>6 meses</span><span>12 meses</span>
+      </div>
+    </div>
+  );
+};

@@ -40,6 +40,8 @@ interface ScriptVersao {
   aprovado_por: string | null;
   created_at: string;
   comentarios_count?: number;
+  /** Livre do worker; job `revisar` grava { tipo: 'revisao', base_versao }. */
+  meta?: { tipo?: string; base_versao?: number | null; [k: string]: any } | null;
   content_md?: string;
 }
 interface ScriptComentario { id: string; versao: number; passo: number; texto: string; autor_email: string | null; autor_nome: string | null; created_at: string }
@@ -51,7 +53,7 @@ interface ClubDetail {
   files: ClubFile[];
   pessoas: Pessoa[];
   pessoas_enviaram: number;
-  /** Fila deste clube (prefill, script, refinar; mais recentes primeiro). */
+  /** Fila deste clube (prefill, script, refinar, revisar; mais recentes primeiro). */
   jobs?: CohortJob[];
   /** Script escrito: versoes (mais recente primeiro) e comentarios por passo. */
   versoes?: ScriptVersao[];
@@ -507,6 +509,11 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                     <span className="text-white/80">{j.email}</span>
                     {j.notify_phone && <span className="font-mono text-white/50">{j.notify_phone}</span>}
                     <span className="text-white/40">tentativas {j.attempts} · criado {formatDateTime(j.created_at)}{j.finished_at ? ` · fim ${formatDateTime(j.finished_at)}` : ''}</span>
+                    {j.tipo === 'revisar' && j.payload && (
+                      <span className="text-white/50">
+                        a partir da v{j.payload.versao} · {(j.payload.comentarios || []).length} comentário(s){j.payload.pedido ? ` · pedido: ${j.payload.pedido}` : ''}
+                      </span>
+                    )}
                     {j.error && <span className="text-red-300 break-all">{j.error}</span>}
                   </li>
                 ))}
@@ -521,7 +528,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
         <div className="space-y-4">
           {(detail.versoes || []).length === 0 ? (
             <p className="text-xs text-white/40">
-              Nenhuma versão ainda. O worker grava a v1 depois que o mentor fecha a ficha (job "Script" na fila).
+              Nenhuma versão ainda. O worker grava a v1 depois que o mentor fecha a ficha (job "Script" na fila); as seguintes nascem de "Pedir nova versão" (job "Revisar script", com os comentários) ou de "Gerar do zero".
             </p>
           ) : (detail.versoes || []).map((v) => {
             const coms = (detail.comentarios || []).filter((c) => c.versao === v.versao);
@@ -533,6 +540,9 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                     <p className="text-sm font-semibold text-white">
                       Script v{v.versao}
                       <span className={`ml-2 text-[11px] px-2 py-0.5 rounded-full ${v.status === 'aprovado' ? 'bg-green-600/20 text-green-400' : 'bg-blue-600/20 text-blue-300'}`}>{v.status}</span>
+                      {v.meta?.tipo === 'revisao' && (
+                        <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-prosperus-gold/15 text-prosperus-gold">revisão da v{v.meta.base_versao ?? '?'}</span>
+                      )}
                     </p>
                     <p className="text-[11px] text-white/40">
                       escrito {formatDateTime(v.created_at)}{v.job_id ? ` · job ${v.job_id}` : ''}{v.aprovado_em ? ` · aprovado ${formatDateTime(v.aprovado_em)} por ${v.aprovado_por || '?'}` : ''} · {coms.length} comentário(s)
