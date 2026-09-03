@@ -436,3 +436,76 @@ describe('FichaWizard: um navegador só, hierárquico', () => {
     expect(t).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
+
+describe('FichaWizard: a prévia com capítulos trancados', () => {
+  /** Bloco 2 fechado (2.1 e 2.3 confirmados), bloco 1 e 4 abertos. */
+  const comBlocoFechado = () => {
+    const b2 = blocoDe(2, [
+      confirmado('2.1', 'Sou a Paloma e ajudo donos de indústria familiar a atravessar a sucessão.'),
+      confirmado('2.3', 'O mercado faz: holding e organograma.\nEu faço: preparo quem assume.'),
+    ]);
+    return dados({ blocos: [blocoDe(1, [campoDe('1.1', 'Mentoria Sucessão')]), b2, blocoDe(4, [campoDe('4.1', 'Nome do método: Método Corrente\nDe A para B em 1 frase: leva o dono da operação à sucessão preparada')])] });
+  };
+
+  it('o fim do navegador lateral é "Prévia do script" com a contagem de capítulos; tocar abre o painel creme com o capítulo revelado rascunhado e os trancados com "abre com o bloco"', () => {
+    montar(comBlocoFechado());
+    const botao = within(lateral()).getByTestId('lateral-previa');
+    expect(within(lateral()).getByTestId('lateral-previa-capitulos')).toHaveTextContent('1 de 7 capítulos aberto');
+    fireEvent.click(botao);
+    const painel = screen.getByTestId('wizard-previa-script');
+    expect(painel).toHaveTextContent('Prévia do seu script');
+    expect(within(painel).getByTestId('previa-capitulos')).toHaveAttribute('data-revelados', '1');
+    // Passo 1 (Conexão) abre com o bloco 2, fechado: as frases dos campos decididos entram
+    const passo1 = within(painel).getByTestId('previa-passo-1');
+    expect(passo1).toHaveTextContent('Passo 1 · Conexão');
+    expect(passo1).toHaveTextContent('rascunho v0');
+    expect(within(passo1).getByTestId('previa-linha-2.1')).toHaveTextContent('Paloma');
+    expect(within(passo1).getByTestId('previa-linha-2.3')).toHaveTextContent('Enquanto o mercado');
+    // os outros seguem trancados, só com o nome e o bloco que os abre
+    expect(within(painel).getByTestId('previa-trancada-2')).toHaveTextContent('abre com o bloco 3 · Mentorado');
+    expect(within(painel).getByTestId('previa-trancada-3')).toHaveTextContent('abre com o bloco 4 · Método');
+    expect(within(painel).queryByTestId('previa-passo-3')).not.toBeInTheDocument();
+    expect(within(lateral()).getByTestId('lateral-previa')).toHaveAttribute('aria-current', 'true');
+    // tocar num capítulo trancado leva à primeira pergunta pendente do bloco que o abre
+    fireEvent.click(within(painel).getByRole('button', { name: 'Ir para o bloco 4' }));
+    expect(titulo()).toBe(P('4.1'));
+    expect(screen.queryByTestId('wizard-previa-script')).not.toBeInTheDocument();
+  });
+
+  it('o fim da ficha oferece "Ver a prévia do script"; sem bloco fechado nenhum capítulo abre e Voltar retorna à pergunta', () => {
+    montar();
+    irPelaLateral(4, '4.1');
+    fireEvent.click(screen.getByRole('button', { name: 'Pular por agora' }));
+    const fim = screen.getByTestId('wizard-fim');
+    fireEvent.click(within(fim).getByRole('button', { name: 'Ver a prévia do script' }));
+    const painel = screen.getByTestId('wizard-previa-script');
+    expect(within(painel).getByTestId('previa-capitulos-contagem')).toHaveTextContent('nenhum capítulo aberto ainda');
+    for (let n = 1; n <= 7; n++) expect(within(painel).getByTestId(`previa-trancada-${n}`)).toBeInTheDocument();
+    expect(painel.textContent).not.toContain('—');
+    expect(painel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+    fireEvent.click(within(painel).getByRole('button', { name: 'Voltar' }));
+    expect(screen.queryByTestId('wizard-previa-script')).not.toBeInTheDocument();
+    expect(titulo()).toBe(P('4.1'));
+  });
+
+  it('a folha "Perguntas" no celular também termina na prévia e fecha ao abrir o painel', () => {
+    montar(comBlocoFechado());
+    fireEvent.click(screen.getByRole('button', { name: 'Perguntas' }));
+    const sheet = screen.getByTestId('navegador-sheet');
+    fireEvent.click(within(sheet).getByTestId('sheet-previa'));
+    expect(screen.queryByTestId('navegador-sheet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wizard-previa-script')).toBeInTheDocument();
+  });
+
+  it('o par 3.5 × 3.6 aparece como duas janelas, cinza e dourada, cada uma com o próprio rótulo uma vez só', () => {
+    const d = dados({
+      blocos: [blocoDe(3, [campoDe('3.5', 'Mais um ano preso na operação.'), campoDe('3.6', 'A empresa roda sem ela.')])],
+    });
+    montar(d);
+    expect(screen.getByTestId('janela-ano-3.5')).toHaveAttribute('data-tom', 'cinza');
+    expect(screen.getByTestId('janela-ano-3.6')).toHaveAttribute('data-tom', 'ouro');
+    expect(screen.getAllByText('Daqui a 1 ano sem resolver')).toHaveLength(1);
+    expect(screen.getAllByText('Daqui a 1 ano resolvido')).toHaveLength(1);
+    expect(screen.getAllByTestId('regua-12').length).toBe(2);
+  });
+});

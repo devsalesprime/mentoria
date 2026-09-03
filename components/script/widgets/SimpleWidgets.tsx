@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { CANAIS, QUEM_VENDE, lacunaKeys } from './estrutura';
+import { CANAIS, QUEM_VENDE, lacunaKeys, norm } from './estrutura';
 import { Area, Campo, CartaoOpcao, Chip, Dica, Entrada, Lacuna, Observacao, Painel, Rotulo, Slider, Stepper, lista, type WidgetProps } from './ui';
-import { IconeDegraus } from '../contexto/icones';
+import { CORTES_ICP, ICONE_CANAL } from './display';
+import { IconeAspas, IconeDegraus } from '../contexto/icones';
 
 /**
  * escolha: chips com a(s) opcao(oes) sugerida(s) + "Outra"; ou cartas (template.estilo = 'cartas' | 'radio')
@@ -48,19 +49,22 @@ export const EscolhaWidget: React.FC<WidgetProps> = ({ campo, template, value, o
   );
 };
 
-/** frase: 1 input com a frase modelo embaixo e contador (template.max). */
+/** frase: 1 input com a frase modelo embaixo e contador (template.max); estilo 'citacao' (2.4) abre as aspas em cima. */
 export const FraseWidget: React.FC<WidgetProps> = ({ campo, template, value, onChange }) => {
   const max: number | undefined = typeof template.max === 'number' ? template.max : undefined;
   const frase: string = value.frase || '';
   const passou = typeof max === 'number' && frase.length > max;
+  const citacao = template.estilo === 'citacao';
   return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${citacao ? 'rounded-lg border border-prosperus-gold-dark/40 bg-white/[0.03] p-3 sm:p-4' : ''}`} data-testid={citacao ? 'citacao-editor' : undefined}>
+      {citacao && <span className="block text-prosperus-gold-dark" aria-hidden="true"><IconeAspas className="w-6 h-6" /></span>}
       <Entrada
         value={frase}
         onChange={(e) => onChange({ frase: e.target.value })}
         aria-label={`Editar ${campo.nome}`}
         placeholder={template.modelo || 'Escreva em uma frase'}
         maxLength={max ? max + 50 : undefined}
+        className={citacao ? 'font-serif !text-lg' : ''}
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         {template.modelo && <span className="text-[11px] text-white/40 font-sans italic">Modelo: {template.modelo}</span>}
@@ -190,19 +194,43 @@ export const MetaWidget: React.FC<WidgetProps> = ({ value, onChange }) => {
   );
 };
 
-/** icp: 4 mini entradas num cartao: setor · papel · tamanho ou bolso · território (+ descrição livre). */
-export const IcpWidget: React.FC<WidgetProps> = ({ value, onChange }) => {
+const PLACEHOLDER_ICP: Record<string, string> = {
+  setor: 'Ex.: clínicas de saúde',
+  papel: 'Ex.: dono, diretor',
+  tamanho: 'Ex.: 5 a 30 pessoas, 100 a 500 mil/mês',
+  territorio: 'Ex.: Sul e Sudeste',
+};
+
+/**
+ * icp: retrato em 4 cortes (setor · papel · tamanho ou bolso · território): cada célula tem a entrada e,
+ * quando o template traz `chips[corte]`, os chips para escolher num toque (o toque preenche a célula;
+ * escrever continua valendo). Descrição livre embaixo.
+ */
+export const IcpWidget: React.FC<WidgetProps> = ({ value, onChange, template }) => {
   const set = (k: string, v: string) => onChange({ ...value, [k]: v });
+  const chipsDe = (k: string): string[] => (template.chips && typeof template.chips === 'object' && Array.isArray(template.chips[k]) ? template.chips[k] : []);
   return (
-    <Painel accent="muted">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Campo label="Setor"><Entrada value={value.setor || ''} onChange={(e) => set('setor', e.target.value)} aria-label="Setor" placeholder="Ex.: clínicas de saúde" /></Campo>
-        <Campo label="Papel"><Entrada value={value.papel || ''} onChange={(e) => set('papel', e.target.value)} aria-label="Papel" placeholder="Ex.: dono, diretor" /></Campo>
-        <Campo label="Tamanho ou bolso"><Entrada value={value.tamanho || ''} onChange={(e) => set('tamanho', e.target.value)} aria-label="Tamanho ou bolso" placeholder="Ex.: 5 a 30 pessoas, 100 a 500 mil/mês" /></Campo>
-        <Campo label="Território"><Entrada value={value.territorio || ''} onChange={(e) => set('territorio', e.target.value)} aria-label="Território" placeholder="Ex.: Sul e Sudeste" /></Campo>
+    <div className="space-y-2" data-testid="retrato-icp-editor">
+      <div className="grid grid-cols-1 sm:grid-cols-2 rounded-lg border border-prosperus-gold-dark/40 bg-white/[0.03] overflow-hidden">
+        {CORTES_ICP.map((c, i) => {
+          const chips = chipsDe(c.key);
+          const atual = norm(value[c.key] || '');
+          return (
+            <div key={c.key} className={`min-w-0 p-3 space-y-2 ${i % 2 === 1 ? 'sm:border-l sm:border-white/10' : ''} ${i >= 1 ? 'border-t border-white/10 sm:border-t-0' : ''} ${i >= 2 ? 'sm:border-t sm:border-white/10' : ''}`}>
+              <Campo label={c.label}>
+                <Entrada value={value[c.key] || ''} onChange={(e) => set(c.key, e.target.value)} aria-label={c.label} placeholder={PLACEHOLDER_ICP[c.key]} />
+              </Campo>
+              {chips.length > 0 && (
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label={`${c.label}: opções`}>
+                  {chips.map((ch) => <Chip key={ch} selected={atual === norm(ch)} onClick={() => set(c.key, atual === norm(ch) ? '' : ch)}>{ch}</Chip>)}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <Observacao value={value.obs || ''} onChange={(v) => set('obs', v)} label="Descrição livre" />
-    </Painel>
+    </div>
   );
 };
 
@@ -281,8 +309,8 @@ export const CanalWidget: React.FC<WidgetProps> = ({ template, value, onChange }
   const reu = parseInt(value.reunioes || '', 10);
   return (
     <div className="space-y-3">
-      <div role="radiogroup" aria-label="Canal" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        {CANAIS.map((c) => <CartaoOpcao key={c.id} selected={value.canal === c.id} onClick={() => set('canal', c.id)} title={c.label} sub={descricoes[c.id]} />)}
+      <div role="radiogroup" aria-label="Canal" className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        {CANAIS.map((c) => <CartaoOpcao key={c.id} selected={value.canal === c.id} onClick={() => set('canal', c.id)} title={c.label} sub={descricoes[c.id]} icone={ICONE_CANAL[c.id]} />)}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Painel accent="muted" className="space-y-1">

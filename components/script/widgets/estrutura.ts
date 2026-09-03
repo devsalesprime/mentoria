@@ -43,7 +43,9 @@ export type WidgetType =
   | 'escolha' | 'meta' | 'frase' | 'texto' | 'antes_depois' | 'historia_podio' | 'vs' | 'icp'
   | 'chips_texto' | 'citacoes' | 'lista_numerada' | 'tabela' | 'pilares' | 'escolha_de_lista'
   | 'escada' | 'checklist_condicoes' | 'dois_numeros' | 'dois_campos' | 'dois_textos' | 'canal' | 'casos'
-  | 'lacunas' | 'baralho' | 'quem_vende';
+  | 'lacunas' | 'baralho' | 'quem_vende'
+  // metáforas da onda 2 e 3: mesma estrutura (e mesmo valor) do widget base, só o visual muda
+  | 'prateleira' | 'chave_fechadura' | 'retorno' | 'radar' | 'dois_caminhos' | 'capa_livro';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -350,11 +352,35 @@ const citacoes: EstruturaSpec = {
   render: (e) => (Array.isArray(e.citacoes) ? e.citacoes : []).map((c: any) => cell(stripQuotes(str(c)))).filter(Boolean).map((c: string) => `"${c}"`).join('\n'),
 };
 
-/** lista_numerada: `{ itens[] }`. valor = "1. item" por linha. */
+/**
+ * lista_numerada: `{ itens[], usos[] }` (usos[i] = o que o mentor faz com a resposta do item i; opcional).
+ * valor = "1. item" por linha; com o uso, "1. item · para: o que faço com a resposta".
+ */
+const USO_SEP = /\s*·\s*para:\s*/i;
 const lista_numerada: EstruturaSpec = {
-  vazio: () => ({ itens: [] }),
-  parse: (text) => ({ estrutura: { itens: splitItems(text).map(stripBullet).filter(Boolean) }, bruto: false }),
-  render: (e) => (Array.isArray(e.itens) ? e.itens : []).map((i: any) => cell(str(i))).filter(Boolean).map((i: string, n: number) => `${n + 1}. ${i}`).join('\n'),
+  vazio: () => ({ itens: [], usos: [] }),
+  parse: (text) => {
+    const ls = splitLines(text);
+    // uma linha só com " · para: " é UM item com uso, não células
+    const raws = ls.length === 1 && USO_SEP.test(ls[0]) ? ls : splitItems(text);
+    const itens: string[] = [];
+    const usos: string[] = [];
+    for (const raw of raws.map(stripBullet).filter(Boolean)) {
+      const [item, ...resto] = raw.split(USO_SEP);
+      itens.push(item.trim());
+      usos.push(resto.join(' ').trim());
+    }
+    return { estrutura: { itens, usos }, bruto: false };
+  },
+  render: (e) => {
+    const itens: any[] = Array.isArray(e.itens) ? e.itens : [];
+    const usos: any[] = Array.isArray(e.usos) ? e.usos : [];
+    return itens
+      .map((i, n) => ({ item: cell(str(i)), uso: cell(str(usos[n])) }))
+      .filter((x) => x.item)
+      .map((x, n) => `${n + 1}. ${x.item}${x.uso ? ` · para: ${x.uso}` : ''}`)
+      .join('\n');
+  },
 };
 
 /** tabela: `{ linhas: [{ colKey: valor }] }`. valor = uma linha por item, celulas com " · " (coluna moeda com "R$"). */
@@ -863,6 +889,13 @@ export const ESTRUTURA: Record<WidgetType, EstruturaSpec> = {
   // baralho de objecoes: mesma estrutura e mesmo valor da tabela (linhas objecao · resposta)
   baralho: tabela,
   quem_vende,
+  // metáforas (onda 2 e 3) sobre a estrutura do widget base
+  prateleira: tabela,
+  chave_fechadura: tabela,
+  retorno: dois_numeros,
+  radar: chips_texto,
+  dois_caminhos: campos_rotulados,
+  capa_livro: campos_rotulados,
 };
 
 export function isWidgetType(w: any): w is WidgetType {

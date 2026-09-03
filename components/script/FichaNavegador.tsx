@@ -7,8 +7,10 @@
 import React, { useEffect, useState } from 'react';
 import type { ScriptBlockView, ScriptFieldStatus, ScriptFieldView } from '../../data/script-ficha-fields';
 import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
-import { IconeCheck, IconeSeta, IconeX } from './contexto/icones';
+import { IconeCheck, IconeLivro, IconeSeta, IconeX } from './contexto/icones';
 import { Button } from '../ui/Button';
+import { capitulosDoScript, textoCapitulos } from './widgets/previa';
+import { COPY_PREVIA_SCRIPT } from './widgets/PreviaScript';
 
 /** Uma tela do passo a passo: um campo, ou o par antes × depois (3.5 e 3.6). */
 export interface PassoNav {
@@ -163,18 +165,46 @@ export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, 
   </nav>
 );
 
+/** O fim do navegador: "Prévia do script" com quantos capítulos já abriram (os outros ficam trancados). */
+export const BotaoPrevia: React.FC<{ blocos: ScriptBlockView[]; onClick: () => void; ativo?: boolean; testId?: string }> = ({ blocos, onClick, ativo = false, testId = 'nav-previa' }) => {
+  const caps = capitulosDoScript(blocos);
+  const revelados = caps.filter((c) => c.revelado).length;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={ativo ? 'true' : undefined}
+      data-testid={testId}
+      className={`min-h-[48px] w-full flex items-center gap-2 px-2 rounded border transition text-left ${
+        ativo ? 'border-prosperus-gold-dark/60 bg-prosperus-gold-dark/10 text-white' : 'border-prosperus-gold-dark/30 text-gray-300 hover:text-white hover:border-prosperus-gold-dark/60'
+      }`}
+    >
+      <span className="text-prosperus-gold-light shrink-0" aria-hidden="true"><IconeLivro /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] sm:text-xs font-bold uppercase tracking-wide">Prévia do script</span>
+        <span className="block text-[11px] font-sans normal-case tracking-normal text-white/50" data-testid={`${testId}-capitulos`}>{textoCapitulos(revelados, caps.length)}</span>
+      </span>
+      <IconeSeta direcao="dir" className="text-white/40 shrink-0" />
+    </button>
+  );
+};
+
 interface NavegadorLateralProps extends NavegadorFichaProps {
   onProximaPendente: () => void;
+  /** Abre a prévia do script (capítulos revelados e trancados). */
+  onPrevia?: () => void;
+  previaAtiva?: boolean;
 }
 
-/** Coluna esquerda (desktop, a partir de 1024 px): painel navy fixo com a hierarquia blocos > perguntas. */
-export const NavegadorLateral: React.FC<NavegadorLateralProps> = ({ onProximaPendente, ...nav }) => {
+/** Coluna esquerda (desktop, a partir de 1024 px): painel navy fixo com a hierarquia blocos > perguntas e, no fim, a prévia. */
+export const NavegadorLateral: React.FC<NavegadorLateralProps> = ({ onProximaPendente, onPrevia, previaAtiva = false, ...nav }) => {
   const temPendente = nav.passos.some(pendenteNav);
   return (
     <aside className="hidden lg:block" aria-label="Navegação da ficha" data-testid="navegador-lateral">
       <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto ficha-scroll rounded-lg bg-prosperus-navy-panel border border-white/5 p-3 space-y-3">
         <Button variant="secondary" size="md" className="w-full min-h-[44px]" onClick={onProximaPendente} disabled={!temPendente}>Próxima pendente</Button>
         <NavegadorFicha {...nav} idPrefixo="lateral-" />
+        {onPrevia && <BotaoPrevia blocos={nav.blocos} onClick={onPrevia} ativo={previaAtiva} testId="lateral-previa" />}
         <Legenda />
       </div>
     </aside>
@@ -184,10 +214,12 @@ export const NavegadorLateral: React.FC<NavegadorLateralProps> = ({ onProximaPen
 interface NavegadorSheetProps extends NavegadorFichaProps {
   aberto: boolean;
   onFechar: () => void;
+  onPrevia?: () => void;
+  previaAtiva?: boolean;
 }
 
 /** Folha de baixo (celular): a mesma hierarquia, rolando por dentro com a barra discreta. */
-export const NavegadorSheet: React.FC<NavegadorSheetProps> = ({ aberto, onFechar, ...nav }) => {
+export const NavegadorSheet: React.FC<NavegadorSheetProps> = ({ aberto, onFechar, onPrevia, previaAtiva = false, ...nav }) => {
   useEffect(() => {
     if (!aberto) return;
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar(); };
@@ -216,8 +248,9 @@ export const NavegadorSheet: React.FC<NavegadorSheetProps> = ({ aberto, onFechar
             <IconeX />
           </button>
         </div>
-        <div className="overflow-y-auto ficha-scroll min-h-0 px-2 py-2" data-testid="navegador-sheet-lista">
+        <div className="overflow-y-auto ficha-scroll min-h-0 px-2 py-2 space-y-3" data-testid="navegador-sheet-lista">
           <NavegadorFicha {...nav} onIr={(j) => { nav.onIr(j); onFechar(); }} idPrefixo="sheet-" />
+          {onPrevia && <BotaoPrevia blocos={nav.blocos} onClick={() => { onPrevia(); onFechar(); }} ativo={previaAtiva} testId="sheet-previa" />}
         </div>
         <div className="px-4 py-2 border-t border-white/10 shrink-0"><Legenda /></div>
       </div>

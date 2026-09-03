@@ -12,6 +12,22 @@ export interface WidgetProps {
   ctx: ParseContext;
 }
 
+/** Props do modo de exibição (só leitura) de um widget: a mesma estrutura, sem onChange. */
+export interface DisplayProps {
+  campo: ScriptFieldView;
+  template: WidgetTemplate;
+  value: Estrutura;
+  ctx: ParseContext;
+}
+
+/** Texto de exibição vazio, no vocabulário único da ficha (nunca "a definir"). */
+export const COPY_EM_BRANCO_VALOR = 'em branco';
+
+/** "em branco" em itálico apagado, para qualquer célula sem valor. */
+export const VazioLido: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <span className={`text-white/30 italic font-sans text-sm ${className}`}>{COPY_EM_BRANCO_VALOR}</span>
+);
+
 // Alvo de toque no celular: 44 px
 export const TAP = 'min-h-[44px]';
 /** Estado de foco visível (teclado): anel dourado, sem contorno nativo. */
@@ -397,6 +413,32 @@ export const Etiqueta: React.FC<{ valor?: string; className?: string; testId?: s
       <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${v ? 'bg-prosperus-gold-dark' : 'bg-white/20'}`} />
       {v ? (/R\$/i.test(v) ? v : `R$ ${v}`) : 'em branco'}
     </span>
+  );
+};
+
+/** Régua só de leitura (dias, minutos): trilho com as marcas e o ponteiro dourado no valor. */
+export const ReguaLida: React.FC<{ value: number | null; min: number; max: number; marcas?: number[]; label: string; sufixo?: string; className?: string; testId?: string }> = ({ value, min, max, marcas = [], label, sufixo = '', className = '', testId = 'regua-lida' }) => {
+  const ok = value != null && Number.isFinite(value);
+  const pct = ok ? Math.max(0, Math.min(100, ((value as number) - min) / Math.max(1, max - min) * 100)) : null;
+  return (
+    <div className={`space-y-1 ${className}`} role="img" aria-label={ok ? `${label}: ${value}${sufixo}` : `${label}: em branco`} data-testid={testId} data-valor={ok ? value : ''}>
+      <div className="relative h-6">
+        <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-white/15 rounded-full" aria-hidden="true" />
+        {marcas.map((m) => (
+          <span key={m} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-px h-3 bg-white/25" style={{ left: `${((m - min) / Math.max(1, max - min)) * 100}%` }} aria-hidden="true" />
+        ))}
+        {pct != null && (
+          <span className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-prosperus-gold-dark border-2 border-prosperus-navy-mid shadow ${ANIMA}`} style={{ left: `${pct}%` }} aria-hidden="true" />
+        )}
+      </div>
+      {marcas.length > 0 && (
+        <div className="relative h-4 text-[10px] font-sans text-white/40" aria-hidden="true">
+          {marcas.map((m) => (
+            <span key={m} className={`absolute -translate-x-1/2 ${ok && value === m ? 'text-prosperus-gold-light font-semibold' : ''}`} style={{ left: `${((m - min) / Math.max(1, max - min)) * 100}%` }}>{m}</span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 

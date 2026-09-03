@@ -132,9 +132,16 @@ describe('widgets da ficha: definição por campo', () => {
       expect(typeof f.template).toBe('object');
     }
     expect(Object.keys(ESTRUTURA).sort()).toEqual([
-      'antes_depois', 'baralho', 'canal', 'casos', 'checklist_condicoes', 'chips_texto', 'citacoes', 'dois_campos', 'dois_numeros', 'dois_textos',
-      'escada', 'escolha', 'escolha_de_lista', 'frase', 'historia_podio', 'icp', 'lacunas', 'lista_numerada', 'meta', 'pilares', 'quem_vende', 'tabela', 'texto', 'vs',
+      'antes_depois', 'baralho', 'canal', 'capa_livro', 'casos', 'chave_fechadura', 'checklist_condicoes', 'chips_texto', 'citacoes', 'dois_caminhos', 'dois_campos', 'dois_numeros', 'dois_textos',
+      'escada', 'escolha', 'escolha_de_lista', 'frase', 'historia_podio', 'icp', 'lacunas', 'lista_numerada', 'meta', 'pilares', 'prateleira', 'quem_vende', 'radar', 'retorno', 'tabela', 'texto', 'vs',
     ]);
+    // as metáforas da onda 2 e 3 compartilham a estrutura (e o valor) do widget base
+    expect(ESTRUTURA.prateleira).toBe(ESTRUTURA.tabela);
+    expect(ESTRUTURA.chave_fechadura).toBe(ESTRUTURA.tabela);
+    expect(ESTRUTURA.retorno).toBe(ESTRUTURA.dois_numeros);
+    expect(ESTRUTURA.radar).toBe(ESTRUTURA.chips_texto);
+    expect(ESTRUTURA.dois_caminhos).toBe(ESTRUTURA.dois_textos);
+    expect(ESTRUTURA.capa_livro).toBe(ESTRUTURA.dois_campos);
   });
 
   it('todos os 34 campos têm a linha "por que isso importa no script" (ajuda), sem travessão nem a palavra diagnóstico', () => {
@@ -152,12 +159,12 @@ describe('widgets da ficha: definição por campo', () => {
     expect(w('1.1')).toBe('escolha'); expect(w('1.2')).toBe('meta');
     expect(w('2.1')).toBe('lacunas'); expect(w('2.2')).toBe('historia_podio'); expect(w('2.3')).toBe('vs'); expect(w('2.4')).toBe('frase'); expect(w('2.5')).toBe('escolha');
     expect(w('3.1')).toBe('icp'); expect(w('3.2')).toBe('chips_texto'); expect(w('3.3')).toBe('citacoes'); expect(w('3.4')).toBe('citacoes');
-    expect(w('3.5')).toBe('antes_depois'); expect(w('3.6')).toBe('antes_depois'); expect(w('3.7')).toBe('tabela'); expect(w('3.8')).toBe('lista_numerada'); expect(w('3.9')).toBe('chips_texto');
-    expect(w('4.1')).toBe('dois_campos'); expect(w('4.2')).toBe('pilares'); expect(w('4.3')).toBe('escolha_de_lista'); expect(w('4.4')).toBe('tabela');
+    expect(w('3.5')).toBe('antes_depois'); expect(w('3.6')).toBe('antes_depois'); expect(w('3.7')).toBe('prateleira'); expect(w('3.8')).toBe('lista_numerada'); expect(w('3.9')).toBe('chips_texto');
+    expect(w('4.1')).toBe('capa_livro'); expect(w('4.2')).toBe('pilares'); expect(w('4.3')).toBe('escolha_de_lista'); expect(w('4.4')).toBe('tabela');
     expect(w('5.1')).toBe('lacunas'); expect(w('5.2')).toBe('tabela'); expect(w('5.3')).toBe('escada'); expect(w('5.4')).toBe('checklist_condicoes');
-    expect(w('5.5')).toBe('dois_numeros'); expect(w('5.6')).toBe('chips_texto'); expect(w('5.7')).toBe('tabela');
+    expect(w('5.5')).toBe('retorno'); expect(w('5.6')).toBe('radar'); expect(w('5.7')).toBe('chave_fechadura');
     expect(w('6.1')).toBe('canal'); expect(w('6.2')).toBe('quem_vende'); expect(w('6.3')).toBe('baralho'); expect(w('6.4')).toBe('texto');
-    expect(w('6.5')).toBe('dois_textos'); expect(w('6.6')).toBe('casos'); expect(w('6.7')).toBe('dois_numeros');
+    expect(w('6.5')).toBe('dois_caminhos'); expect(w('6.6')).toBe('casos'); expect(w('6.7')).toBe('dois_numeros');
     expect(T('5.6').chips).toEqual(['tempo', 'rede', 'portas que abrem', 'conhecimento', 'segurança emocional', 'velocidade', 'status', 'tranquilidade da família']);
     expect(T('3.2').chips).toEqual(['sócio', 'cônjuge', 'família', 'decide sozinho']);
   });
@@ -215,7 +222,8 @@ describe('widgets da ficha: parse + render (ida e volta)', () => {
     roundTrip('vs', { mercado: 'vende curso gravado', eu: 'entro na operação' });
     roundTrip('historia_podio', { historia: 'Vinte anos de clínica.', ouro: 'Três unidades', prata: 'Cem gestores', bronze: 'Livro publicado' });
     expect(roundTrip('citacoes', { citacoes: ['Não consigo sair', 'Não sobra'] })).toBe('"Não consigo sair"\n"Não sobra"');
-    expect(roundTrip('lista_numerada', { itens: ['Faturamento', 'Equipe'] })).toBe('1. Faturamento\n2. Equipe');
+    expect(roundTrip('lista_numerada', { itens: ['Faturamento', 'Equipe'], usos: ['', ''] })).toBe('1. Faturamento\n2. Equipe');
+    expect(roundTrip('lista_numerada', { itens: ['Faturamento', 'Equipe'], usos: ['dimensionar a proposta', ''] })).toBe('1. Faturamento · para: dimensionar a proposta\n2. Equipe');
     expect(roundTrip('chips_texto', { chips: ['tempo', 'rede'], texto: 'Fim de semana de volta.' }, T('5.6'))).toBe('tempo, rede\nFim de semana de volta.');
     expect(roundTrip('dois_campos', { nome: 'Método X', fio: 'de A para B' }, T('4.1'))).toBe('Nome do método: Método X\nDe A para B em 1 frase: de A para B');
     roundTrip('dois_textos', { sim: 'contrato\ne pagamento', pensar: 'retorno em 48h' }, T('6.5'));

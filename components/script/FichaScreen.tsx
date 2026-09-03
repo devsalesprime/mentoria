@@ -186,9 +186,9 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
           <div key={`${c.key}-${outro.key}`} className="rounded-lg border border-prosperus-gold-dark/25 bg-prosperus-gold-dark/[0.03] p-3 space-y-3" data-testid={`painel-${c.key}-${outro.key}`}>
             <p className="font-serif text-base text-prosperus-gold-light">Daqui a 1 ano</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* a janela de cada lado (3.5 cinza, 3.6 dourada) já carrega o próprio rótulo */}
               {[c, outro].map((f) => (
                 <div key={f.key} className="space-y-2 min-w-0">
-                  <span className="block text-[11px] uppercase tracking-wide text-white/50 font-sans">{f.template?.rotulo || f.nome}</span>
                   <FichaField campo={f} onDecide={decide} contexto={contexto} onRecarregar={recarregar} />
                 </div>
               ))}

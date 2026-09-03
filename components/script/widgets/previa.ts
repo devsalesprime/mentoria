@@ -12,7 +12,7 @@
  * Template em objeto = uma frase por opção escolhida ("*" é o padrão).
  */
 import type { ScriptBlockView, ScriptFieldView, ScriptProgresso } from '../../../data/script-ficha-fields';
-import { SCRIPT_FIELD_BY_KEY } from '../../../data/script-ficha-fields';
+import { SCRIPT_BLOCKS, SCRIPT_FIELD_BY_KEY } from '../../../data/script-ficha-fields';
 import { CANAIS, QUEM_VENDE, norm, type Estrutura } from './estrutura';
 import { buildContext, resolveWidget } from './index';
 import { textoLimpo } from './vazio';
@@ -341,10 +341,49 @@ export interface CapituloScript extends PassoScript {
   blocoNome: string;
 }
 
-/** Os 7 capítulos com o estado de revelação (bloco fechado) para o mapa da prévia. */
+/** Os 7 capítulos com o estado de revelação (bloco fechado) para o mapa da prévia; o nome do bloco vem da ficha ou da definição. */
 export function capitulosDoScript(blocos: ScriptBlockView[]): CapituloScript[] {
   return PASSOS_SCRIPT.map((p) => {
     const b = blocos.find((x) => x.numero === p.bloco);
-    return { ...p, revelado: !!b?.fechado, blocoNome: b?.nome || `Bloco ${p.bloco}` };
+    const def = SCRIPT_BLOCKS.find((x) => x.numero === p.bloco);
+    return { ...p, revelado: !!b?.fechado, blocoNome: b?.nome || def?.nome || `Bloco ${p.bloco}` };
   });
+}
+
+// ── a prévia inteira (capítulos revelados × trancados) ───────────────────────
+
+export interface CapituloComLinhas extends CapituloScript {
+  /** Frases já rascunhadas (só campos decididos); vazio num capítulo trancado. */
+  linhas: LinhaDaPrevia[];
+}
+
+export interface PreviaDoScript {
+  /** A meta (bloco 1), no alto. */
+  meta: LinhaDaPrevia[];
+  capitulos: CapituloComLinhas[];
+  revelados: number;
+  total: number;
+}
+
+/** A prévia do script inteira: meta no alto, 7 capítulos; os trancados só mostram o nome e o bloco que os abre. */
+export function previaDoScript(blocos: ScriptBlockView[], contexto: Record<string, ScriptFieldView>, max = 5): PreviaDoScript {
+  const caps = capitulosDoScript(blocos).map((c) => ({ ...c, linhas: c.revelado ? linhasDaPrevia(c.campos, contexto, { max }) : [] }));
+  return {
+    meta: linhasDaPrevia(META_SCRIPT.campos, contexto, { max: 2 }),
+    capitulos: caps,
+    revelados: caps.filter((c) => c.revelado).length,
+    total: caps.length,
+  };
+}
+
+/** "abre com o bloco 3 · Mentorado" (capítulo trancado). */
+export function textoTrancado(c: Pick<CapituloScript, 'bloco' | 'blocoNome'>): string {
+  return `abre com o bloco ${c.bloco} · ${c.blocoNome}`;
+}
+
+/** "nenhum capítulo aberto ainda" · "1 de 7 capítulos aberto" · "3 de 7 capítulos abertos" · "os 7 capítulos abertos". */
+export function textoCapitulos(revelados: number, total = PASSOS_SCRIPT.length): string {
+  if (revelados <= 0) return 'nenhum capítulo aberto ainda';
+  if (revelados >= total) return `os ${total} capítulos abertos`;
+  return `${revelados} de ${total} capítulos ${revelados === 1 ? 'aberto' : 'abertos'}`;
 }

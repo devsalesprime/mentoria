@@ -8,10 +8,10 @@ import { motion, useReducedMotion } from 'framer-motion';
 import type { ScriptBlockView, ScriptFieldView } from '../../../data/script-ficha-fields';
 import type { Estrutura } from './estrutura';
 import {
-  META_SCRIPT, capitulosDoScript, linhasDaPrevia, previaDoCampo,
+  META_SCRIPT, capitulosDoScript, linhasDaPrevia, previaDoCampo, previaDoScript, textoCapitulos, textoTrancado,
   type PassoScript, type PreviaResolvida,
 } from './previa';
-import { IconeCadeado, IconeCheck, IconeLivro } from '../contexto/icones';
+import { IconeCadeado, IconeCheck, IconeLivro, IconeSeta } from '../contexto/icones';
 
 export const COPY_PREVIA_CAMPO = 'No seu script';
 export const SELO_RASCUNHO = 'rascunho v0';
@@ -163,31 +163,68 @@ export const CapitulosScript: React.FC<{ blocos: ScriptBlockView[]; tom?: 'navy'
   );
 };
 
-/** Coluna lateral (desktop largo): a prévia inteira em creme, capítulo a capítulo. */
-export const PreviaLateral: React.FC<{ blocos: ScriptBlockView[]; contexto: Record<string, ScriptFieldView> }> = ({ blocos, contexto }) => {
-  const caps = useMemo(() => capitulosDoScript(blocos), [blocos]);
+export const COPY_PREVIA_SCRIPT = 'Prévia do seu script';
+
+interface PreviaCapitulosProps {
+  blocos: ScriptBlockView[];
+  contexto: Record<string, ScriptFieldView>;
+  /** Toque num capítulo trancado leva ao bloco que o abre. */
+  onIrParaBloco?: (bloco: number) => void;
+  max?: number;
+  className?: string;
+}
+
+/**
+ * A prévia inteira em papel creme: a meta no alto, os capítulos revelados com as frases rascunhadas
+ * e os trancados só com o nome e "abre com o bloco X". Usada no painel do passo a passo e na coluna lateral.
+ */
+export const PreviaCapitulos: React.FC<PreviaCapitulosProps> = ({ blocos, contexto, onIrParaBloco, max = 5, className = '' }) => {
+  const previa = useMemo(() => previaDoScript(blocos, contexto, max), [blocos, contexto, max]);
   return (
-    <aside className="hidden xl:block" aria-label="Prévia do seu script" data-testid="previa-lateral">
-      <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg bg-prosperus-neutral-white text-prosperus-navy p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-prosperus-gold-dark"><IconeLivro /></span>
-          <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Prévia do seu script</p>
+    <div className={`space-y-3 ${className}`} data-testid="previa-capitulos" data-revelados={previa.revelados}>
+      <p className="text-sm text-prosperus-navy/70 font-sans" data-testid="previa-capitulos-contagem">{textoCapitulos(previa.revelados, previa.total)}</p>
+      {previa.meta.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] uppercase tracking-widest text-prosperus-navy/50 font-sans">No alto do script</p>
+          <PreviaMeta contexto={contexto} />
         </div>
-        <PreviaMeta contexto={contexto} />
-        {caps.map((c) => (
-          c.revelado ? (
-            <PreviaPasso key={c.n} passo={c} contexto={contexto} fechado max={4} />
-          ) : (
-            <div key={c.n} className="flex items-center gap-2 rounded-lg border border-prosperus-navy/10 px-3 py-2 text-prosperus-navy/50" data-testid={`previa-trancada-${c.n}`}>
-              <IconeCadeado title="Trancado" />
-              <span className="flex-1 min-w-0">
-                <span className="block font-serif text-sm">Passo {c.n} · {c.nome}</span>
-                <span className="block text-[10px] font-sans">abre com o bloco {c.bloco} · {c.blocoNome}</span>
-              </span>
-            </div>
-          )
-        ))}
-      </div>
-    </aside>
+      )}
+      {previa.capitulos.map((c) => (
+        c.revelado ? (
+          <PreviaPasso key={c.n} passo={c} contexto={contexto} fechado max={max} />
+        ) : (
+          <div key={c.n} className="flex items-center gap-2 rounded-lg border border-prosperus-navy/10 px-3 py-2 text-prosperus-navy/50" data-testid={`previa-trancada-${c.n}`}>
+            <IconeCadeado title="Trancado" />
+            <span className="flex-1 min-w-0">
+              <span className="block font-serif text-sm">Passo {c.n} · {c.nome}</span>
+              <span className="block text-[10px] font-sans">{textoTrancado(c)}</span>
+            </span>
+            {onIrParaBloco && (
+              <button
+                type="button"
+                onClick={() => onIrParaBloco(c.bloco)}
+                aria-label={`Ir para o bloco ${c.bloco}`}
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded text-prosperus-navy/60 hover:text-prosperus-navy hover:bg-prosperus-navy/5 transition"
+              >
+                <IconeSeta direcao="dir" />
+              </button>
+            )}
+          </div>
+        )
+      ))}
+    </div>
   );
 };
+
+/** Coluna lateral (desktop largo): a prévia inteira em creme, capítulo a capítulo. */
+export const PreviaLateral: React.FC<{ blocos: ScriptBlockView[]; contexto: Record<string, ScriptFieldView> }> = ({ blocos, contexto }) => (
+  <aside className="hidden xl:block" aria-label={COPY_PREVIA_SCRIPT} data-testid="previa-lateral">
+    <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg bg-prosperus-neutral-white text-prosperus-navy p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-prosperus-gold-dark"><IconeLivro /></span>
+        <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">{COPY_PREVIA_SCRIPT}</p>
+      </div>
+      <PreviaCapitulos blocos={blocos} contexto={contexto} max={4} />
+    </div>
+  </aside>
+);

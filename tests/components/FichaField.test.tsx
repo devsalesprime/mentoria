@@ -226,11 +226,12 @@ describe('FichaField widgets (sugestão dentro do widget)', () => {
     expect((within(editor).getByLabelText('Prova Bronze') as HTMLTextAreaElement).value).toBe('Formou cem gestores.');
   });
 
-  it('2.3 vs: frase única divide em mercado × eu', () => {
+  it('2.3 balança: frase única divide em mercado × eu, par a par', () => {
     const { editor } = abrirEditor(campoDe('2.3', 'O mercado vende curso gravado. Eu entro na operação com ele.'));
-    expect((within(editor).getByLabelText('O mercado faz') as HTMLTextAreaElement).value).toBe('O mercado vende curso gravado.');
-    expect((within(editor).getByLabelText('Editar Diferencial') as HTMLTextAreaElement).value).toBe('Eu entro na operação com ele.');
+    expect((within(editor).getByLabelText('O mercado faz 1') as HTMLTextAreaElement).value).toBe('O mercado vende curso gravado.');
+    expect((within(editor).getByLabelText('Eu faço 1') as HTMLTextAreaElement).value).toBe('Eu entro na operação com ele.');
     expect(within(editor).getByText('VS')).toBeInTheDocument();
+    expect(within(editor).getByRole('img', { name: /Balança/ })).toBeInTheDocument();
   });
 
   it('2.5 escolha radio: cartões com a opção marcada', () => {
@@ -379,10 +380,12 @@ describe('FichaField widgets (sugestão dentro do widget)', () => {
     expect((within(editor).getByLabelText('Objeções que já ouviu: linha 2, O que você responde hoje') as HTMLInputElement).value).toBe('');
   });
 
-  it('6.5 dois_textos: dois textareas rotulados', () => {
-    const { editor } = abrirEditor(campoDe('6.5', 'Depois do sim: contrato e pagamento\nDepois do vou pensar: marco retorno em 48h'));
-    expect((within(editor).getByLabelText('Depois do sim') as HTMLTextAreaElement).value).toBe('contrato e pagamento');
+  it('6.5 dois caminhos: os passos do sim numa escada e o "vou pensar" com data e hora', () => {
+    const { editor, onDecide } = abrirEditor(campoDe('6.5', 'Depois do sim: contrato e pagamento\nDepois do vou pensar: marco retorno em 48h'));
+    expect((within(editor).getByLabelText('Depois do sim: passo 1') as HTMLInputElement).value).toBe('contrato e pagamento');
     expect((within(editor).getByLabelText("Depois do 'vou pensar'") as HTMLTextAreaElement).value).toBe('marco retorno em 48h');
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(onDecide.mock.calls[0][1].valor).toBe("Depois do sim: contrato e pagamento\nDepois do 'vou pensar': marco retorno em 48h");
   });
 
   it('6.6 casos: cartões com antes / depois / pode citar', () => {

@@ -19,7 +19,7 @@ import { FieldEditor, useFieldEditor } from './widgets/editor';
 import { FichaDisplay, Fonte, TextoOriginal, textoDoModo } from './widgets/FichaDisplay';
 import { NumberTicker } from './widgets/NumberTicker';
 import { COPY_SCRIPT_PRONTO, COPY_TUDO_DECIDIDO, META_SCRIPT, faltamParaScript, fraseDosPassos, passosDoBloco } from './widgets/previa';
-import { PreviaCampo, PreviaMeta, PreviaPasso } from './widgets/PreviaScript';
+import { COPY_PREVIA_SCRIPT, PreviaCampo, PreviaCapitulos, PreviaMeta, PreviaPasso } from './widgets/PreviaScript';
 import {
   Alternativas, BadgeObrigatorio, COPY_EM_BRANCO, COPY_VAZIO, PorQueImporta, StatusChip, SugestaoEncontrada, statusDaTela,
 } from './FichaField';
@@ -37,7 +37,12 @@ export type Passo = PassoNav;
 type Tela =
   | { tipo: 'passo' }
   | { tipo: 'bloco'; de: number; para: number }
-  | { tipo: 'fim' };
+  | { tipo: 'fim' }
+  /** A prévia do script inteira: capítulos revelados em creme, trancados só com o nome. */
+  | { tipo: 'previa' };
+
+/** Link para a prévia (fim da ficha e navegador). */
+export const COPY_VER_PREVIA = 'Ver a prévia do script';
 
 /** Tempo do estado "Confirmado" (o valor recolhido numa linha) antes da próxima pergunta entrar. */
 export const CONFIRMADO_MS = 400;
@@ -451,6 +456,16 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
     if (j >= 0) irParaPasso(j);
   };
 
+  /** A prévia do script (capítulos revelados e trancados), a partir do navegador ou do fim. */
+  const abrirPrevia = () => { limparFeito(); setDir(1); setTela({ tipo: 'previa' }); };
+
+  /** De um capítulo trancado ao bloco que o abre: a primeira pergunta pendente do bloco (ou a primeira dele). */
+  const irParaBloco = (n: number) => {
+    const pend = passos.findIndex((p) => p.bloco === n && pendente(p));
+    const j = pend >= 0 ? pend : passos.findIndex((p) => p.bloco === n);
+    if (j >= 0) irParaPasso(j);
+  };
+
   /** Próxima pergunta sem decisão depois da atual (dá a volta); sem nenhuma, vai ao fim. */
   const proximaPendente = () => {
     const n = passos.length;
@@ -546,9 +561,9 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
         {topo('Daqui a 1 ano: sem resolver e resolvido', passo.campos[0])}
         {feito ? <ResumoConfirmado feito={feito} /> : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* cada lado é uma janela (3.5 cinza, 3.6 dourada) que já carrega o próprio rótulo */}
             {passo.campos.map((c, k) => (
               <div key={c.key} className={`min-w-0 space-y-3 border-l-2 pl-4 ${k === 1 ? 'border-prosperus-gold-dark/60' : 'border-white/15'}`} data-testid={`janela-${c.key}`}>
-                <span className={`block text-[11px] uppercase tracking-wide font-sans ${k === 1 ? 'text-prosperus-gold-light' : 'text-white/60'}`}>{c.template?.rotulo || c.nome}</span>
                 <p className="text-sm text-white/70 font-sans">{c.pergunta}</p>
                 <CampoPasso key={c.key} campo={c} contexto={contexto} decide={decide} par onRecarregar={onRecarregar} onEditingChange={marcarEditing} />
               </div>
@@ -641,6 +656,7 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           )}
           <div className="flex flex-wrap items-center justify-center gap-x-1">
             {faltamObrig > 0 && <Sec onClick={irParaObrigatorioPendente}>Ver o que falta</Sec>}
+            <Sec onClick={abrirPrevia}>{COPY_VER_PREVIA}</Sec>
             <Sec onClick={voltar}>Voltar</Sec>
             <Sec className="lg:hidden" onClick={abrirPerguntas}>Perguntas</Sec>
           </div>
@@ -649,8 +665,29 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
     );
   };
 
-  const chave = tela.tipo === 'passo' ? passo.id : tela.tipo === 'bloco' ? `bloco-${tela.de}-${tela.para}` : 'fim';
-  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso };
+  /**
+   * A prévia com capítulos trancados: papel creme com a meta no alto, os passos já revelados (bloco fechado)
+   * rascunhados linha a linha e os trancados só com o nome e "abre com o bloco X". Toque no trancado leva ao bloco.
+   */
+  const renderPrevia = () => (
+    <div className="rounded-lg bg-prosperus-neutral-white text-prosperus-navy px-5 sm:px-8 py-6 sm:py-8 space-y-5" data-testid="wizard-previa-script">
+      <div className="space-y-1">
+        <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">{COPY_PREVIA_SCRIPT}</p>
+        <h3 className="font-serif text-2xl sm:text-3xl text-prosperus-navy leading-tight">O que já dá para ler</h3>
+        <p className="text-sm text-prosperus-navy/70 font-sans">Cada bloco fechado abre um capítulo. O que ainda está trancado abre quando você decidir o bloco dele.</p>
+      </div>
+      <PreviaCapitulos blocos={blocos} contexto={contexto} onIrParaBloco={irParaBloco} />
+      <hr className="border-0 h-px bg-prosperus-gold-dark" aria-hidden="true" />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button variant="primary" size="lg" className="min-h-[48px] w-full sm:w-auto sm:min-w-[220px]" onClick={proximaPendente}>Próxima pendente</Button>
+        <Button variant="link" size="lg" className="min-h-[44px] !text-prosperus-navy/70 hover:!text-prosperus-navy" onClick={voltar}>Voltar</Button>
+      </div>
+    </div>
+  );
+
+  const chave = tela.tipo === 'passo' ? passo.id : tela.tipo === 'bloco' ? `bloco-${tela.de}-${tela.para}` : tela.tipo;
+  const emPrevia = tela.tipo === 'previa';
+  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso, onPrevia: abrirPrevia, previaAtiva: emPrevia };
 
   return (
     <div className="ficha-scroll" data-testid="ficha-wizard">
@@ -668,7 +705,7 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
               exit="exit"
               transition={{ duration: emPasso ? SLIDE_S : 0.3, ease: 'easeInOut' }}
             >
-              {tela.tipo === 'passo' ? renderPasso() : tela.tipo === 'bloco' ? renderBloco(tela) : renderFim()}
+              {tela.tipo === 'passo' ? renderPasso() : tela.tipo === 'bloco' ? renderBloco(tela) : tela.tipo === 'previa' ? renderPrevia() : renderFim()}
             </motion.div>
           </AnimatePresence>
         </div>

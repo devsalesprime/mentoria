@@ -66,26 +66,29 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
     expect(screen.getByTestId('podio-bronze').textContent).toContain(bronze.slice(0, 30));
   });
 
-  it('2.3 vs: duas colunas com o VS, mercado à esquerda e "Eu faço" à direita', () => {
+  it('2.3 balança: o VS no pivô, um par por linha com o mercado à esquerda e "Eu faço" à direita, inclinada para o seu lado', () => {
     render(<FichaDisplay campo={daPaloma('2.3')} />);
     expect(screen.getByText('VS')).toBeInTheDocument();
-    expect(screen.getByText('O mercado faz')).toBeInTheDocument();
-    expect(screen.getByText('Eu faço')).toBeInTheDocument();
+    expect(screen.getAllByText('O mercado faz').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Eu faço').length).toBeGreaterThan(0);
     expect(screen.getByText(/O mercado de mentoria de gestão está saturado/)).toBeInTheDocument();
     expect(screen.getByText(/Sucessão vivida dos dois lados/)).toBeInTheDocument();
+    const pares = screen.getAllByTestId(/^balanca-par-/);
+    expect(pares.length).toBeGreaterThanOrEqual(2);
+    expect(Number(screen.getByTestId('balanca').getAttribute('data-inclina'))).toBeGreaterThan(0);
   });
 
-  it('3.7 tabela: uma linha por solução já tentada, custo em branco (nunca "a definir")', () => {
+  it('3.7 prateleira: um cartão por solução já tentada, etiqueta de preço em branco (nunca "a definir")', () => {
     render(<FichaDisplay campo={daPaloma('3.7')} />);
-    const rows = screen.getAllByTestId('tabela-linha');
-    expect(rows).toHaveLength(linhas('3.7').length);
-    expect(within(rows[1]).getByText(/Holding e documentos/)).toBeInTheDocument();
-    expect(within(rows[1]).getByText('em branco')).toBeInTheDocument();
-    expect(rows[1].textContent).not.toContain('a definir');
-    expect(screen.getAllByText('O que ele já tentou').length).toBeGreaterThan(0);
+    const cartas = screen.getAllByTestId('prateleira-carta');
+    expect(cartas).toHaveLength(linhas('3.7').length);
+    expect(within(cartas[1]).getByText(/Holding e documentos/)).toBeInTheDocument();
+    expect(within(cartas[1]).getByText('em branco')).toBeInTheDocument();
+    expect(cartas[1].textContent).not.toContain('a definir');
+    expect(screen.queryByTestId('tabela-linha')).not.toBeInTheDocument();
   });
 
-  it('5.3 escada: três degraus com o valor em R$ e a observação embaixo', () => {
+  it('5.3 escada: três degraus com o valor em R$, o total do primeiro ano (só quando o valor diz o mês) e a observação embaixo', () => {
     render(<FichaDisplay campo={daPaloma('5.3')} />);
     expect(screen.getByText('Mais alta')).toBeInTheDocument();
     expect(screen.getByText('Intermediária')).toBeInTheDocument();
@@ -93,7 +96,18 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
     expect(screen.getByTestId('escada-alta-valor')).toHaveTextContent('R$ 14');
     expect(screen.getByTestId('escada-media-valor')).toHaveTextContent('R$ 12');
     expect(screen.getByTestId('escada-entrada-valor')).toHaveTextContent('R$ 10');
+    // "R$14 mil/mês" × 12 = R$ 168 mil no ano (aritmética sobre o número dela, nada inventado)
+    expect(screen.getByTestId('escada-alta-ano')).toHaveAttribute('data-total', '168000');
+    expect(screen.getByTestId('escada-alta-ano')).toHaveTextContent('no ano');
+    expect(screen.getByTestId('escada-entrada-ano')).toHaveAttribute('data-total', '120000');
     expect(screen.getByText(/A entrada soma cerca de R\$20 mil/)).toBeInTheDocument();
+  });
+
+  it('5.3 escada: sem periodicidade no valor não há total anual', () => {
+    render(<FichaDisplay campo={campoDe('5.3', 'Mais alta: Premium · R$ 30.000\nEntrada: Básica · R$ 5.000')} />);
+    expect(screen.getByTestId('escada-alta-valor')).toHaveTextContent('R$ 30.000');
+    expect(screen.queryByTestId('escada-alta-ano')).not.toBeInTheDocument();
+    expect(screen.queryByText('no ano')).not.toBeInTheDocument();
   });
 
   it('6.3 baralho: cada objeção numa carta, resposta em branco (nunca "a definir")', () => {
@@ -152,10 +166,18 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
     expect(screen.getByText(/O dono ou sucessor de uma indústria familiar/)).toBeInTheDocument();
   });
 
-  it('1.2 meta: a frase da meta com a data em destaque', () => {
+  it('1.2 mostrador: a data no mostrador "até quando"; sem reuniões não há cadência', () => {
     render(<FichaDisplay campo={daPaloma('1.2')} />);
-    expect(screen.getByText('dezembro de 2026.')).toBeInTheDocument();
-    expect(screen.getByText(/até/)).toBeInTheDocument();
+    expect(screen.getByTestId('mostrador-ate')).toHaveTextContent('dezembro de 2026.');
+    expect(screen.queryByTestId('mostrador-cadencia')).not.toBeInTheDocument();
+  });
+
+  it('1.2 mostrador: clientes, até quando e reuniões nos três mostradores, com a cadência calculada', () => {
+    render(<FichaDisplay campo={campoDe('1.2', '10 clientes até dezembro · 3 reuniões por semana')} />);
+    expect(screen.getByTestId('mostrador-clientes')).toHaveTextContent('10');
+    expect(screen.getByTestId('mostrador-ate')).toHaveTextContent('dezembro');
+    expect(screen.getByTestId('mostrador-reunioes')).toHaveTextContent('3');
+    expect(screen.getByTestId('mostrador-cadencia')).toHaveTextContent('12');
   });
 });
 
@@ -179,7 +201,7 @@ describe('FichaField em revisão usa o modo visual', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
     expect(screen.queryByTestId('display-2.3')).not.toBeInTheDocument();
     expect(screen.getByTestId('editor-2.3')).toBeInTheDocument();
-    expect((screen.getByLabelText('O mercado faz') as HTMLTextAreaElement).value).toMatch(/O mercado de mentoria de gestão está saturado/);
+    expect((screen.getByLabelText('O mercado faz 1') as HTMLTextAreaElement).value).toMatch(/O mercado de mentoria de gestão está saturado/);
   });
 
   it('campo confirmado mostra o valor no visual do widget', () => {

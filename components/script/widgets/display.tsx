@@ -4,18 +4,33 @@
  * fica em SimpleWidgets / ListWidgets / StructuredWidgets / BaralhoWidget.
  */
 import React from 'react';
-import type { ScriptFieldView } from '../../../data/script-ficha-fields';
-import { CANAIS, NIVEL_LABEL, QUEM_VENDE, lacunaKeys, type Estrutura, type ParseContext, type WidgetTemplate, type WidgetType } from './estrutura';
-import { Carrossel, Numero, Painel, Rotulo, lista } from './ui';
+import { CANAIS, NIVEL_LABEL, QUEM_VENDE, lacunaKeys, type WidgetType } from './estrutura';
+import { Carrossel, Numero, Painel, ReguaLida, Rotulo, lista, type DisplayProps } from './ui';
+import { moedaCompacta, totalAnual } from './numero';
+import { useNumberTicker } from './NumberTicker';
 import { textoLimpo } from './vazio';
-import { IconeCheck, IconeDegraus } from '../contexto/icones';
+import { IconeAspas, IconeCadeiras, IconeCheck, IconeDegraus, IconeMisto, IconeTelefone, IconeVideo } from '../contexto/icones';
+import { PrateleiraDisplay } from './Prateleira';
+import { ChaveFechaduraDisplay } from './ChaveFechadura';
+import { DoisCaminhosDisplay } from './DoisCaminhos';
+import { CapaLivroDisplay } from './CapaLivro';
+import { RetornoDisplay } from './Retorno';
+import { RadarDisplay } from './Radar';
+import { MostradorDisplay } from './Mostrador';
+import { DorPilarDisplay } from './DorPilar';
+import { BalancaDisplay } from './Balanca';
+import { LinhaTempoDisplay } from './LinhaTempo';
+import { JanelaAnoDisplay } from './JanelaAno';
 
-export interface DisplayProps {
-  campo: ScriptFieldView;
-  template: WidgetTemplate;
-  value: Estrutura;
-  ctx: ParseContext;
-}
+export type { DisplayProps };
+
+/** Glifo da cena de cada canal (6.1): cadeiras, vídeo, telefone, dois sentidos. */
+export const ICONE_CANAL: Record<string, React.ReactNode> = {
+  presencial: <IconeCadeiras className="w-5 h-5" />,
+  video: <IconeVideo className="w-5 h-5" />,
+  ligacao: <IconeTelefone className="w-5 h-5" />,
+  misto: <IconeMisto className="w-5 h-5" />,
+};
 
 const TXT = 'text-sm sm:text-base text-white/90 font-sans leading-relaxed whitespace-pre-line';
 
@@ -123,9 +138,21 @@ const MetaDisplay: React.FC<DisplayProps> = ({ value }) => {
   );
 };
 
-const FraseDisplay: React.FC<DisplayProps> = ({ value }) => {
+/** frase; com template.estilo = 'citacao' (2.4, o propósito) vira cartão de citação assinado. */
+const FraseDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   const f = textoLimpo(value.frase);
-  return f ? <p className="font-serif text-lg sm:text-xl text-white leading-snug">{f}</p> : <Vazio />;
+  if (!f) return <Vazio />;
+  if (template.estilo !== 'citacao') return <p className="font-serif text-lg sm:text-xl text-white leading-snug">{f}</p>;
+  return (
+    <figure className="rounded-lg border border-prosperus-gold-dark/40 bg-white/[0.03] p-4 sm:p-5 space-y-3" data-testid="citacao-assinada">
+      <span className="text-prosperus-gold-dark" aria-hidden="true"><IconeAspas className="w-6 h-6" /></span>
+      <blockquote className="font-serif text-lg sm:text-2xl text-white leading-snug">{f}</blockquote>
+      <figcaption className="flex items-center gap-2">
+        <span className="h-px w-10 bg-prosperus-gold-dark" aria-hidden="true" />
+        <span className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">{template.assinatura || 'na sua voz'}</span>
+      </figcaption>
+    </figure>
+  );
 };
 
 /** lacunas: a frase-modelo com as lacunas preenchidas em dourado (ou o texto livre). */
@@ -195,16 +222,30 @@ const VsDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   );
 };
 
+/** Os 4 cortes do cliente ideal (3.1). */
+export const CORTES_ICP: { key: string; label: string }[] = [
+  { key: 'setor', label: 'Setor' },
+  { key: 'papel', label: 'Papel' },
+  { key: 'tamanho', label: 'Tamanho ou bolso' },
+  { key: 'territorio', label: 'Território' },
+];
+
+/** Retrato em 4 cortes: um cartão dividido em 4 células, o valor de cada corte em serifa. */
 const IcpDisplay: React.FC<DisplayProps> = ({ value }) => (
-  <Painel accent="muted">
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <Celula label="Setor" v={value.setor} />
-      <Celula label="Papel" v={value.papel} />
-      <Celula label="Tamanho ou bolso" v={value.tamanho} />
-      <Celula label="Território" v={value.territorio} />
+  <div className="space-y-2" data-testid="retrato-icp">
+    <div className="grid grid-cols-2 rounded-lg border border-prosperus-gold-dark/40 overflow-hidden bg-white/[0.03]">
+      {CORTES_ICP.map((c, i) => {
+        const v = textoLimpo(value[c.key]);
+        return (
+          <div key={c.key} data-testid={`retrato-${c.key}`} data-preenchido={v ? 'true' : 'false'} className={`min-w-0 p-3 space-y-1 ${i % 2 === 1 ? 'border-l border-white/10' : ''} ${i >= 2 ? 'border-t border-white/10' : ''}`}>
+            <Rotulo className="!text-prosperus-gold-dark">{c.label}</Rotulo>
+            {v ? <p className="font-serif text-base sm:text-lg text-white leading-snug break-words">{v}</p> : <Vazio />}
+          </div>
+        );
+      })}
     </div>
-    {value.obs && <Texto v={value.obs} className="border-t border-white/10 pt-2 !text-sm" />}
-  </Painel>
+    {value.obs && <Texto v={value.obs} className="!text-sm text-white/70" />}
+  </div>
 );
 
 const ChipsTextoDisplay: React.FC<DisplayProps> = ({ template, value }) => {
@@ -223,7 +264,10 @@ const ChipsTextoDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   );
 };
 
-/** Cartões de citação com aspas grandes; filete dourado quando template.filete = 'ouro' (o desejo, 3.4). */
+/** Assinatura dos cartões de citação: a voz de quem fala (o cliente). */
+export const COPY_VOZ_CLIENTE = 'nas palavras dele';
+
+/** Cartões de citação com aspas grandes e a assinatura da voz do cliente; filete dourado quando template.filete = 'ouro' (o desejo, 3.4). */
 const CitacoesDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   const itens = lista<string>(value.citacoes).filter((c) => (c || '').trim());
   if (!itens.length) return <Vazio />;
@@ -231,24 +275,35 @@ const CitacoesDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   return (
     <div className="space-y-2">
       {itens.map((c, i) => (
-        <blockquote key={i} className={`flex items-start gap-2 bg-white/[0.03] border rounded-lg p-3 ${filete ? 'border-white/10 border-l-2 border-l-prosperus-gold-dark' : 'border-white/10'}`}>
-          <span className="font-serif text-3xl text-prosperus-gold-dark/70 leading-none select-none -mt-1" aria-hidden="true">“</span>
-          <p className="font-serif text-base sm:text-lg text-white/90 italic leading-snug">{c}<span className="text-prosperus-gold-dark/70 not-italic" aria-hidden="true">”</span></p>
+        <blockquote key={i} data-testid="citacao-lida" className={`bg-white/[0.03] border rounded-lg p-3 space-y-1 ${filete ? 'border-white/10 border-l-2 border-l-prosperus-gold-dark' : 'border-white/10'}`}>
+          <div className="flex items-start gap-2">
+            <span className="font-serif text-3xl text-prosperus-gold-dark/70 leading-none select-none -mt-1" aria-hidden="true">“</span>
+            <p className="font-serif text-base sm:text-lg text-white/90 italic leading-snug">{c}<span className="text-prosperus-gold-dark/70 not-italic" aria-hidden="true">”</span></p>
+          </div>
+          <footer className="pl-6 text-[10px] uppercase tracking-widest text-white/40 font-sans">{template.voz || COPY_VOZ_CLIENTE}</footer>
         </blockquote>
       ))}
     </div>
   );
 };
 
+/** Rótulo do segundo campo de cada item da lista de bolso (3.8). */
+export const COPY_USO_RESPOSTA = 'o que faço com a resposta';
+
+/** Lista de bolso numerada; cada item pode dizer o que o mentor faz com a resposta. */
 const ListaNumeradaDisplay: React.FC<DisplayProps> = ({ value }) => {
-  const itens = lista<string>(value.itens).filter((c) => (c || '').trim());
+  const usos = lista<string>(value.usos);
+  const itens = lista<string>(value.itens).map((it, i) => ({ item: (it || '').trim(), uso: (usos[i] || '').trim() })).filter((x) => x.item);
   if (!itens.length) return <Vazio />;
   return (
     <ol className="space-y-2">
-      {itens.map((it, i) => (
-        <li key={i} className="flex items-start gap-3">
+      {itens.map((x, i) => (
+        <li key={i} className="flex items-start gap-3" data-testid="lista-item">
           <Numero n={i + 1} />
-          <p className={`${TXT} pt-0.5`}>{it}</p>
+          <div className="min-w-0 pt-0.5 space-y-0.5">
+            <p className={TXT}>{x.item}</p>
+            {x.uso && <p className="text-xs text-prosperus-gold-light/80 font-sans" data-testid="lista-uso"><span className="uppercase tracking-wide text-[10px] text-prosperus-gold-dark">{COPY_USO_RESPOSTA}: </span>{x.uso}</p>}
+          </div>
         </li>
       ))}
     </ol>
@@ -304,15 +359,22 @@ const BaralhoDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   );
 };
 
+/**
+ * Escada de etapas (4.2): no celular, linha vertical com os degraus; no desktop os degraus sobem da
+ * esquerda para a direita (cada cartão um pouco mais alto que o anterior), nome + o que resolve.
+ */
 const PilaresDisplay: React.FC<DisplayProps> = ({ value }) => {
   const ps = lista<{ nome: string; resolve: string }>(value.pilares).filter((p) => (p?.nome || '').trim() || (p?.resolve || '').trim());
   if (!ps.length) return <Vazio />;
+  const n = ps.length;
+  const passo = n > 5 ? 8 : 14;
   return (
-    <ol className="relative ml-3.5 border-l border-prosperus-gold-dark/30 space-y-4">
+    <ol className="relative ml-3.5 border-l border-prosperus-gold-dark/30 space-y-4 md:ml-0 md:border-0 md:grid md:gap-3 md:space-y-0 md:items-end" style={{ gridTemplateColumns: `repeat(${Math.min(n, 4)}, minmax(0, 1fr))` }} data-testid="escada-etapas">
       {ps.map((p, i) => (
-        <li key={i} data-testid="pilar" className="relative pl-6">
-          <span className="absolute -left-[15px] top-0"><Numero n={i + 1} /></span>
-          <p className="text-sm sm:text-base font-sans font-semibold text-white leading-snug pt-1">{p.nome || `Etapa ${i + 1}`}</p>
+        <li key={i} data-testid="pilar" data-degrau={i + 1} className="relative pl-6 md:pl-0 md:rounded-lg md:border md:border-white/10 md:bg-white/[0.03] md:p-3 md:min-h-[96px]">
+          <span className="absolute -left-[15px] top-0 md:static md:mb-1 md:inline-block"><Numero n={i + 1} /></span>
+          <span className="hidden md:block h-1 rounded-full bg-prosperus-gold-dark/40 mb-2" style={{ width: `${40 + (i % 4) * passo}%` }} aria-hidden="true" />
+          <p className="text-sm sm:text-base font-sans font-semibold text-white leading-snug pt-1 md:pt-0">{p.nome || `Etapa ${i + 1}`}</p>
           {p.resolve && <p className="text-sm text-white/70 font-sans leading-relaxed">{p.resolve}</p>}
         </li>
       ))}
@@ -334,7 +396,22 @@ const EscolhaDeListaDisplay: React.FC<DisplayProps> = ({ value, ctx }) => {
   return <Texto v={value.texto} className="font-semibold" />;
 };
 
-/** Escada de preço: 3 degraus, o de cima maior e dourado (é por ele que se ancora). */
+/** Rótulo do total do primeiro ano de um degrau. */
+export const COPY_NO_ANO = 'no ano';
+
+/** "R$ 168 mil no ano": o total do primeiro ano de um degrau, rodando até o número (só quando o valor diz o período). */
+export const TotalAnual: React.FC<{ valor?: string; textos?: (string | undefined)[]; className?: string; testId?: string }> = ({ valor, textos = [], className = '', testId }) => {
+  const total = totalAnual(valor, ...textos);
+  const n = useNumberTicker(total ?? 0);
+  if (total == null) return null;
+  return (
+    <p className={`text-xs font-sans text-white/60 ${className}`} data-testid={testId} data-total={total}>
+      <span className="font-serif text-sm text-prosperus-gold-light tabular-nums">{moedaCompacta(n)}</span> {COPY_NO_ANO}
+    </p>
+  );
+};
+
+/** Escada de preço: 3 degraus, o de cima maior e dourado (é por ele que se ancora), cada um com o total anual. */
 const DEGRAUS_VIS: { key: 'alta' | 'media' | 'entrada'; n: number; sub: string; gold: boolean; alt: string }[] = [
   { key: 'alta', n: 3, sub: 'ancore por aqui', gold: true, alt: 'md:mt-0 md:pb-6' },
   { key: 'media', n: 2, sub: '', gold: false, alt: 'md:mt-8' },
@@ -357,6 +434,7 @@ const EscadaDisplay: React.FC<DisplayProps> = ({ value }) => (
               </div>
               <p className={`font-serif text-base ${n.gold ? 'text-prosperus-gold-light' : 'text-white'}`}>{(nv.nome || '').trim() || <Vazio />}</p>
               <p data-testid={`escada-${n.key}-valor`} className={`font-serif text-white ${n.gold ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'}`}>{moeda(nv.valor) || <Vazio />}</p>
+              <TotalAnual valor={nv.valor} textos={[nv.nome, nv.muda]} testId={`escada-${n.key}-ano`} />
               {nv.muda && <p className="text-sm text-white/70 font-sans leading-relaxed">{nv.muda}</p>}
             </Painel>
           </div>
@@ -375,31 +453,39 @@ const CONDICOES: { key: string; label: string; detail: string; sufixo?: string }
   { key: 'contrapartida', label: 'Contrapartida para desconto', detail: 'texto' },
   { key: 'garantia', label: 'Garantia', detail: 'texto' },
 ];
+/** Mesa de negociação: as condições como cartas (2 por linha no celular), a marcada em dourado com o valor. */
 const ChecklistCondicoesDisplay: React.FC<DisplayProps> = ({ value }) => (
   <div className="space-y-2">
-    {CONDICOES.map((c) => {
-      const item = value[c.key] || {};
-      const on = !!item.ativo;
-      const detalhe = (item[c.detail] || '').toString().trim();
-      return (
-        <div key={c.key} data-selected={on ? 'true' : 'false'} className={`rounded-lg border p-3 flex items-center gap-3 ${on ? 'border-prosperus-gold-dark/40 bg-prosperus-gold-dark/5' : 'border-white/10 bg-white/[0.02]'}`}>
-          <span aria-hidden="true" className={`w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${on ? 'bg-prosperus-gold-dark border-prosperus-gold-dark text-black' : 'border-white/20 text-transparent'}`}><IconeCheck /></span>
-          <span className={`text-sm font-sans ${on ? 'text-white font-semibold' : 'text-white/40'}`}>{c.label}</span>
-          {on && detalhe && <span className="text-sm text-white/80 font-sans ml-auto text-right">{detalhe}{c.sufixo || ''}</span>}
-        </div>
-      );
-    })}
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" data-testid="mesa-condicoes">
+      {CONDICOES.map((c) => {
+        const item = value[c.key] || {};
+        const on = !!item.ativo;
+        const detalhe = (item[c.detail] || '').toString().trim();
+        return (
+          <div key={c.key} data-testid={`condicao-${c.key}`} data-selected={on ? 'true' : 'false'} className={`min-w-0 rounded-lg border p-3 min-h-[88px] flex flex-col gap-2 ${on ? 'border-prosperus-gold-dark/50 bg-prosperus-gold-dark/10' : 'border-white/10 bg-white/[0.02]'}`}>
+            <span aria-hidden="true" className={`w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${on ? 'bg-prosperus-gold-dark border-prosperus-gold-dark text-black' : 'border-white/20 text-transparent'}`}><IconeCheck /></span>
+            <span className={`text-sm font-sans leading-tight ${on ? 'text-white font-semibold' : 'text-white/40'}`}>{c.label}</span>
+            {on && (detalhe
+              ? <span className="font-serif text-base text-prosperus-gold-light break-words">{detalhe}{c.sufixo || ''}</span>
+              : <span className="text-xs text-white/50 font-sans">sim</span>)}
+          </div>
+        );
+      })}
+    </div>
     {value.obs && <Texto v={value.obs} className="!text-sm text-white/70" />}
   </div>
 );
 
+/** Números rotulados; um campo com `slider` (6.7, os dias) vira régua de leitura com o ponteiro no valor. */
 const DoisNumerosDisplay: React.FC<DisplayProps> = ({ template, value }) => {
-  const campos: { key: string; label: string; tipo?: string }[] = Array.isArray(template.campos) ? template.campos : [];
-  const cols = campos.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3';
+  const campos: { key: string; label: string; tipo?: string; slider?: { min: number; max: number; marcas?: number[] } }[] = Array.isArray(template.campos) ? template.campos : [];
+  const simples = campos.filter((c) => !c.slider);
+  const reguas = campos.filter((c) => c.slider);
+  const cols = simples.length === 1 ? 'sm:grid-cols-1' : simples.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3';
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className={`grid grid-cols-1 ${cols} gap-3`}>
-        {campos.map((c) => {
+        {simples.map((c) => {
           const v = (value[c.key] || '').toString().trim();
           return (
             <Painel key={c.key} accent="muted" className="space-y-0.5">
@@ -409,6 +495,19 @@ const DoisNumerosDisplay: React.FC<DisplayProps> = ({ template, value }) => {
           );
         })}
       </div>
+      {reguas.map((c) => {
+        const n = parseInt((value[c.key] || '').toString(), 10);
+        const s = c.slider!;
+        return (
+          <Painel key={c.key} accent="muted" className="space-y-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <Rotulo>{c.label}</Rotulo>
+              <span className="font-serif text-xl text-prosperus-gold-light">{Number.isNaN(n) ? <Vazio /> : n}</span>
+            </div>
+            <ReguaLida value={Number.isNaN(n) ? null : n} min={s.min} max={s.max} marcas={s.marcas} label={c.label} testId={`regua-${c.key}`} />
+          </Painel>
+        );
+      })}
       {value.obs && <Texto v={value.obs} className="!text-sm text-white/70" />}
     </div>
   );
@@ -430,7 +529,7 @@ const CanalDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {CANAIS.map((c) => <CartaoLido key={c.id} selected={value.canal === c.id} title={c.label} sub={descricoes[c.id]} />)}
+        {CANAIS.map((c) => <CartaoLido key={c.id} selected={value.canal === c.id} title={c.label} sub={descricoes[c.id]} icone={ICONE_CANAL[c.id]} />)}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Painel accent="muted" className="space-y-0.5">
@@ -486,13 +585,13 @@ const CasosDisplay: React.FC<DisplayProps> = ({ value }) => {
 
 export const DISPLAYS: Record<WidgetType, React.FC<DisplayProps>> = {
   escolha: EscolhaDisplay,
-  meta: MetaDisplay,
+  meta: MostradorDisplay,
   frase: FraseDisplay,
   lacunas: LacunasDisplay,
   texto: TextoDisplay,
-  antes_depois: TextoDisplay,
-  historia_podio: HistoriaPodioDisplay,
-  vs: VsDisplay,
+  antes_depois: JanelaAnoDisplay,
+  historia_podio: LinhaTempoDisplay,
+  vs: BalancaDisplay,
   icp: IcpDisplay,
   chips_texto: ChipsTextoDisplay,
   citacoes: CitacoesDisplay,
@@ -500,7 +599,7 @@ export const DISPLAYS: Record<WidgetType, React.FC<DisplayProps>> = {
   tabela: TabelaDisplay,
   baralho: BaralhoDisplay,
   pilares: PilaresDisplay,
-  escolha_de_lista: EscolhaDeListaDisplay,
+  escolha_de_lista: DorPilarDisplay,
   escada: EscadaDisplay,
   checklist_condicoes: ChecklistCondicoesDisplay,
   dois_numeros: DoisNumerosDisplay,
@@ -509,7 +608,16 @@ export const DISPLAYS: Record<WidgetType, React.FC<DisplayProps>> = {
   canal: CanalDisplay,
   casos: CasosDisplay,
   quem_vende: QuemVendeDisplay,
+  prateleira: PrateleiraDisplay,
+  chave_fechadura: ChaveFechaduraDisplay,
+  retorno: RetornoDisplay,
+  radar: RadarDisplay,
+  dois_caminhos: DoisCaminhosDisplay,
+  capa_livro: CapaLivroDisplay,
 };
+
+// Os visuais genéricos seguem exportados para quem precisar do modo simples (e para testes).
+export { MetaDisplay, HistoriaPodioDisplay, VsDisplay, EscolhaDeListaDisplay, TextoDisplay };
 
 /** Texto corrido (sem widget ou parse que não estruturou): bloco de citação com nota opcional. */
 export const TextoBruto: React.FC<{ texto: string; tipo?: string; nota?: string; testId?: string }> = ({ texto, tipo, nota, testId }) => {

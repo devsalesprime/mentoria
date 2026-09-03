@@ -1,7 +1,8 @@
 import React from 'react';
 import { NIVEL_LABEL } from './estrutura';
 import { Area, BotaoAdd, BotaoIcone, Campo, Carrossel, CartaoOpcao, Contador, Entrada, Numero, Observacao, Painel, Rotulo, TAP, lista, move, type WidgetProps } from './ui';
-import { IconeSeta, IconeX } from '../contexto/icones';
+import { TotalAnual } from './display';
+import { IconeCheck, IconeSeta, IconeX } from '../contexto/icones';
 
 /** historia_podio: textarea "história" + 3 cartoes ouro / prata / bronze (estilo do pódio do MentorModule). */
 // Pódio sem emoji: numeral em serifa dentro de um círculo na cor da medalha
@@ -55,7 +56,7 @@ export const VsWidget: React.FC<WidgetProps> = ({ campo, template, value, onChan
   );
 };
 
-/** pilares: etapas (nome · o que resolve), 3 a 8, reordena com setas. */
+/** pilares: escada de etapas (nome · o que resolve), 3 a 8; cada degrau sobe um pouco mais, e as setas reordenam. */
 export const PilaresWidget: React.FC<WidgetProps> = ({ campo, template, value, onChange }) => {
   const min: number = template.min || 3;
   const max: number = template.max || 8;
@@ -63,11 +64,13 @@ export const PilaresWidget: React.FC<WidgetProps> = ({ campo, template, value, o
   const rows = ps.length < min ? [...ps, ...Array(min - ps.length).fill(null).map(() => ({ nome: '', resolve: '' }))] : ps;
   const update = (next: { nome: string; resolve: string }[]) => onChange({ pilares: next });
   const set = (i: number, k: 'nome' | 'resolve', v: string) => { const next = rows.map((p) => ({ ...p })); next[i][k] = v; update(next); };
+  const passo = rows.length > 5 ? 6 : 10;
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="escada-etapas-editor">
       {rows.map((p, i) => (
-        <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] p-2 sm:p-3 flex gap-2 items-start">
-          <div className="pt-2"><Numero n={i + 1} /></div>
+        <div key={i} data-testid={`degrau-editor-${i + 1}`} className="rounded-lg border border-white/10 bg-white/[0.03] p-2 sm:p-3 flex gap-2 items-start relative overflow-hidden">
+          <span className="absolute left-0 top-0 h-full w-1 bg-prosperus-gold-dark/50" style={{ opacity: 0.35 + Math.min(0.65, (i * passo) / 100 * 1.6) }} aria-hidden="true" />
+          <div className="pt-2 pl-1"><Numero n={i + 1} /></div>
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Entrada value={p.nome || ''} onChange={(e) => set(i, 'nome', e.target.value)} aria-label={`${campo.nome}: nome da etapa ${i + 1}`} placeholder="Nome da etapa" />
             <Entrada value={p.resolve || ''} onChange={(e) => set(i, 'resolve', e.target.value)} aria-label={`${campo.nome}: o que a etapa ${i + 1} resolve`} placeholder="O que ela resolve" />
@@ -116,6 +119,7 @@ export const EscadaWidget: React.FC<WidgetProps> = ({ value, onChange }) => {
                 </div>
                 <Entrada value={nv.nome || ''} onChange={(e) => setNivel(n.key, 'nome', e.target.value)} aria-label={`${NIVEL_LABEL[n.key]}: nome`} placeholder="Nome da opção" />
                 <Entrada value={nv.valor || ''} onChange={(e) => setNivel(n.key, 'valor', e.target.value)} aria-label={`${NIVEL_LABEL[n.key]}: valor`} prefixo="R$" inputMode="decimal" placeholder="0" className={n.gold ? 'font-serif !text-lg' : ''} />
+                <TotalAnual valor={nv.valor} textos={[nv.nome, nv.muda]} testId={`escada-editor-${n.key}-ano`} />
                 <Area value={nv.muda || ''} onChange={(e) => setNivel(n.key, 'muda', e.target.value)} rows={2} aria-label={`${NIVEL_LABEL[n.key]}: o que muda`} placeholder="O que muda nesta opção" />
               </Painel>
             </div>
@@ -138,40 +142,46 @@ const CONDICOES: { key: string; label: string; detail: string; placeholder: stri
   { key: 'contrapartida', label: 'Contrapartida para desconto', detail: 'texto', placeholder: 'O que pede em troca' },
   { key: 'garantia', label: 'Garantia', detail: 'texto', placeholder: 'Qual garantia' },
 ];
+/** Mesa de negociação: cada condição é uma carta; o toque vira a carta (marca) e o detalhe entra nela. */
 export const ChecklistCondicoesWidget: React.FC<WidgetProps> = ({ value, onChange }) => {
   const set = (k: string, v: string) => onChange({ ...value, [k]: v });
   return (
     <div className="space-y-2">
-      {CONDICOES.map((c) => {
-        const item = value[c.key] || { ativo: false };
-        const on = !!item.ativo;
-        return (
-          <div key={c.key} className={`rounded-lg border p-2 sm:p-3 flex flex-col sm:flex-row sm:items-center gap-2 transition ${on ? 'border-prosperus-gold-dark/40 bg-prosperus-gold-dark/5' : 'border-white/10 bg-white/[0.03]'}`}>
-            <label className={`${TAP} flex items-center gap-3 cursor-pointer sm:w-64 flex-shrink-0`}>
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={(e) => onChange({ ...value, [c.key]: { ...item, ativo: e.target.checked } })}
-                className="w-5 h-5 accent-[#CA9A43] flex-shrink-0"
-                aria-label={c.label}
-              />
-              <span className={`text-sm font-sans ${on ? 'text-white' : 'text-white/70'}`}>{c.label}</span>
-            </label>
-            <div className="flex-1 flex items-center gap-2">
-              <Entrada
-                value={item[c.detail] || ''}
-                onChange={(e) => onChange({ ...value, [c.key]: { ...item, ativo: true, [c.detail]: e.target.value } })}
-                aria-label={`${c.label}: detalhe`}
-                placeholder={c.placeholder}
-                inputMode={c.numeric ? 'numeric' : undefined}
-                className={c.numeric ? 'sm:w-28' : ''}
-                disabled={!on}
-              />
-              {c.sufixo && <span className="text-sm text-white/50 font-sans">{c.sufixo}</span>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="mesa-condicoes-editor">
+        {CONDICOES.map((c) => {
+          const item = value[c.key] || { ativo: false };
+          const on = !!item.ativo;
+          return (
+            <div key={c.key} data-testid={`condicao-editor-${c.key}`} data-selected={on ? 'true' : 'false'} className={`rounded-lg border p-2 sm:p-3 space-y-2 transition ${on ? 'border-prosperus-gold-dark/50 bg-prosperus-gold-dark/10' : 'border-white/10 bg-white/[0.03]'}`}>
+              <label className={`${TAP} flex items-center gap-3 cursor-pointer`}>
+                <span className="relative inline-flex items-center justify-center w-6 h-6 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={(e) => onChange({ ...value, [c.key]: { ...item, ativo: e.target.checked } })}
+                    className="peer absolute inset-0 w-6 h-6 opacity-0 cursor-pointer"
+                    aria-label={c.label}
+                  />
+                  <span aria-hidden="true" className={`w-6 h-6 rounded-md border flex items-center justify-center peer-focus-visible:ring-2 peer-focus-visible:ring-prosperus-gold-dark/60 ${on ? 'bg-prosperus-gold-dark border-prosperus-gold-dark text-black' : 'border-white/30 text-transparent'}`}><IconeCheck /></span>
+                </span>
+                <span className={`text-sm font-sans ${on ? 'text-white font-semibold' : 'text-white/70'}`}>{c.label}</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <Entrada
+                  value={item[c.detail] || ''}
+                  onChange={(e) => onChange({ ...value, [c.key]: { ...item, ativo: true, [c.detail]: e.target.value } })}
+                  aria-label={`${c.label}: detalhe`}
+                  placeholder={c.placeholder}
+                  inputMode={c.numeric ? 'numeric' : undefined}
+                  className={c.numeric ? 'sm:w-28' : ''}
+                  disabled={!on}
+                />
+                {c.sufixo && <span className="text-sm text-white/50 font-sans">{c.sufixo}</span>}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
       <Observacao value={value.obs || ''} onChange={(v) => set('obs', v)} />
     </div>
   );

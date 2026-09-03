@@ -4,9 +4,11 @@
  * salvo continua sendo o texto que o mentor escreveu.
  */
 
+// Fronteiras por letra (unicode): "mês" não pode virar o "M" de milhão, e "mil/mês" é mil.
 const MULT: { re: RegExp; m: number }[] = [
-  { re: /\b(milh(?:ão|ao|ões|oes))\b|\bmi\b|\bM\b/i, m: 1_000_000 },
-  { re: /\bmil\b|\bk\b/i, m: 1_000 },
+  { re: /(?:^|[^\p{L}])(?:milh(?:ão|ao|ões|oes)|mi)(?![\p{L}])/iu, m: 1_000_000 },
+  { re: /(?:^|[^\p{L}])M(?![\p{L}])/u, m: 1_000_000 },
+  { re: /(?:^|[^\p{L}])(?:mil|k)(?![\p{L}])/iu, m: 1_000 },
 ];
 
 /** "R$ 3,6 milhões" -> 3600000 · "14 mil/mês" -> 14000 · "10.000" -> 10000 · "5.000,00" -> 5000 · sem número -> null. */
@@ -63,4 +65,34 @@ export function compacto(n: number): string {
 function trocaPonto(n: number): string {
   const r = Math.round(n * 10) / 10;
   return String(Number.isInteger(r) ? r : r.toFixed(1)).replace('.', ',');
+}
+
+/** Periodicidade dita no texto: "/mês", "mensal", "por mês", "ao mês" -> 'mes' · "/ano", "anual", "por ano" -> 'ano' · nada -> null. */
+export function periodicidade(s: string | null | undefined): 'mes' | 'ano' | null {
+  const t = (s || '').toLowerCase();
+  if (/\/\s*m[êe]s\b|\bmensal|\bmensais\b|\bpor m[êe]s\b|\bao m[êe]s\b|\bo m[êe]s\b|\bcada m[êe]s\b/.test(t)) return 'mes';
+  if (/\/\s*ano\b|\banual\b|\banuais\b|\bpor ano\b|\bao ano\b|\bno ano\b|\bcada ano\b/.test(t)) return 'ano';
+  return null;
+}
+
+/**
+ * Total do primeiro ano de um degrau da escada de preço: valor mensal × 12; valor anual = ele mesmo;
+ * sem periodicidade dita no valor, no nome ou no "o que muda" devolve null (a ficha não inventa a conta).
+ * O multiplicador ("mil", "milhões") pode estar no nome quando o parse separou só o número ("14" + "mil/mês").
+ */
+export function totalAnual(valor: string | null | undefined, ...textos: (string | null | undefined)[]): number | null {
+  const v = (valor || '').trim();
+  if (!v) return null;
+  const junto = [v, ...textos].filter(Boolean).join(' ');
+  const n = moedaNumero(junto);
+  if (n == null) return null;
+  const p = periodicidade(junto);
+  if (p === 'mes') return n * 12;
+  if (p === 'ano') return n;
+  return null;
+}
+
+/** "R$ 168 mil" a partir de um número; usa a forma compacta. */
+export function moedaCompacta(n: number): string {
+  return `R$ ${compacto(n)}`;
 }
