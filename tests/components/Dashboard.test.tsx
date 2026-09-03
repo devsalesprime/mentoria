@@ -34,6 +34,13 @@ vi.mock('../../components/modules/OfferModule', () => ({
 vi.mock('../../components/OverviewPanel', () => ({
   OverviewPanel: () => React.createElement('div', null, 'OverviewPanel'),
 }));
+// Script 7 Passos (cohort) — heavy screens mocked; the hook itself is a no-op without cohort
+vi.mock('../../components/script/FichaScreen', () => ({
+  FichaScreen: () => React.createElement('div', null, 'FichaScreen'),
+}));
+vi.mock('../../components/script/MateriaisScreen', () => ({
+  MateriaisScreen: () => React.createElement('div', null, 'MateriaisScreen'),
+}));
 
 const mockFetch = vi.fn(() =>
   Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
@@ -75,5 +82,22 @@ describe('Dashboard', () => {
       </MemoryRouter>
     );
     expect(container).toBeTruthy();
+  });
+
+  it('does not show the Script 7 Passos section for non-cohort users', () => {
+    const { queryByText } = render(
+      <MemoryRouter>
+        <Dashboard
+          userEmail="user@test.com"
+          userName="Full Name"
+          userDescription=""
+          onUpdateProfile={vi.fn()}
+          onLogout={vi.fn()}
+          token="test-token-123"
+        />
+      </MemoryRouter>
+    );
+    expect(queryByText('SCRIPT 7 PASSOS')).toBeNull();
+    expect(queryByText('Ficha do Script')).toBeNull();
   });
 });

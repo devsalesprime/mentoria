@@ -1,0 +1,52 @@
+{
+  "_leia": "EXEMPLO FICTÍCIO do contrato CONTRATO-prefill-json.md. Clube de teste 'exemplo-clube'. Nunca importar em clube real. Cadastre o clube antes: PUT /api/admin/clubs/exemplo-clube/members { nome: 'Clube Exemplo', add: [{ email: 'mentor.exemplo@teste.local' }] }.",
+  "club_slug": "exemplo-clube",
+  "club_nome": "Clube Exemplo",
+  "membros": ["mentor.exemplo@teste.local"],
+  "gerado_em": "2026-09-02",
+  "gerado_por": "claude-local (amostra)",
+  "fontes_lidas": ["EXEMPLO/exclusive-book-ficticio.md", "EXEMPLO/one-pager-ficticio.md"],
+  "campos": {
+    "1.1": { "sugerido": "Mentoria Exemplo em Grupo (programa anual)", "classe": "Fato", "fonte": "Exclusive Book fictício · P2 · Oferta", "alternativas": [], "nota_interna": "amostra" },
+    "1.2": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+
+    "2.1": { "sugerido": "Sou especialista em organizar a operação de clínicas de médio porte para que o dono saia do balcão.", "classe": "Fato", "fonte": "Exclusive Book fictício · P1 · Mentor", "alternativas": [
+      { "sugerido": "Ajudo donos de clínica a estruturar gestão e equipe.", "fonte": "App · 1.1" }
+    ] },
+    "2.2": { "sugerido": "Vinte anos de clínica própria.\nTrês unidades abertas com equipe própria.\nFormou mais de cem gestores em curso presencial.", "classe": "Fato", "fonte": "Exclusive Book fictício · P1 · Linha do tempo", "alternativas": [] },
+    "2.3": { "sugerido": "O mercado vende curso gravado e deixa o dono sozinho. Eu entro na operação com ele, semana a semana.", "classe": "Fato", "fonte": "App · 1.5a e 1.5b", "alternativas": [] },
+    "2.4": { "sugerido": "Porque vi bons profissionais fecharem as portas por falta de gestão, não por falta de talento.", "classe": "Fato", "fonte": "Exclusive Book fictício · P1 · Valores", "alternativas": [] },
+    "2.5": { "sugerido": "Vendi algumas", "classe": "Fato", "fonte": "App · 1.4 (startingFromZero = false)", "alternativas": [] },
+
+    "3.1": { "sugerido": "Dono de clínica de saúde com 5 a 30 funcionários, faturamento entre 100 e 500 mil por mês, capitais e cidades médias do Sul e Sudeste.", "classe": "Fato", "fonte": "Exclusive Book fictício · P1 · Mentorado", "alternativas": [] },
+    "3.2": { "sugerido": "Sócio clínico ou cônjuge que cuida do financeiro.", "classe": "Fato", "fonte": "One-pager fictício · seção Decisor", "alternativas": [] },
+    "3.3": { "sugerido": "Eu não consigo sair da clínica nem por um dia.\nMinha equipe só funciona quando eu estou olhando.\nFaturo bem, mas não sobra.", "classe": "Fato", "fonte": "App · 2.2a e 2.2b", "alternativas": [] },
+    "3.4": { "sugerido": "Quero uma clínica que funcione sem mim.\nQuero ter fim de semana de novo.", "classe": "Fato", "fonte": "App · 2.4b", "alternativas": [] },
+    "3.5": { "sugerido": "Mais um ano preso no balcão, com a equipe girando e o lucro parado.", "classe": "DER", "fonte": "derivado de 3.3", "alternativas": [] },
+    "3.6": { "sugerido": "Clínica rodando com gerente, o dono fora da operação e com agenda para crescer.", "classe": "DER", "fonte": "derivado de 3.4", "alternativas": [] },
+    "3.7": { "sugerido": "Consultoria de gestão genérica (valor não informado).\nCurso online de gestão de clínicas.\nContratar um gerente sem preparo.", "classe": "Fato", "fonte": "App · competitors", "alternativas": [] },
+    "3.8": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "3.9": { "sugerido": "Profissional autônomo sem equipe.", "classe": "Fato", "fonte": "App · 2.6", "alternativas": [] },
+
+    "4.1": { "sugerido": "Método Clínica Livre: leva o dono do balcão para a cadeira de gestor em 6 meses.", "classe": "Fato", "fonte": "Exclusive Book fictício · P1 · Método", "alternativas": [] },
+    "4.2": { "sugerido": "Mapa da operação: mostra onde o tempo do dono vai.\nProcessos mínimos: tira o dono das decisões repetidas.\nGerente em formação: prepara quem assume.\nRitmo de gestão: reuniões e indicadores semanais.", "classe": "Fato", "fonte": "App · pillars", "alternativas": [] },
+    "4.3": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "4.4": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+
+    "5.1": { "sugerido": "Em 6 meses, a clínica roda uma semana inteira sem o dono na operação.", "classe": "Fato", "fonte": "Exclusive Book fictício · P2 · Promessa", "alternativas": [] },
+    "5.2": { "sugerido": "Encontro quinzenal em grupo (2 h).\nMentoria individual mensal (1 h).\nGrupo de WhatsApp com resposta em 24 h.\nDuração: 6 meses.", "classe": "Fato", "fonte": "App · deliverables", "alternativas": [] },
+    "5.3": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "5.4": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "5.5": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "5.6": { "sugerido": "Tempo com a família.\nRede de outros donos de clínica.", "classe": "Fato", "fonte": "App · 2.4b", "alternativas": [] },
+    "5.7": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+
+    "6.1": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "6.2": { "sugerido": "O próprio mentor conduz; lead chega por indicação de pacientes e pelo Instagram.", "classe": "Fato", "fonte": "Briefing fictício do CSM · seção Venda", "alternativas": [] },
+    "6.3": { "sugerido": "Não tenho tempo agora.\nJá tentei consultoria e não deu certo.", "classe": "Fato", "fonte": "App · 2.3a", "alternativas": [] },
+    "6.4": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "6.5": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "6.6": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] },
+    "6.7": { "sugerido": "", "classe": "VZ", "fonte": "", "alternativas": [] }
+  }
+}
