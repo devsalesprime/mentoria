@@ -66,17 +66,28 @@ async function seedCohort(h, seedPath = DEFAULT_SEED) {
     }
   }
 
-  // Marca usuarios ja existentes que ainda nao tem cohort
+  // Marca usuarios ja existentes que ainda nao tem cohort (so clube ativo)
   const marked = await h.dbRun(
     `UPDATE users
        SET cohort = 'exclusive',
-           club_slug = (SELECT cm.club_slug FROM cohort_members cm WHERE cm.email = lower(users.email)),
+           club_slug = (SELECT cm.club_slug FROM cohort_members cm
+                          JOIN cohort_clubs cc ON cc.slug = cm.club_slug
+                         WHERE cm.email = lower(users.email) AND cc.ativo = 1),
            updated_at = CURRENT_TIMESTAMP
      WHERE cohort IS NULL
-       AND lower(email) IN (SELECT email FROM cohort_members)`
+       AND lower(email) IN (SELECT cm.email FROM cohort_members cm
+                              JOIN cohort_clubs cc ON cc.slug = cm.club_slug
+                             WHERE cc.ativo = 1)`
   );
 
-  return { clubs, members, membersInserted, usersMarked: marked.changes || 0 };
+  // Clube desativado no seed: tira o cohort de quem esta nele (club_slug fica, para reativar)
+  const unmarked = await h.dbRun(
+    `UPDATE users SET cohort = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE cohort = 'exclusive'
+        AND club_slug IN (SELECT slug FROM cohort_clubs WHERE ativo = 0)`
+  );
+
+  return { clubs, members, membersInserted, usersMarked: marked.changes || 0, usersUnmarked: unmarked.changes || 0 };
 }
 
 module.exports = { seedCohort, DEFAULT_SEED };

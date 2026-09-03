@@ -711,7 +711,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <Button
               variant="danger-soft"
               size="sm"
-              onClick={() => { props.onLogout(); navigate('/'); }}
+              onClick={() => { scriptFicha.flushKeepalive(); props.onLogout(); navigate('/'); }}
               className="text-xs sm:text-sm"
             >
               Sair

@@ -82,6 +82,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       if (!user.club_nome) {
         return res.status(403).json({ success: false, enabled: false, message: 'Clube não encontrado. Fale com o Caio.' });
       }
+      if (user.club_ativo !== 1) {
+        return res.status(403).json({ success: false, enabled: false, message: 'Clube inativo. Fale com o Caio.' });
+      }
       req.cohort = user;
       req.ficha = await ensureFicha(user.club_slug);
       next();

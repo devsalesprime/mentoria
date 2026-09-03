@@ -37,7 +37,7 @@
 
     { "key": "4.1", "bloco": 4, "nome": "Nome e fio condutor", "pergunta": "Nome do método e como leva de A para B, em 1 frase?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P3", "fontes": "EB-P1 > APP:method.name + promise > BRF > MESA", "minutos": 1.5 },
     { "key": "4.2", "bloco": 4, "nome": "Pilares ou etapas", "pergunta": "Quais são (3 a 8) e o que cada um resolve?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P3 (só o que resolve)", "fontes": "EB-P1 > APP:pillars ou steps > BRF", "minutos": 2 },
-    { "key": "4.3", "bloco": 4, "nome": "Pilar que resolve a dor principal", "pergunta": "Qual pilar resolve a dor do 3.3?", "tipo": "esc", "tipoRaw": "esc", "obrigatorio": true, "passo": "P3 (diagnóstico, não catálogo)", "fontes": "DER(3.3 × 4.2)", "minutos": 1 },
+    { "key": "4.3", "bloco": 4, "nome": "Pilar que resolve a dor principal", "pergunta": "Qual pilar resolve a dor do 3.3?", "tipo": "esc", "tipoRaw": "esc", "obrigatorio": true, "passo": "P3 (leitura da dor, não catálogo)", "fontes": "DER(3.3 × 4.2)", "minutos": 1 },
     { "key": "4.4", "bloco": 4, "nome": "Obstáculos por etapa", "pergunta": "Onde o cliente trava em cada etapa e como o método resolve?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": false, "passo": "P3, P4 (\"meu caso é específico\")", "fontes": "APP:obstacles > EB-P1 > VZ", "minutos": 1.5 },
 
     { "key": "5.1", "bloco": 5, "nome": "Promessa", "pergunta": "Que resultado, em que prazo, em 1 frase?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P3, P5", "fontes": "EB-P2 > APP:promise > BRF > MESA", "minutos": 1 },

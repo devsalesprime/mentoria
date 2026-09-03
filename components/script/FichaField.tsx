@@ -10,6 +10,8 @@ interface FichaFieldProps {
 }
 
 const ROWS_BY_TYPE: Record<string, number> = { tc: 2, tx: 5, ls: 5, num: 1, esc: 2 };
+// Alvo de toque no celular: 44 px de altura minima (desktop mantem o tamanho do Button)
+const TAP = 'min-h-[44px] sm:min-h-0';
 
 function renderValue(value: string, tipo: string) {
   const lines = value.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -64,7 +66,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
     return null;
   })();
 
-  const editor = (
+  const renderEditor = (showCancel: boolean) => (
     <div className="space-y-2" data-testid={`editor-${campo.key}`}>
       {campo.tipo === 'esc' && campo.opcoes && campo.opcoes.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -95,8 +97,8 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
       />
       {campo.tipo === 'ls' && <p className="text-[11px] text-white/40 font-sans">Lista: um item por linha.</p>}
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="sm" onClick={saveEdit} disabled={!draft.trim()}>Salvar</Button>
-        <Button variant="ghost" size="sm" onClick={cancelEdit}>Cancelar</Button>
+        <Button variant="primary" size="md" className={TAP} onClick={saveEdit} disabled={!draft.trim()}>Salvar</Button>
+        {showCancel && <Button variant="ghost" size="md" className={TAP} onClick={cancelEdit}>Cancelar</Button>}
       </div>
     </div>
   );
@@ -117,7 +119,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
       <p className="text-sm text-white/70 font-sans leading-relaxed">{campo.pergunta}</p>
 
       {/* Corpo por estado */}
-      {editing ? editor : (
+      {editing ? renderEditor(true) : (
         <>
           {(status === 'sugerido') && (
             <div className="space-y-3">
@@ -146,8 +148,8 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               )}
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="primary" size="sm" onClick={confirm}>Confirmar</Button>
-                  <Button variant="secondary" size="sm" onClick={() => startEdit(campo.sugerido)}>Editar</Button>
+                  <Button variant="primary" size="md" className={TAP} onClick={confirm}>Confirmar</Button>
+                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit(campo.sugerido)}>Editar</Button>
                 </div>
               )}
             </div>
@@ -164,11 +166,11 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               </div>
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => startEdit()}>Editar</Button>
+                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit()}>Editar</Button>
                   {status === 'editado' && !isEmptySource && (
-                    <Button variant="ghost" size="sm" onClick={confirm}>Voltar ao sugerido</Button>
+                    <Button variant="ghost" size="md" className={TAP} onClick={confirm}>Voltar ao sugerido</Button>
                   )}
-                  <Button variant="ghost" size="sm" onClick={undo}>Desfazer</Button>
+                  <Button variant="ghost" size="md" className={TAP} onClick={undo}>Desfazer</Button>
                 </div>
               )}
             </div>
@@ -179,14 +181,10 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               <p className="text-sm text-white/60 font-sans italic">Não encontramos, você preenche.</p>
               {!readOnly && (
                 <>
-                  {editor}
-                  <button
-                    type="button"
-                    onClick={acceptEmpty}
-                    className="text-xs text-white/50 hover:text-white/80 underline underline-offset-2 font-sans"
-                  >
+                  {renderEditor(false)}
+                  <Button variant="ghost" size="md" className={`${TAP} !text-white/60 hover:!text-white`} onClick={acceptEmpty}>
                     {campo.obrigatorio ? 'Deixar em branco por enquanto' : 'Não se aplica / deixar vazio'}
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
@@ -202,8 +200,8 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               </div>
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => startEdit('')}>Preencher</Button>
-                  {!isEmptySource && <Button variant="ghost" size="sm" onClick={undo}>Ver sugestão</Button>}
+                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit('')}>Preencher</Button>
+                  {!isEmptySource && <Button variant="ghost" size="md" className={TAP} onClick={undo}>Ver sugestão</Button>}
                 </div>
               )}
             </div>

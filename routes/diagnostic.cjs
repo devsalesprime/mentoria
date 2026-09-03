@@ -17,15 +17,17 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
 
       // Cohort (Script 7 Passos): vem de users + cohort_clubs, nunca do token
       const cohortRow = await dbGet(
-        `SELECT u.cohort, u.club_slug, cc.nome AS club_nome
+        `SELECT u.cohort, u.club_slug, cc.nome AS club_nome, cc.ativo AS club_ativo
            FROM users u LEFT JOIN cohort_clubs cc ON cc.slug = u.club_slug
           WHERE u.id = ?`,
         [userId]
       );
+      // Clube inativo (ativo = 0) some do front como se nao houvesse cohort
+      const cohortActive = !!(cohortRow && cohortRow.cohort && cohortRow.club_slug && cohortRow.club_ativo === 1);
       const cohort = {
-        cohort: cohortRow?.cohort || null,
-        club_slug: cohortRow?.club_slug || null,
-        club_nome: cohortRow?.club_nome || null,
+        cohort: cohortActive ? cohortRow.cohort : null,
+        club_slug: cohortActive ? cohortRow.club_slug : null,
+        club_nome: cohortActive ? cohortRow.club_nome : null,
       };
 
       if (!row) {

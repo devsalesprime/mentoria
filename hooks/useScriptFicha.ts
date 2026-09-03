@@ -159,7 +159,41 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
 
   useEffect(() => { load(); }, [load]);
 
+  /**
+   * Envia a fila pendente sem esperar resposta (fetch keepalive): usado em pagehide/beforeunload,
+   * no logout e no unmount, para nao perder decisao presa no debounce de 1,5 s.
+   */
+  const flushKeepalive = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    const updates = pendingRef.current;
+    if (!token || !Object.keys(updates).length) return;
+    pendingRef.current = {};
+    try {
+      fetch('/api/script/ficha/fields', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ updates }),
+        keepalive: true,
+      }).catch(() => { /* sem retry: a pagina esta fechando */ });
+    } catch { /* ambiente sem fetch */ }
+  }, [token]);
+
+  const flushRef = useRef(flushKeepalive);
+  useEffect(() => { flushRef.current = flushKeepalive; }, [flushKeepalive]);
+
+  useEffect(() => {
+    if (!token || !enabled || typeof window === 'undefined') return;
+    const handler = () => flushRef.current();
+    window.addEventListener('pagehide', handler);
+    window.addEventListener('beforeunload', handler);
+    return () => {
+      window.removeEventListener('pagehide', handler);
+      window.removeEventListener('beforeunload', handler);
+    };
+  }, [token, enabled]);
+
   useEffect(() => () => {
+    flushRef.current();
     if (timerRef.current) clearTimeout(timerRef.current);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
   }, []);
@@ -278,6 +312,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     saveState,
     decide,
     flush,
+    flushKeepalive,
     complete,
     saveMaterials,
     submitMaterials,

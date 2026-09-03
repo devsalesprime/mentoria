@@ -141,8 +141,11 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
 
       if (!fullName) fullName = (cohortMember && cohortMember.nome) || 'Membro';
 
-      // Verificar se usuário já existe
-      const existingRow = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+      // Verificar se usuário já existe (e-mail chega normalizado; contas antigas podem ter caixa diferente)
+      const existingRow = await dbGet(
+        'SELECT id FROM users WHERE lower(email) = ? ORDER BY created_at ASC LIMIT 1',
+        [email]
+      );
       let userId = existingRow ? existingRow.id : null;
       const isExistingUser = !!userId;
       if (!userId) {

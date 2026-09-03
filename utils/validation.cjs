@@ -6,8 +6,9 @@ const { z } = require('zod');
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
+// E-mail normalizado (trim + minusculo): evita duas linhas em users para a mesma pessoa
 const verifyMemberSchema = z.object({
-    email: z.string().email('Email inválido').max(320),
+    email: z.string().trim().toLowerCase().email('Email inválido').max(320),
 });
 
 const adminLoginSchema = z.object({

@@ -48,6 +48,8 @@ Regras: cria clube que falta e atualiza `nome`/`ativo`; membro só é **inserido
 2. Se tem `HUBSPOT_PRIVATE_TOKEN`, consulta o HubSpot como antes (nome + etapa do negócio).
 3. **Fora do cohort:** comportamento idêntico ao anterior (404 sem contato, 403 sem negócio ganho, 500 em erro).
 4. **No cohort:** entra mesmo sem contato ou sem etapa ganha; erro do HubSpot é tolerado (log). Nome = HubSpot > `cohort_members.nome` > "Membro". Grava `users.cohort = 'exclusive'` e `users.club_slug`. Token ganha `cohort` e `clubSlug` (informativo).
+5. E-mail é normalizado (trim + minúsculo) no schema; a conta é procurada por `lower(email)`, então `JULIO.Filho@…` e `julio.filho@…` são a mesma linha em `users` (contas antigas com caixa diferente continuam sendo encontradas).
+6. `ativo = 0` no clube: sem bypass no login, `GET /api/diagnostic` devolve `cohort = null` (menu some) e `/api/script/*` responde 403 `{ enabled: false }`. Ativar/desativar pela aba Cohort re-sincroniza `users.cohort` dos membros; o seed faz o mesmo no boot.
 
 `GET /api/diagnostic` passa a devolver `cohort`, `club_slug`, `club_nome`; o hook `useDiagnosticPersistence` expõe `cohort`, `clubSlug`, `clubNome`, `diagnosticLoaded`.
 
@@ -81,7 +83,7 @@ Validação com zod em `utils/validation.cjs` (`scriptFieldsUpdateSchema`, `scri
 
 | Arquivo | Papel |
 |--|--|
-| `hooks/useScriptFicha.ts` | Uma instância no `Dashboard`, compartilhada por Materiais e Ficha. Decisão otimista local + fila com debounce 1,5 s → `PUT fields`. Indicador `saveState` (Salvando / Salvo / erro com retry na próxima alteração). |
+| `hooks/useScriptFicha.ts` | Uma instância no `Dashboard`, compartilhada por Materiais e Ficha. Decisão otimista local + fila com debounce 1,5 s → `PUT fields`. Indicador `saveState` (Salvando / Salvo / erro com retry na próxima alteração). Fila pendente é despachada com `fetch keepalive` em `pagehide`/`beforeunload`, no logout e no unmount. |
 | `components/script/FichaScreen.tsx` | Card "Hoje: <blocos> · ≈ N min" (Dia 1 = blocos 1 a 3, Dia 2 = 4 a 6, Dia 3 = revisar o script, "em breve"), 6 blocos em acordeão com "x de y", celebração discreta ao fechar bloco, botão "Fechar ficha". |
 | `components/script/FichaField.tsx` | Pergunta, sugerido, "Fonte: …", até 2 "Também encontramos", Confirmar / Editar (editor por tipo), "Não encontramos, você preenche", "Não se aplica / deixar vazio" (opcional) e "Deixar em branco por enquanto" (obrigatório). |
 | `components/script/MateriaisScreen.tsx` | 5 categorias com `FileUpload` (props novas: `accept`, `allowedMimePrefixes`, `allowedExtensions`, `hint`, `canDelete`, `fileMeta`), links, observações, aviso de senhas/áudio pelo WhatsApp, "Enviei o que tinha". |

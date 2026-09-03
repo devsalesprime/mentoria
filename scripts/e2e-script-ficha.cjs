@@ -72,6 +72,13 @@ function step(msg) { console.log(`\n== ${msg}`); }
   const memberToken = login.data.token;
   console.log('login ok; cohort =', login.data.user.cohort, 'clube =', login.data.user.clubSlug);
 
+  step('3b. Mesmo e-mail em outra caixa -> mesma conta (sem linha duplicada em users)');
+  const mixed = EMAIL.replace(/^(\w)(\w*)@(\w)/, (_, a, b, c) => `${a.toUpperCase()}${b}@${c.toUpperCase()}`);
+  const login2 = await call('POST', '/auth/verify-member', null, { email: `  ${mixed} ` });
+  console.log(mixed, '->', login2.data.user.email, '| userId igual:', login2.data.user.userId === login.data.user.userId);
+  if (login2.data.user.userId !== login.data.user.userId) throw new Error('e-mail em caixa diferente criou outra conta');
+  if (login2.data.user.email !== EMAIL.toLowerCase()) throw new Error('e-mail nao normalizado');
+
   step('4. GET /api/diagnostic expoe cohort/club');
   const diag = await call('GET', '/api/diagnostic', memberToken);
   console.log({ cohort: diag.data.data.cohort, club_slug: diag.data.data.club_slug, club_nome: diag.data.data.club_nome });
@@ -151,6 +158,22 @@ function step(msg) { console.log(`\n== ${msg}`); }
   const forbidden = await call('GET', '/api/script/ficha', outsider, null, false);
   console.log(forbidden.status, forbidden.data);
   if (forbidden.status !== 403 || forbidden.data.enabled !== false) throw new Error('esperado 403 enabled:false');
+
+  step('15. Clube desativado (ativo = 0): membro perde a area e o menu; reativar devolve');
+  await call('PUT', `/api/admin/clubs/${SLUG}/members`, adminToken, { ativo: 0 });
+  const offFicha = await call('GET', '/api/script/ficha', memberToken, null, false);
+  const offDiag = await call('GET', '/api/diagnostic', memberToken);
+  console.log('ficha ->', offFicha.status, offFicha.data, '| diagnostic.cohort =', offDiag.data.data.cohort, '| club_slug =', offDiag.data.data.club_slug);
+  if (offFicha.status !== 403 || offFicha.data.enabled !== false) throw new Error('clube inativo deveria dar 403 enabled:false');
+  if (offDiag.data.data.cohort !== null) throw new Error('clube inativo deveria esconder o cohort no /api/diagnostic (menu)');
+  const offLogin = await call('POST', '/auth/verify-member', null, { email: EMAIL }, false);
+  console.log('login com clube inativo ->', offLogin.status, '(sem bypass; segue a regra do HubSpot)');
+  if (offLogin.status === 200 && offLogin.data.user && offLogin.data.user.cohort) throw new Error('login nao deveria marcar cohort com clube inativo');
+  await call('PUT', `/api/admin/clubs/${SLUG}/members`, adminToken, { ativo: 1 });
+  const onFicha = await call('GET', '/api/script/ficha', memberToken);
+  const onDiag = await call('GET', '/api/diagnostic', memberToken);
+  console.log('reativado: ficha ->', onFicha.status, '| diagnostic.cohort =', onDiag.data.data.cohort);
+  if (onDiag.data.data.cohort !== 'exclusive') throw new Error('reativar deveria devolver o cohort');
 
   console.log('\nE2E OK');
 })().catch((err) => {

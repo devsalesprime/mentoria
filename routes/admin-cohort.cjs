@@ -34,15 +34,34 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     return dbGet(`SELECT * FROM script_fichas WHERE club_slug = ?`, [clubSlug]);
   }
 
+  // 1 linha por e-mail mesmo se users tiver duplicata por caixa (fica a de updated_at mais recente)
+  const LATEST_USER_JOIN = `LEFT JOIN users u ON u.id = (
+        SELECT u2.id FROM users u2 WHERE lower(u2.email) = cm.email ORDER BY u2.updated_at DESC, u2.created_at DESC LIMIT 1)`;
+
   async function listMembers(slug) {
     return dbAll(
       `SELECT cm.email, cm.nome, cm.created_at, u.id AS user_id, u.name AS user_name, u.updated_at AS ultimo_login
          FROM cohort_members cm
-         LEFT JOIN users u ON lower(u.email) = cm.email
+         ${LATEST_USER_JOIN}
         WHERE cm.club_slug = ?
         ORDER BY cm.created_at ASC`,
       [slug]
     );
+  }
+
+  /** Reaplica users.cohort para os membros do clube conforme cohort_clubs.ativo. */
+  async function resyncClubUsers(slug) {
+    const club = await getClub(slug);
+    if (!club) return;
+    if (club.ativo === 1) {
+      await dbRun(
+        `UPDATE users SET cohort = 'exclusive', club_slug = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE lower(email) IN (SELECT email FROM cohort_members WHERE club_slug = ?)`,
+        [slug, slug]
+      );
+    } else {
+      await dbRun(`UPDATE users SET cohort = NULL, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`, [slug]);
+    }
   }
 
   async function listFiles(slug) {
@@ -59,12 +78,14 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     }));
   }
 
-  /** Marca users.cohort/club_slug para os e-mails informados (se ja tem conta). */
+  /** Marca users.cohort/club_slug para os e-mails informados (se ja tem conta); clube inativo so aponta o club_slug. */
   async function markUsers(emails, slug) {
+    const club = await getClub(slug);
+    const cohortValue = club && club.ativo === 1 ? 'exclusive' : null;
     for (const email of emails) {
       await dbRun(
-        `UPDATE users SET cohort = 'exclusive', club_slug = ?, updated_at = CURRENT_TIMESTAMP WHERE lower(email) = ?`,
-        [slug, email]
+        `UPDATE users SET cohort = ?, club_slug = ?, updated_at = CURRENT_TIMESTAMP WHERE lower(email) = ?`,
+        [cohortValue, slug, email]
       );
     }
   }
@@ -83,7 +104,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       const members = await dbAll(
         `SELECT cm.email, cm.nome, cm.club_slug, u.id AS user_id, u.updated_at AS ultimo_login
            FROM cohort_members cm
-           LEFT JOIN users u ON lower(u.email) = cm.email
+           ${LATEST_USER_JOIN}
           ORDER BY cm.created_at ASC`
       );
       const fileCounts = await dbAll(
@@ -252,7 +273,10 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
         await dbRun(`INSERT INTO cohort_clubs (slug, nome, ativo) VALUES (?, ?, ?)`, [slug, nome.trim(), ativo === 0 ? 0 : 1]);
       } else {
         if (nome) await dbRun(`UPDATE cohort_clubs SET nome = ? WHERE slug = ?`, [nome.trim(), slug]);
-        if (ativo === 0 || ativo === 1) await dbRun(`UPDATE cohort_clubs SET ativo = ? WHERE slug = ?`, [ativo, slug]);
+        if (ativo === 0 || ativo === 1) {
+          await dbRun(`UPDATE cohort_clubs SET ativo = ? WHERE slug = ?`, [ativo, slug]);
+          await resyncClubUsers(slug); // desativar tira o cohort dos membros; ativar devolve
+        }
       }
 
       const added = [];
