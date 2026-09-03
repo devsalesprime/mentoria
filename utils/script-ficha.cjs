@@ -5,7 +5,8 @@
  * Estado de cada campo em script_fichas.fields[key]:
  *   { sugerido, classe, fonte, alternativas[], nota_interna,
  *     status: 'sugerido'|'confirmado'|'editado'|'vazio'|'aceito_vazio',
- *     valor, atualizado_por, atualizado_em }
+ *     valor, estrutura (JSON do widget, so com status editado; null nos demais),
+ *     atualizado_por, atualizado_em }
  */
 const DEFS = require('../data/script-ficha-fields.json');
 
@@ -33,9 +34,15 @@ function emptyFieldState() {
     nota_interna: '',
     status: 'vazio',
     valor: '',
+    estrutura: null,
     atualizado_por: null,
     atualizado_em: null,
   };
+}
+
+/** Estrutura valida = objeto simples (nao array); qualquer outra coisa vira null. */
+function normalizeEstrutura(raw) {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
 }
 
 function normalizeFieldState(raw) {
@@ -53,6 +60,7 @@ function normalizeFieldState(raw) {
   if (typeof out.nota_interna !== 'string') out.nota_interna = '';
   if (!FIELD_STATUSES.includes(out.status)) out.status = out.sugerido ? 'sugerido' : 'vazio';
   if (typeof out.valor !== 'string') out.valor = out.valor == null ? '' : String(out.valor);
+  out.estrutura = out.status === 'editado' ? normalizeEstrutura(out.estrutura) : null;
   return out;
 }
 
@@ -76,11 +84,11 @@ function effectiveValue(state) {
 }
 
 /**
- * Aplica decisoes do mentor. updates = { "3.3": { valor?, status } }.
+ * Aplica decisoes do mentor. updates = { "3.3": { valor?, status, estrutura? } }.
  * Transicoes:
- *   confirmado   : exige sugerido nao vazio; valor = sugerido
- *   editado      : exige valor nao vazio
- *   aceito_vazio : sempre permitido; valor = ''
+ *   confirmado   : exige sugerido nao vazio; valor = sugerido; estrutura = null
+ *   editado      : exige valor nao vazio; guarda estrutura (JSON do widget) se vier
+ *   aceito_vazio : sempre permitido; valor = ''; estrutura = null
  *   sugerido|vazio : desfaz a decisao (volta ao original)
  */
 function applyUpdates(fields, updates, email) {
@@ -98,17 +106,18 @@ function applyUpdates(fields, updates, email) {
 
     if (status === 'confirmado') {
       if (!cur.sugerido.trim()) { rejected.push({ key, motivo: 'sem sugestao para confirmar' }); continue; }
-      next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, atualizado_por: email, atualizado_em: ts };
+      next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, estrutura: null, atualizado_por: email, atualizado_em: ts };
     } else if (status === 'editado') {
       if (!valor.trim()) { rejected.push({ key, motivo: 'valor vazio' }); continue; }
-      next[key] = { ...cur, status: 'editado', valor: valor.trim(), atualizado_por: email, atualizado_em: ts };
+      next[key] = { ...cur, status: 'editado', valor: valor.trim(), estrutura: normalizeEstrutura(upd.estrutura), atualizado_por: email, atualizado_em: ts };
     } else if (status === 'aceito_vazio') {
-      next[key] = { ...cur, status: 'aceito_vazio', valor: '', atualizado_por: email, atualizado_em: ts };
+      next[key] = { ...cur, status: 'aceito_vazio', valor: '', estrutura: null, atualizado_por: email, atualizado_em: ts };
     } else if (status === 'sugerido' || status === 'vazio') {
       next[key] = {
         ...cur,
         status: cur.sugerido.trim() ? 'sugerido' : 'vazio',
         valor: '',
+        estrutura: null,
         atualizado_por: email,
         atualizado_em: ts,
       };
@@ -148,6 +157,7 @@ function applyPrefill(fields, campos) {
       nota_interna: String(inc.nota_interna || ''),
       status: sugerido ? 'sugerido' : 'vazio',
       valor: '',
+      estrutura: null,
     };
     imported.push(key);
   }
@@ -186,12 +196,15 @@ function buildFichaView(fieldsRaw, { includeInternal = false } = {}) {
         obrigatorio: def.obrigatorio,
         minutos: def.minutos,
         opcoes: def.opcoes || null,
+        widget: def.widget || null,
+        template: def.template || null,
         sugerido: st.sugerido,
         classe: st.classe,
         fonte: st.fonte,
         alternativas: st.alternativas,
         status: st.status,
         valor: st.valor,
+        estrutura: st.estrutura || null,
         valor_efetivo: effectiveValue(st),
         decidido: isDecided(st),
         atualizado_por: st.atualizado_por,
@@ -284,6 +297,7 @@ module.exports = {
   DECIDED_STATUSES,
   CLASSES,
   emptyFieldState,
+  normalizeEstrutura,
   normalizeFieldState,
   normalizeFields,
   isDecided,

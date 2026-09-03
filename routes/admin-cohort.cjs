@@ -1,25 +1,19 @@
 const { Router } = require('express');
 const SF = require('../utils/script-ficha.cjs');
 const { scriptPrefillSchema, cohortMembersSchema, validateBody } = require('../utils/validation.cjs');
+const VM = require('../utils/validation-materials.cjs');
 
 /**
  * Admin do cohort (clubes do Exclusive) e da Ficha do Script.
- * Rotas por CLUBE (:slug), nao por usuario.
+ * Rotas por CLUBE (:slug), nao por usuario. Materiais sao por PESSOA: o admin e o unico que ve tudo
+ * (arquivos, links, observacoes e acessos de plataforma de cada membro, mais o `legado` da forma antiga).
  */
 module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMiddleware, adminMiddleware, uuidv4, safeJsonParse }) {
   const router = Router();
 
-  function normEmail(e) {
-    return String(e || '').trim().toLowerCase();
-  }
+  VM.ensureCohortConfigTable(dbRun).catch((e) => console.error('cohort_config DDL error:', e.message));
 
-  function parseMaterials(raw) {
-    const m = safeJsonParse(raw, {});
-    return {
-      links: Array.isArray(m.links) ? m.links : [],
-      observacoes: typeof m.observacoes === 'string' ? m.observacoes : '',
-    };
-  }
+  const normEmail = VM.normEmail;
 
   async function getClub(slug) {
     return dbGet(`SELECT * FROM cohort_clubs WHERE slug = ?`, [slug]);
@@ -28,7 +22,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   async function ensureFicha(clubSlug) {
     await dbRun(
       `INSERT OR IGNORE INTO script_fichas (id, club_slug, fields, materials, materials_status, ficha_status)
-       VALUES (?, ?, '{}', '{"links":[],"observacoes":""}', 'pending', 'vazia')`,
+       VALUES (?, ?, '{}', '{"por_pessoa":{}}', 'pending', 'vazia')`,
       [`ficha-${uuidv4()}`, clubSlug]
     );
     return dbGet(`SELECT * FROM script_fichas WHERE club_slug = ?`, [clubSlug]);
@@ -66,7 +60,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
 
   async function listFiles(slug) {
     const rows = await dbAll(
-      `SELECT f.id, f.user_id, f.category, f.file_name, f.file_type, f.file_size, f.created_at, u.email AS owner_email
+      `SELECT f.id, f.user_id, f.category, f.file_name, f.file_type, f.file_size, f.created_at,
+              u.email AS owner_email, u.name AS owner_name
          FROM uploaded_files f JOIN users u ON u.id = f.user_id
         WHERE u.club_slug = ? AND f.category LIKE 'script_%'
         ORDER BY f.created_at ASC`,
@@ -74,8 +69,33 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     );
     return rows.map((r) => ({
       id: r.id, userId: r.user_id, category: r.category, fileName: r.file_name,
-      fileType: r.file_type, fileSize: r.file_size, createdAt: r.created_at, ownerEmail: r.owner_email,
+      fileType: r.file_type, fileSize: r.file_size, createdAt: r.created_at,
+      ownerEmail: normEmail(r.owner_email), ownerName: r.owner_name || null,
     }));
+  }
+
+  /** Materiais por pessoa: uniao de membros do clube, entradas em por_pessoa e donos de arquivo (ex-membro que enviou). */
+  function buildPessoas(membros, files, materials) {
+    const emails = new Set([
+      ...membros.map((m) => normEmail(m.email)),
+      ...Object.keys(materials.por_pessoa),
+      ...files.map((f) => f.ownerEmail),
+    ]);
+    return [...emails].filter(Boolean).map((email) => {
+      const m = membros.find((x) => normEmail(x.email) === email);
+      const p = materials.por_pessoa[email] || VM.emptyPessoa();
+      return {
+        email,
+        nome: (m && (m.nome || m.user_name)) || p.nome || null,
+        user_id: m ? m.user_id : null,
+        membro: !!m,
+        files: files.filter((f) => f.ownerEmail === email),
+        links: p.links,
+        observacoes: p.observacoes,
+        acessos: p.acessos,
+        submitted_at: p.submitted_at,
+      };
+    });
   }
 
   /** Marca users.cohort/club_slug para os e-mails informados (se ja tem conta); clube inativo so aponta o club_slug. */
@@ -95,7 +115,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     try {
       const clubs = await dbAll(
         `SELECT cc.slug, cc.nome, cc.ativo, cc.created_at,
-                sf.materials_status, sf.materials_submitted_at, sf.ficha_status, sf.fields,
+                sf.materials, sf.materials_status, sf.materials_submitted_at, sf.ficha_status, sf.fields,
                 sf.prefilled_at, sf.reviewed_at, sf.last_user_activity_at
            FROM cohort_clubs cc
            LEFT JOIN script_fichas sf ON sf.club_slug = cc.slug
@@ -125,12 +145,15 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
         const ms = membersBySlug[c.slug] || [];
         const summary = SF.summarize(safeJsonParse(c.fields, {}));
         const logins = ms.map((m) => m.ultimo_login).filter(Boolean).sort();
+        const materials = VM.normalizeMaterials(c.materials);
         return {
           club_slug: c.slug,
           club_nome: c.nome,
           ativo: c.ativo === 1,
           membros: ms,
-          materiais_count: countBySlug[c.slug] || 0,
+          materiais_count: countBySlug[c.slug] || 0, // arquivos de todos os membros
+          links_count: VM.countItems(materials), // links + acessos de todos os membros
+          pessoas_enviaram: VM.countSubmitted(materials),
           materials_status: c.materials_status || 'pending',
           materials_submitted_at: c.materials_submitted_at || null,
           ficha_status: c.ficha_status || 'vazia',
@@ -159,13 +182,19 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
       const ficha = await ensureFicha(club.slug);
       const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: true });
+      const [membros, files] = await Promise.all([listMembers(club.slug), listFiles(club.slug)]);
+      const materials = VM.normalizeMaterials(ficha.materials);
       res.json({
         success: true,
         data: {
           club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 },
-          membros: await listMembers(club.slug),
-          files: await listFiles(club.slug),
-          materials: parseMaterials(ficha.materials),
+          membros,
+          files,
+          // Por pessoa (arquivos, links, observacoes, acessos, submitted_at). `legado` = forma antiga por clube, se existia.
+          pessoas: buildPessoas(membros, files, materials),
+          pessoas_enviaram: VM.countSubmitted(materials),
+          legado: materials.legado || null,
+          materials,
           materials_status: ficha.materials_status,
           materials_submitted_at: ficha.materials_submitted_at,
           ficha_status: ficha.ficha_status,
@@ -254,6 +283,34 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       });
     } catch (error) {
       console.error('Error in PUT /api/admin/clubs/:slug/script-ficha:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/admin/cohort/config  (chave/valor; hoje so prazo_materiais)
+  router.get('/api/admin/cohort/config', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      res.json({ success: true, data: await VM.readCohortConfig(dbAll) });
+    } catch (error) {
+      console.error('Error in GET /api/admin/cohort/config:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // PUT /api/admin/cohort/config  { prazo_materiais }
+  router.put('/api/admin/cohort/config', authMiddleware, adminMiddleware, validateBody(VM.cohortConfigSchema), async (req, res) => {
+    try {
+      for (const key of VM.COHORT_CONFIG_KEYS) {
+        if (req.body[key] === undefined) continue;
+        await dbRun(
+          `INSERT INTO cohort_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+          [key, req.body[key]]
+        );
+      }
+      res.json({ success: true, data: await VM.readCohortConfig(dbAll) });
+    } catch (error) {
+      console.error('Error in PUT /api/admin/cohort/config:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

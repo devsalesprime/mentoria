@@ -19,6 +19,9 @@ export interface ScriptFieldDef {
   fontes: string;
   minutos: number;
   opcoes?: string[];
+  /** Widget de preenchimento (components/script/widgets) e o template dele. */
+  widget?: string;
+  template?: Record<string, any>;
 }
 
 export interface ScriptBlockDef {
@@ -55,12 +58,16 @@ export interface ScriptFieldView {
   obrigatorio: boolean;
   minutos: number;
   opcoes: string[] | null;
+  widget?: string | null;
+  template?: Record<string, any> | null;
   sugerido: string;
   classe: ScriptFieldClass;
   fonte: string;
   alternativas: ScriptAlternativa[];
   status: ScriptFieldStatus;
   valor: string;
+  /** JSON do widget quando o mentor editou pelo widget (render(estrutura) === valor). */
+  estrutura?: Record<string, any> | null;
   valor_efetivo: string;
   decidido: boolean;
   atualizado_por: string | null;

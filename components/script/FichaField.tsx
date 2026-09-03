@@ -1,17 +1,22 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ScriptFieldView } from '../../data/script-ficha-fields';
 import type { FieldDecision } from '../../hooks/useScriptFicha';
 import { Button } from '../ui/Button';
+import { buildContext, resolveWidget, type Estrutura } from './widgets';
 
 interface FichaFieldProps {
   campo: ScriptFieldView;
   onDecide: (key: string, decision: FieldDecision) => void;
   readOnly?: boolean;
+  /** Todos os campos da ficha por chave (4.3 e 4.4 leem os pilares do 4.2). */
+  contexto?: Record<string, ScriptFieldView>;
 }
 
 const ROWS_BY_TYPE: Record<string, number> = { tc: 2, tx: 5, ls: 5, num: 1, esc: 2 };
 // Alvo de toque no celular: 44 px de altura minima (desktop mantem o tamanho do Button)
 const TAP = 'min-h-[44px] sm:min-h-0';
+
+type EditMode = 'sugerido' | 'atual' | 'vazio';
 
 function renderValue(value: string, tipo: string) {
   const lines = value.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -25,29 +30,64 @@ function renderValue(value: string, tipo: string) {
   return <p className="whitespace-pre-line">{value}</p>;
 }
 
-export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnly = false }) => {
+export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnly = false, contexto }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [estrutura, setEstrutura] = useState<Estrutura | null>(null);
+  const [bruto, setBruto] = useState(false);
+
+  const widget = useMemo(() => resolveWidget(campo), [campo.widget, campo.template]);
+  const ctx = useMemo(() => buildContext(campo, contexto), [campo, contexto]);
 
   const isEmptySource = !campo.sugerido.trim();
   const status = campo.status;
   const decided = campo.decidido;
 
-  const startEdit = (initial?: string) => {
-    setDraft(initial ?? (campo.valor || campo.sugerido || ''));
+  // Estrutura em edicao: a do estado ou, no campo vazio (editor inline), a vazia do widget
+  const est: Estrutura | null = widget ? (estrutura ?? widget.vazio(ctx)) : null;
+  const rendered = widget && est ? widget.render(est) : draft.trim();
+  const canSave = rendered.length > 0;
+
+  const resetEditor = () => {
+    setEditing(false);
+    setDraft('');
+    setEstrutura(null);
+    setBruto(false);
+  };
+
+  /**
+   * Abre o editor. 'sugerido' = parte da sugestao; 'atual' = do valor decidido (estrutura salva, se houver);
+   * 'vazio' = em branco. Sugestao em texto corrido entra no widget pela heuristica (parse); se nao
+   * estruturar, vai para o primeiro slot livre com a nota "sugestão em texto corrido".
+   */
+  const startEdit = (mode: EditMode) => {
+    const text = mode === 'vazio' ? '' : mode === 'sugerido' ? campo.sugerido : (campo.valor || campo.sugerido || '');
+    if (widget) {
+      if (mode === 'atual' && campo.status === 'editado' && campo.estrutura && typeof campo.estrutura === 'object') {
+        setEstrutura(campo.estrutura);
+        setBruto(false);
+      } else if (!text.trim()) {
+        setEstrutura(widget.vazio(ctx));
+        setBruto(false);
+      } else {
+        const r = widget.parse(text, ctx);
+        setEstrutura(r.estrutura);
+        setBruto(r.bruto);
+      }
+    } else {
+      setDraft(text);
+    }
     setEditing(true);
   };
 
-  const cancelEdit = () => {
-    setEditing(false);
-    setDraft('');
-  };
-
   const saveEdit = () => {
-    const v = draft.trim();
-    if (!v) return;
-    onDecide(campo.key, { status: 'editado', valor: v });
-    setEditing(false);
+    if (!canSave) return;
+    if (widget && est) {
+      onDecide(campo.key, { status: 'editado', valor: rendered, estrutura: est });
+    } else {
+      onDecide(campo.key, { status: 'editado', valor: draft.trim() });
+    }
+    resetEditor();
   };
 
   const confirm = () => onDecide(campo.key, { status: 'confirmado' });
@@ -66,8 +106,8 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
     return null;
   })();
 
-  const renderEditor = (showCancel: boolean) => (
-    <div className="space-y-2" data-testid={`editor-${campo.key}`}>
+  const renderFallbackEditor = () => (
+    <>
       {campo.tipo === 'esc' && campo.opcoes && campo.opcoes.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {campo.opcoes.map((op) => (
@@ -75,7 +115,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               key={op}
               type="button"
               onClick={() => setDraft(op)}
-              className={`px-3 py-1.5 rounded-full text-xs font-sans border transition ${
+              className={`min-h-[44px] px-3 py-1.5 rounded-full text-xs font-sans border transition ${
                 draft === op
                   ? 'bg-prosperus-gold-dark text-black border-prosperus-gold-dark'
                   : 'border-white/20 text-white/70 hover:border-prosperus-gold-dark/60'
@@ -96,9 +136,28 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
         className="w-full bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 font-sans outline-none resize-y"
       />
       {campo.tipo === 'ls' && <p className="text-[11px] text-white/40 font-sans">Lista: um item por linha.</p>}
+    </>
+  );
+
+  const renderEditor = (showCancel: boolean) => (
+    <div className="space-y-2" data-testid={`editor-${campo.key}`}>
+      {bruto && (
+        <p className="text-[11px] text-prosperus-gold-light/80 font-sans" data-testid={`nota-bruto-${campo.key}`}>
+          Sugestão em texto corrido, ajuste nos campos.
+        </p>
+      )}
+      {widget && est ? (
+        <widget.Component
+          campo={campo}
+          template={widget.template}
+          value={est}
+          onChange={(e) => { setEstrutura(e); setBruto(false); }}
+          ctx={ctx}
+        />
+      ) : renderFallbackEditor()}
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="md" className={TAP} onClick={saveEdit} disabled={!draft.trim()}>Salvar</Button>
-        {showCancel && <Button variant="ghost" size="md" className={TAP} onClick={cancelEdit}>Cancelar</Button>}
+        <Button variant="primary" size="md" className={TAP} onClick={saveEdit} disabled={!canSave}>Salvar</Button>
+        {showCancel && <Button variant="ghost" size="md" className={TAP} onClick={resetEditor}>Cancelar</Button>}
       </div>
     </div>
   );
@@ -149,7 +208,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
                   <Button variant="primary" size="md" className={TAP} onClick={confirm}>Confirmar</Button>
-                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit(campo.sugerido)}>Editar</Button>
+                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit('sugerido')}>Editar</Button>
                 </div>
               )}
             </div>
@@ -166,7 +225,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               </div>
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit()}>Editar</Button>
+                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit('atual')}>Editar</Button>
                   {status === 'editado' && !isEmptySource && (
                     <Button variant="ghost" size="md" className={TAP} onClick={confirm}>Voltar ao sugerido</Button>
                   )}
@@ -200,7 +259,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               </div>
               {!readOnly && (
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit('')}>Preencher</Button>
+                  <Button variant="secondary" size="md" className={TAP} onClick={() => startEdit('vazio')}>Preencher</Button>
                   {!isEmptySource && <Button variant="ghost" size="md" className={TAP} onClick={undo}>Ver sugestão</Button>}
                 </div>
               )}

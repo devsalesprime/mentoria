@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import type { UseScriptFicha } from '../../hooks/useScriptFicha';
-import type { ScriptBlockView } from '../../data/script-ficha-fields';
+import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-fields';
 import { FichaField } from './FichaField';
 import { AccordionSection } from '../shared/AccordionSection';
 import { CelebrationOverlay } from '../shared/CelebrationOverlay';
@@ -14,6 +14,16 @@ interface FichaScreenProps {
 }
 
 const BLOCK_ICONS: Record<number, string> = { 1: '🎯', 2: '👤', 3: '🧭', 4: '🧩', 5: '📦', 6: '🤝' };
+
+// Uma frase por M (5 M's) para situar o bloco antes das perguntas
+const BLOCK_INTRO: Record<number, string> = {
+  1: 'Meta: onde você quer chegar, com número e prazo.',
+  2: 'Mentor: quem você é e o que te legitima a cobrar caro.',
+  3: 'Mentorado: para quem, com dor, desejo, setor, bolso e território.',
+  4: 'Método: como você leva o cliente de A para B.',
+  5: 'A Mentoria: o que vai ao mercado como oferta.',
+  6: 'Venda: como a venda acontece hoje.',
+};
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return '';
@@ -49,6 +59,12 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   const [closeError, setCloseError] = useState<string | null>(null);
   const prevClosedRef = useRef<Record<number, boolean>>({});
   const initializedRef = useRef(false);
+
+  // Mapa chave -> campo: widgets que leem outro campo (4.3 e 4.4 leem os pilares do 4.2)
+  const contexto = useMemo<Record<string, ScriptFieldView>>(
+    () => Object.fromEntries((data?.blocos || []).flatMap((b) => b.campos.map((c) => [c.key, c]))),
+    [data],
+  );
 
   // Abre o primeiro bloco em aberto do dia de hoje na primeira carga
   useEffect(() => {
@@ -108,6 +124,39 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   const allRequiredDone = progresso.obrigatorios_decididos >= progresso.obrigatorios;
   const isConfirmed = data.ficha_status === 'confirmada';
 
+  /**
+   * Campos do bloco. Pares antes/depois (3.5 × 3.6) viram um painel unico com as duas colunas,
+   * cada coluna salvando a propria chave.
+   */
+  const renderFields = (campos: ScriptFieldView[]) => {
+    const out: React.ReactNode[] = [];
+    const skip = new Set<string>();
+    for (const c of campos) {
+      if (skip.has(c.key)) continue;
+      const par: string | undefined = c.widget === 'antes_depois' ? c.template?.par : undefined;
+      const outro = par ? campos.find((x) => x.key === par && !skip.has(x.key)) : undefined;
+      if (outro) {
+        skip.add(outro.key);
+        out.push(
+          <div key={`${c.key}-${outro.key}`} className="rounded-lg border border-prosperus-gold-dark/25 bg-prosperus-gold-dark/[0.03] p-3 space-y-3" data-testid={`painel-${c.key}-${outro.key}`}>
+            <p className="font-serif text-base text-prosperus-gold-light">Daqui a 1 ano</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[c, outro].map((f) => (
+                <div key={f.key} className="space-y-2 min-w-0">
+                  <span className="block text-[11px] uppercase tracking-wide text-white/50 font-sans">{f.template?.rotulo || f.nome}</span>
+                  <FichaField campo={f} onDecide={decide} contexto={contexto} />
+                </div>
+              ))}
+            </div>
+          </div>,
+        );
+        continue;
+      }
+      out.push(<FichaField key={c.key} campo={c} onDecide={decide} contexto={contexto} />);
+    }
+    return out;
+  };
+
   const renderBlock = (b: ScriptBlockView) => {
     const isToday = hoje.blocos.includes(b.numero);
     return (
@@ -122,6 +171,9 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         onToggle={() => setOpenBlock((prev) => (prev === b.numero ? null : b.numero))}
       >
         <div className="space-y-4">
+          {BLOCK_INTRO[b.numero] && (
+            <p className="text-sm text-white/60 font-serif italic">{BLOCK_INTRO[b.numero]}</p>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/50 font-sans">{b.descricao}</p>
             <p className="text-[11px] text-white/40 font-sans">
@@ -141,9 +193,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             )}
           </AnimatePresence>
 
-          {b.campos.map((c) => (
-            <FichaField key={c.key} campo={c} onDecide={decide} />
-          ))}
+          {renderFields(b.campos)}
         </div>
       </AccordionSection>
     );

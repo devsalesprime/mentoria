@@ -2,17 +2,35 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
 import { FichaBadge, MaterialsBadge, formatDateTime } from './CohortOverview';
+import { MATERIAL_CATEGORIA_LABEL } from '../script/materiais/categorias';
+import { maskSenha } from '../script/materiais/AcessosPlataforma';
 import type { ScriptBlockView, ScriptFieldView, FichaStatus, MaterialsStatus } from '../../data/script-ficha-fields';
 
 interface Member { email: string; nome: string | null; user_id: string | null; ultimo_login: string | null; user_name?: string | null }
-interface ClubFile { id: string; userId: string; category: string; fileName: string; fileType: string | null; fileSize: number | null; createdAt: string; ownerEmail: string }
+interface ClubFile { id: string; userId: string; category: string; fileName: string; fileType: string | null; fileSize: number | null; createdAt: string; ownerEmail: string; ownerName?: string | null }
 interface MaterialLink { url: string; rotulo: string; tipo: string }
+interface MaterialAcesso { plataforma_url: string; login: string; senha: string; observacoes: string }
+/** Materiais de UMA pessoa do clube (arquivos, links, observacoes, acessos, submitted_at). */
+interface Pessoa {
+  email: string;
+  nome: string | null;
+  user_id: string | null;
+  membro: boolean;
+  files: ClubFile[];
+  links: MaterialLink[];
+  observacoes: string;
+  acessos: MaterialAcesso[];
+  submitted_at: string | null;
+}
 
 interface ClubDetail {
   club: { slug: string; nome: string; ativo: boolean };
   membros: Member[];
   files: ClubFile[];
-  materials: { links: MaterialLink[]; observacoes: string };
+  pessoas: Pessoa[];
+  pessoas_enviaram: number;
+  /** Forma antiga (por clube) que existia antes dos materiais por pessoa. */
+  legado: { links: MaterialLink[]; observacoes: string } | null;
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
   ficha_status: FichaStatus;
@@ -48,13 +66,7 @@ const STATUS_CLASS: Record<string, string> = {
   aceito_vazio: 'bg-yellow-600/20 text-yellow-400',
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  script_transcricao_venda: 'Transcrição de venda',
-  script_crm: 'CRM',
-  script_apostila_slides: 'Apostila / slides',
-  script_proposta_roteiro: 'Proposta / roteiro',
-  script_outros: 'Outros',
-};
+const CATEGORY_LABEL: Record<string, string> = MATERIAL_CATEGORIA_LABEL;
 
 function formatSize(bytes?: number | null) {
   if (!bytes) return '';
@@ -78,6 +90,8 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true });
+  // Senhas de acesso a plataforma: mascaradas por padrao, "mostrar" por item (chave email:indice)
+  const [senhaVisivel, setSenhaVisivel] = useState<Record<string, boolean>>({});
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -208,6 +222,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
             <FichaBadge status={detail.ficha_status} />
             <span className="text-xs text-white/50">{detail.progresso.obrigatorios_decididos}/{detail.progresso.obrigatorios} obrigatórios · {detail.progresso.decididos}/{detail.progresso.total} total</span>
             <MaterialsBadge status={detail.materials_status} count={detail.files.length} />
+            <span className="text-xs text-white/50">{detail.pessoas_enviaram || 0}/{detail.membros.length} enviaram</span>
             <span className="text-xs text-white/40">hoje: dia {detail.hoje.dia}{detail.hoje.em_breve ? ' (em breve)' : ''}</span>
           </div>
           <p className="text-[11px] text-white/40 mt-1">
@@ -219,7 +234,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
 
       <div className="flex gap-1 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
         {tabBtn('ficha', 'Ficha')}
-        {tabBtn('materiais', `Materiais (${detail.files.length + detail.materials.links.length})`)}
+        {tabBtn('materiais', `Materiais (${detail.files.length + (detail.pessoas || []).reduce((s, p) => s + p.links.length + p.acessos.length, 0)})`)}
         {tabBtn('membros', `Membros (${detail.membros.length})`)}
         {tabBtn('importar', 'Importar JSON')}
       </div>
@@ -247,40 +262,111 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
 
       {tab === 'materiais' && (
         <div className="space-y-4">
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
-            <h4 className="text-sm font-semibold text-white">Arquivos ({detail.files.length})</h4>
-            {detail.files.length === 0 ? <p className="text-xs text-white/40">Nenhum arquivo enviado.</p> : (
-              <ul className="space-y-1">
-                {detail.files.map((f) => (
-                  <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 text-sm border-b border-white/5 py-1.5">
-                    <div className="min-w-0">
-                      <a href={downloadUrl(f.id)} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{f.fileName}</a>
-                      <p className="text-[11px] text-white/40">{CATEGORY_LABEL[f.category] || f.category} · {formatSize(f.fileSize)} · {f.ownerEmail} · {formatDateTime(f.createdAt)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
-            <h4 className="text-sm font-semibold text-white">Links ({detail.materials.links.length})</h4>
-            {detail.materials.links.length === 0 ? <p className="text-xs text-white/40">Nenhum link.</p> : (
-              <ul className="space-y-1">
-                {detail.materials.links.map((l, i) => (
-                  <li key={i} className="text-sm">
-                    <a href={l.url} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{l.rotulo || l.url}</a>
-                    <span className="text-[11px] text-white/40 ml-2">{l.tipo} · {l.url}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {detail.materials.observacoes && (
-              <p className="text-xs text-white/60 whitespace-pre-line border-t border-white/5 pt-2">Observações: {detail.materials.observacoes}</p>
-            )}
-            <p className="text-[11px] text-white/40">
-              {detail.materials_status === 'submitted' ? `"Enviei o que tinha" em ${formatDateTime(detail.materials_submitted_at)}` : 'Ainda não clicou em "Enviei o que tinha".'}
-            </p>
-          </div>
+          <p className="text-[11px] text-white/40">
+            Materiais são por pessoa: cada sócio vê só o que ele mesmo enviou. Aqui aparece tudo, com quem enviou.
+            {detail.materials_status === 'submitted' ? ` Primeiro "Enviei o que tinha" do clube em ${formatDateTime(detail.materials_submitted_at)}.` : ' Ninguém do clube clicou em "Enviei o que tinha" ainda.'}
+          </p>
+          {(detail.pessoas || []).length === 0 && <p className="text-xs text-white/40">Nenhuma pessoa neste clube.</p>}
+          {(detail.pessoas || []).map((p) => {
+            const total = p.files.length + p.links.length + p.acessos.length;
+            return (
+              <div key={p.email} className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{p.nome || p.email}{!p.membro && <span className="ml-2 text-[10px] text-yellow-400">fora do clube</span>}</p>
+                    <p className="text-[11px] text-white/40">{p.email}</p>
+                  </div>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full ${p.submitted_at ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'}`}>
+                    {p.submitted_at ? `Enviou em ${formatDateTime(p.submitted_at)}` : 'Não clicou em "Enviei o que tinha"'}
+                  </span>
+                </div>
+                {total === 0 && !p.observacoes && <p className="text-xs text-white/40">Nada enviado por esta pessoa.</p>}
+
+                {p.files.length > 0 && (
+                  <div className="space-y-1">
+                    <h5 className="text-xs font-semibold text-white/70">Arquivos ({p.files.length})</h5>
+                    <ul className="space-y-1">
+                      {p.files.map((f) => (
+                        <li key={f.id} className="text-sm border-b border-white/5 py-1.5">
+                          <a href={downloadUrl(f.id)} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{f.fileName}</a>
+                          <p className="text-[11px] text-white/40">{CATEGORY_LABEL[f.category] || f.category} · {formatSize(f.fileSize)} · {formatDateTime(f.createdAt)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {p.links.length > 0 && (
+                  <div className="space-y-1">
+                    <h5 className="text-xs font-semibold text-white/70">Links ({p.links.length})</h5>
+                    <ul className="space-y-1">
+                      {p.links.map((l, i) => (
+                        <li key={i} className="text-sm">
+                          <a href={l.url} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{l.rotulo || l.url}</a>
+                          <span className="text-[11px] text-white/40 ml-2">{l.tipo} · {l.url}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {p.acessos.length > 0 && (
+                  <div className="space-y-1">
+                    <h5 className="text-xs font-semibold text-white/70">Acessos à plataforma de conteúdo ({p.acessos.length})</h5>
+                    <ul className="space-y-1.5">
+                      {p.acessos.map((a, i) => {
+                        const k = `${p.email}:${i}`;
+                        return (
+                          <li key={k} className="text-sm border border-white/10 rounded-lg p-2 bg-white/[0.02]">
+                            <a href={a.plataforma_url} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{a.plataforma_url}</a>
+                            <p className="text-xs text-white/70">
+                              <span className="text-white/40">Login:</span> <span className="font-mono">{a.login || 'não informado'}</span>
+                              <span className="mx-2 text-white/20">|</span>
+                              <span className="text-white/40">Senha:</span>{' '}
+                              <span className="font-mono">{a.senha ? (senhaVisivel[k] ? a.senha : maskSenha(a.senha)) : 'não informada'}</span>
+                              {a.senha && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSenhaVisivel((s) => ({ ...s, [k]: !s[k] }))}
+                                  className="ml-2 text-[11px] text-prosperus-gold hover:underline"
+                                >
+                                  {senhaVisivel[k] ? 'esconder' : 'mostrar'}
+                                </button>
+                              )}
+                            </p>
+                            {a.observacoes && <p className="text-[11px] text-white/50 whitespace-pre-line">{a.observacoes}</p>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                {p.observacoes && (
+                  <p className="text-xs text-white/60 whitespace-pre-line border-t border-white/5 pt-2">Observações: {p.observacoes}</p>
+                )}
+              </div>
+            );
+          })}
+
+          {detail.legado && (
+            <div className="bg-white/5 border border-yellow-500/20 rounded-xl p-4 space-y-2">
+              <h4 className="text-sm font-semibold text-yellow-300">Legado (materiais por clube, antes da mudança para por pessoa)</h4>
+              {detail.legado.links.length > 0 && (
+                <ul className="space-y-1">
+                  {detail.legado.links.map((l, i) => (
+                    <li key={i} className="text-sm">
+                      <a href={l.url} target="_blank" rel="noreferrer" className="text-prosperus-gold hover:underline break-all">{l.rotulo || l.url}</a>
+                      <span className="text-[11px] text-white/40 ml-2">{l.tipo} · {l.url}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {detail.legado.observacoes && (
+                <p className="text-xs text-white/60 whitespace-pre-line">Observações: {detail.legado.observacoes}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

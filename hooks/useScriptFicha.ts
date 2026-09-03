@@ -25,17 +25,36 @@ export interface MaterialLink {
   tipo: 'drive' | 'site' | 'plataforma' | 'outro';
 }
 
+/** Acesso a plataforma de conteudo (opcional). Sensivel: so a propria pessoa e o admin veem. */
+export interface MaterialAcesso {
+  plataforma_url: string;
+  login: string;
+  senha: string;
+  observacoes: string;
+}
+
+/** Materiais da PROPRIA pessoa (links, observacoes, acessos). Socios nao veem uns aos outros. */
 export interface ScriptMaterials {
   links: MaterialLink[];
   observacoes: string;
+  acessos: MaterialAcesso[];
+  submitted_at: string | null;
+}
+
+export type ScriptMaterialsPatch = Partial<Pick<ScriptMaterials, 'links' | 'observacoes' | 'acessos'>>;
+
+export interface ScriptConfig {
+  prazo_materiais: string;
 }
 
 export interface ScriptFichaData {
   club: { slug: string; nome: string };
   ficha_status: FichaStatus;
+  /** Por pessoa: "submitted" quando ESTE membro clicou em "Enviei o que tinha". */
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
   materials: ScriptMaterials;
+  config: ScriptConfig;
   prefilled_at: string | null;
   reviewed_at: string | null;
   last_user_activity_at: string | null;
@@ -50,6 +69,8 @@ export interface ScriptFichaData {
 export interface FieldDecision {
   status: ScriptFieldStatus;
   valor?: string;
+  /** JSON do widget (so com status 'editado'); o servidor guarda ao lado do valor. */
+  estrutura?: Record<string, any>;
 }
 
 export type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -104,6 +125,7 @@ function applyDecisionLocal(campo: ScriptFieldView, decision: FieldDecision, ema
   const ts = new Date().toISOString();
   let status = campo.status;
   let valor = campo.valor;
+  let estrutura: Record<string, any> | null = null;
   if (decision.status === 'confirmado') {
     if (!campo.sugerido.trim()) return campo;
     status = 'confirmado'; valor = campo.sugerido;
@@ -111,13 +133,14 @@ function applyDecisionLocal(campo: ScriptFieldView, decision: FieldDecision, ema
     const v = (decision.valor || '').trim();
     if (!v) return campo;
     status = 'editado'; valor = v;
+    estrutura = decision.estrutura && typeof decision.estrutura === 'object' && !Array.isArray(decision.estrutura) ? decision.estrutura : null;
   } else if (decision.status === 'aceito_vazio') {
     status = 'aceito_vazio'; valor = '';
   } else {
     status = campo.sugerido.trim() ? 'sugerido' : 'vazio'; valor = '';
   }
   const valor_efetivo = status === 'confirmado' ? (valor || campo.sugerido) : status === 'editado' ? valor : '';
-  return { ...campo, status, valor, valor_efetivo, decidido: isDecided(status), atualizado_por: email, atualizado_em: ts };
+  return { ...campo, status, valor, estrutura, valor_efetivo, decidido: isDecided(status), atualizado_por: email, atualizado_em: ts };
 }
 
 export const useScriptFicha = (token: string, enabled: boolean, userEmail: string = '') => {
@@ -263,17 +286,26 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [flush, token]);
 
-  const saveMaterials = useCallback(async (materials: ScriptMaterials) => {
-    setData((prev) => (prev ? { ...prev, materials } : prev));
+  /** Salva so o que veio no patch (links, observacoes e/ou acessos) da propria pessoa; o resto e mantido no servidor. */
+  const saveMaterials = useCallback(async (patch: ScriptMaterialsPatch): Promise<boolean> => {
+    const previous = dataRef.current?.materials;
+    setData((prev) => (prev ? { ...prev, materials: { ...prev.materials, ...patch } } : prev));
     setSaveState('saving');
     try {
-      await axios.put('/api/script/ficha/materials', materials, authHeaders(token));
+      const res = await axios.put('/api/script/ficha/materials', patch, authHeaders(token));
+      if (res.data?.success && res.data.materials) {
+        const m = res.data.materials as ScriptMaterials;
+        setData((prev) => (prev ? { ...prev, materials: m } : prev));
+      }
       setSaveState('saved');
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2500);
+      return true;
     } catch (e: any) {
+      if (previous) setData((prev) => (prev ? { ...prev, materials: previous } : prev));
       setSaveState('error');
-      setError(e?.response?.data?.message || e?.message || 'Erro ao salvar os links');
+      setError(e?.response?.data?.errors?.join('; ') || e?.response?.data?.message || e?.message || 'Erro ao salvar os materiais');
+      return false;
     }
   }, [token]);
 
@@ -281,7 +313,8 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     try {
       const res = await axios.post('/api/script/ficha/materials/submit', {}, authHeaders(token));
       if (res.data?.success) {
-        setData((prev) => (prev ? { ...prev, materials_status: 'submitted', materials_submitted_at: res.data.materials_submitted_at || new Date().toISOString() } : prev));
+        const at = res.data.materials_submitted_at || new Date().toISOString();
+        setData((prev) => (prev ? { ...prev, materials_status: 'submitted', materials_submitted_at: at, materials: { ...prev.materials, submitted_at: at } } : prev));
         return true;
       }
       return false;

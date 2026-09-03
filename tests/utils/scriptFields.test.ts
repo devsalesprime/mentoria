@@ -114,3 +114,146 @@ describe('script-ficha-fields (SPEC v0.1 secao 2)', () => {
     expect(v2.progresso.obrigatorios_decididos).toBe(27);
   });
 });
+
+// ── Widgets: parse/render (components/script/widgets/estrutura.ts) e persistência da estrutura ──
+import { createRequire } from 'module';
+import { parseEstrutura, renderEstrutura, vaziaEstrutura, isWidgetType, ESTRUTURA } from '../../components/script/widgets';
+
+const nodeRequire = createRequire(import.meta.url);
+const SF = nodeRequire('../../utils/script-ficha.cjs');
+const { scriptFieldsUpdateSchema } = nodeRequire('../../utils/validation.cjs');
+
+const T = (key: string) => SCRIPT_FIELD_BY_KEY[key].template || {};
+
+describe('widgets da ficha: definição por campo', () => {
+  it('todos os 34 campos têm widget conhecido e template objeto', () => {
+    for (const f of SCRIPT_FIELDS) {
+      expect(isWidgetType(f.widget)).toBe(true);
+      expect(typeof f.template).toBe('object');
+    }
+    expect(Object.keys(ESTRUTURA).sort()).toEqual([
+      'antes_depois', 'canal', 'casos', 'checklist_condicoes', 'chips_texto', 'citacoes', 'dois_campos', 'dois_numeros', 'dois_textos',
+      'escada', 'escolha', 'escolha_de_lista', 'frase', 'historia_podio', 'icp', 'lista_numerada', 'meta', 'pilares', 'tabela', 'texto', 'vs',
+    ]);
+  });
+
+  it('mapa de widgets por campo segue o combinado', () => {
+    const w = (k: string) => SCRIPT_FIELD_BY_KEY[k].widget;
+    expect(w('1.1')).toBe('escolha'); expect(w('1.2')).toBe('meta');
+    expect(w('2.1')).toBe('frase'); expect(w('2.2')).toBe('historia_podio'); expect(w('2.3')).toBe('vs'); expect(w('2.4')).toBe('frase'); expect(w('2.5')).toBe('escolha');
+    expect(w('3.1')).toBe('icp'); expect(w('3.2')).toBe('chips_texto'); expect(w('3.3')).toBe('citacoes'); expect(w('3.4')).toBe('citacoes');
+    expect(w('3.5')).toBe('antes_depois'); expect(w('3.6')).toBe('antes_depois'); expect(w('3.7')).toBe('tabela'); expect(w('3.8')).toBe('lista_numerada'); expect(w('3.9')).toBe('chips_texto');
+    expect(w('4.1')).toBe('dois_campos'); expect(w('4.2')).toBe('pilares'); expect(w('4.3')).toBe('escolha_de_lista'); expect(w('4.4')).toBe('tabela');
+    expect(w('5.1')).toBe('frase'); expect(w('5.2')).toBe('tabela'); expect(w('5.3')).toBe('escada'); expect(w('5.4')).toBe('checklist_condicoes');
+    expect(w('5.5')).toBe('dois_numeros'); expect(w('5.6')).toBe('chips_texto'); expect(w('5.7')).toBe('tabela');
+    expect(w('6.1')).toBe('canal'); expect(w('6.2')).toBe('dois_campos'); expect(w('6.3')).toBe('tabela'); expect(w('6.4')).toBe('texto');
+    expect(w('6.5')).toBe('dois_textos'); expect(w('6.6')).toBe('casos'); expect(w('6.7')).toBe('dois_numeros');
+    expect(T('5.6').chips).toEqual(['tempo', 'rede', 'portas que abrem', 'conhecimento', 'segurança emocional', 'velocidade', 'status', 'tranquilidade da família']);
+    expect(T('3.2').chips).toEqual(['sócio', 'cônjuge', 'família', 'decide sozinho']);
+  });
+});
+
+describe('widgets da ficha: parse + render (ida e volta)', () => {
+  const roundTrip = (w: any, e: any, t: any = {}, ctx: any = {}) => {
+    const v = renderEstrutura(w, e, t);
+    const back = parseEstrutura(w, v, t, ctx);
+    expect(back.bruto).toBe(false);
+    expect(back.estrutura).toEqual(e);
+    expect(renderEstrutura(w, back.estrutura, t)).toBe(v);
+    return v;
+  };
+
+  it('tabela: linhas com célula do meio vazia e coluna R$', () => {
+    const t = T('3.7');
+    const e = { linhas: [{ tentou: 'Consultoria genérica', custo: '5.000' }, { tentou: 'Curso online', custo: '' }] };
+    const v = roundTrip('tabela', e, t);
+    expect(v).toBe('Consultoria genérica · R$ 5.000\nCurso online');
+    const e3 = { linhas: [{ item: 'Encontro em grupo', frequencia: '', duracao: '6 meses' }] };
+    expect(roundTrip('tabela', e3, T('5.2'))).toBe('Encontro em grupo ·  · 6 meses');
+  });
+
+  it('escada: 3 níveis + condição', () => {
+    const e = {
+      alta: { nome: 'Premium', valor: '30.000', muda: 'acompanhamento semanal' },
+      media: { nome: 'Grupo', valor: '12.000', muda: '' },
+      entrada: { nome: '', valor: '', muda: '' },
+      condicao: '30% no ato', obs: '',
+    };
+    expect(roundTrip('escada', e)).toBe('Mais alta: Premium · R$ 30.000 · acompanhamento semanal\nIntermediária: Grupo · R$ 12.000\nCondição de entrada: 30% no ato');
+  });
+
+  it('pilares: nome + o que resolve', () => {
+    const e = { pilares: [{ nome: 'Mapa', resolve: 'mostra onde o tempo vai' }, { nome: 'Ritmo', resolve: '' }] };
+    expect(roundTrip('pilares', e)).toBe('Mapa: mostra onde o tempo vai\nRitmo');
+  });
+
+  it('casos: blocos com pode citar', () => {
+    const e = { casos: [{ nome: 'João', antes: '100 mil', depois: '300 mil', citar: 'sim' }, { nome: 'Dona de clínica em SP', antes: '', depois: 'saiu do balcão', citar: 'nao' }] };
+    expect(roundTrip('casos', e)).toBe('Nome: João\nAntes: 100 mil\nDepois: 300 mil\nPode citar: sim\n\nNome: Dona de clínica em SP\nDepois: saiu do balcão\nPode citar: não');
+  });
+
+  it('checklist, canal, dois_numeros, meta, icp, vs, historia_podio, citacoes, lista, chips, dois_campos', () => {
+    roundTrip('checklist_condicoes', {
+      avista: { ativo: true, desconto: '10% de desconto' }, parcelado: { ativo: true, vezes: '12' }, contrato: { ativo: true, meses: '6' },
+      contrapartida: { ativo: false, texto: '' }, garantia: { ativo: true, texto: '30 dias' }, obs: '',
+    });
+    expect(roundTrip('canal', { canal: 'ligacao', duracao: '45', reunioes: '2', obs: '' })).toBe('Canal: Ligação · Duração: 45 min · Reuniões: 2');
+    expect(roundTrip('dois_numeros', { sozinho: '10.000', comigo: '50.000', prazo: '12 meses', obs: '' }, T('5.5'))).toBe('Sozinho: R$ 10.000 · Com você: R$ 50.000 · Prazo: 12 meses');
+    expect(roundTrip('dois_numeros', { conversas: '3', dias: '21', obs: '' }, T('6.7'))).toBe('Conversas: 3 · Dias: 21');
+    expect(roundTrip('meta', { clientes: '10', ate: 'dezembro', reunioes: '3', obs: '' })).toBe('10 clientes até dezembro · 3 reuniões por semana');
+    roundTrip('icp', { setor: 'clínicas', papel: 'dono', tamanho: '5 a 30 pessoas', territorio: 'Sul', obs: '' });
+    roundTrip('vs', { mercado: 'vende curso gravado', eu: 'entro na operação' });
+    roundTrip('historia_podio', { historia: 'Vinte anos de clínica.', ouro: 'Três unidades', prata: 'Cem gestores', bronze: 'Livro publicado' });
+    expect(roundTrip('citacoes', { citacoes: ['Não consigo sair', 'Não sobra'] })).toBe('"Não consigo sair"\n"Não sobra"');
+    expect(roundTrip('lista_numerada', { itens: ['Faturamento', 'Equipe'] })).toBe('1. Faturamento\n2. Equipe');
+    expect(roundTrip('chips_texto', { chips: ['tempo', 'rede'], texto: 'Fim de semana de volta.' }, T('5.6'))).toBe('tempo, rede\nFim de semana de volta.');
+    expect(roundTrip('dois_campos', { nome: 'Método X', fio: 'de A para B' }, T('4.1'))).toBe('Nome do método: Método X\nDe A para B em 1 frase: de A para B');
+    roundTrip('dois_textos', { sim: 'contrato\ne pagamento', pensar: 'retorno em 48h' }, T('6.5'));
+    expect(roundTrip('escolha', { opcao: 'Vendi algumas', texto: '' }, {}, { opcoes: ['Nunca vendi', 'Vendi algumas'] })).toBe('Vendi algumas');
+    expect(roundTrip('escolha_de_lista', { escolhido: 'Processos', texto: '' }, {}, { pilares: ['Mapa', 'Processos'] })).toBe('Processos');
+  });
+
+  it('texto corrido cai no primeiro slot livre com bruto = true; lista/tabela nunca são "brutas"', () => {
+    expect(parseEstrutura('meta', 'Quero dobrar a carteira.')).toEqual({ estrutura: { clientes: '', ate: '', reunioes: '', obs: 'Quero dobrar a carteira.' }, bruto: true });
+    expect(parseEstrutura('icp', 'Dono de clínica no Sul.').bruto).toBe(true);
+    expect(parseEstrutura('escada', 'Ainda não defini preço.').bruto).toBe(true);
+    expect(parseEstrutura('canal', 'Depende do cliente.').bruto).toBe(true);
+    expect(parseEstrutura('tabela', 'Consultoria\nCurso', T('6.3')).bruto).toBe(false);
+    expect(parseEstrutura('citacoes', 'a · b · c').estrutura.citacoes).toEqual(['a', 'b', 'c']);
+    expect(parseEstrutura('escada', 'Premium R$ 30.000\nGrupo R$ 12.000').estrutura.media.valor).toBe('12.000');
+    expect(vaziaEstrutura('tabela', T('4.4'), { pilares: ['Mapa', 'Ritmo'] }).linhas).toEqual([{ etapa: 'Mapa', trava: '', resolve: '' }, { etapa: 'Ritmo', trava: '', resolve: '' }]);
+    expect(renderEstrutura('tabela', { linhas: [{ etapa: '', trava: '', resolve: '' }] }, T('4.4'))).toBe('');
+  });
+});
+
+describe('script-ficha.cjs: estrutura persistida ao lado do valor', () => {
+  it('editado guarda a estrutura; confirmado, aceito_vazio e desfazer limpam', () => {
+    const est = { pilares: [{ nome: 'Mapa', resolve: 'tempo' }] };
+    const r1 = SF.applyUpdates({}, { '4.2': { status: 'editado', valor: 'Mapa: tempo', estrutura: est } }, 'a@b.c');
+    expect(r1.applied).toEqual(['4.2']);
+    expect(r1.fields['4.2'].estrutura).toEqual(est);
+    expect(r1.fields['4.2'].valor).toBe('Mapa: tempo');
+    const view = SF.buildFichaView(r1.fields);
+    const c42 = view.blocos[3].campos.find((c: any) => c.key === '4.2');
+    expect(c42.estrutura).toEqual(est);
+    expect(c42.widget).toBe('pilares');
+    expect(c42.template.min).toBe(3);
+
+    const r2 = SF.applyUpdates(r1.fields, { '4.2': { status: 'aceito_vazio' } }, 'a@b.c');
+    expect(r2.fields['4.2'].estrutura).toBeNull();
+    const withSug = { ...r1.fields, '4.2': { ...r1.fields['4.2'], sugerido: 'X: y' } };
+    expect(SF.applyUpdates(withSug, { '4.2': { status: 'confirmado' } }, 'a@b.c').fields['4.2'].estrutura).toBeNull();
+    expect(SF.applyUpdates(withSug, { '4.2': { status: 'sugerido' } }, 'a@b.c').fields['4.2'].estrutura).toBeNull();
+    // estrutura invalida (array) vira null; sem estrutura tambem
+    expect(SF.applyUpdates({}, { '4.2': { status: 'editado', valor: 'x', estrutura: [1] } }, 'a').fields['4.2'].estrutura).toBeNull();
+    expect(SF.applyUpdates({}, { '4.2': { status: 'editado', valor: 'x' } }, 'a').fields['4.2'].estrutura).toBeNull();
+    // normalizacao ignora estrutura em campo nao editado
+    expect(SF.normalizeFieldState({ status: 'confirmado', sugerido: 'a', valor: 'a', estrutura: { x: 1 } }).estrutura).toBeNull();
+  });
+
+  it('scriptFieldsUpdateSchema aceita estrutura opcional (objeto) e recusa outros tipos', () => {
+    expect(scriptFieldsUpdateSchema.safeParse({ updates: { '4.2': { status: 'editado', valor: 'x', estrutura: { pilares: [] } } } }).success).toBe(true);
+    expect(scriptFieldsUpdateSchema.safeParse({ updates: { '4.2': { status: 'editado', valor: 'x' } } }).success).toBe(true);
+    expect(scriptFieldsUpdateSchema.safeParse({ updates: { '4.2': { status: 'editado', valor: 'x', estrutura: 'nope' } } }).success).toBe(false);
+  });
+});

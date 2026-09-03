@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import type { UseScriptFicha, ClubFile, MaterialLink } from '../../hooks/useScriptFicha';
 import type { UploadedFile } from '../../types/audio';
-import { SCRIPT_MATERIAL_CATEGORIES } from '../../data/script-ficha-fields';
+import { MATERIAL_CATEGORIAS } from './materiais/categorias';
+import { ComoFunciona } from './materiais/ComoFunciona';
+import { AcessosPlataforma } from './materiais/AcessosPlataforma';
 import { AccordionSection } from '../shared/AccordionSection';
 import { FileUpload } from '../shared/FileUpload';
 import { SectionWarning } from '../shared/SectionWarning';
@@ -25,14 +27,6 @@ const LINK_TYPES: { id: MaterialLink['tipo']; label: string }[] = [
   { id: 'outro', label: 'Outro' },
 ];
 
-const CATEGORY_ICONS: Record<string, string> = {
-  script_transcricao_venda: '🗣️',
-  script_crm: '📊',
-  script_apostila_slides: '📚',
-  script_proposta_roteiro: '📝',
-  script_outros: '📎',
-};
-
 function toUploaded(f: ClubFile): UploadedFile {
   return {
     id: f.id,
@@ -53,9 +47,17 @@ function formatDate(iso: string | null | undefined) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+function plural(n: number, um: string, varios: string) {
+  return `${n} ${n === 1 ? um : varios}`;
+}
+
+/**
+ * Materiais do Script 7 Passos. Tudo aqui e POR PESSOA: arquivos, links, observacoes e acessos
+ * sao so de quem esta logado (socios nao veem uns aos outros; o admin ve tudo).
+ */
 export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, onNavigate }) => {
   const { data, loading, loaded, error, saveMaterials, submitMaterials, setFiles } = ficha;
-  const [openCat, setOpenCat] = useState<string | null>(SCRIPT_MATERIAL_CATEGORIES[0].id);
+  const [openCat, setOpenCat] = useState<string | null>(MATERIAL_CATEGORIAS[0].id);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLabel, setLinkLabel] = useState('');
   const [linkType, setLinkType] = useState<MaterialLink['tipo']>('drive');
@@ -84,10 +86,11 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   if (!data) return null;
 
   const files = data.files || [];
-  const links = data.materials.links || [];
-  const observacoes = obs ?? data.materials.observacoes ?? '';
+  const links = data.materials?.links || [];
+  const acessos = data.materials?.acessos || [];
+  const observacoes = obs ?? data.materials?.observacoes ?? '';
   const isSubmitted = data.materials_status === 'submitted';
-  const totalItems = files.length + links.length;
+  const totalItems = files.length + links.length + acessos.length;
 
   const handleFilesChange = (categoryId: string, next: UploadedFile[]) => {
     const byId = Object.fromEntries(files.map((f) => [f.id, f]));
@@ -113,18 +116,18 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
       return;
     }
     setLinkError('');
-    saveMaterials({ links: [...links, { url, rotulo: linkLabel.trim(), tipo: linkType }], observacoes });
+    saveMaterials({ links: [...links, { url, rotulo: linkLabel.trim(), tipo: linkType }] });
     setLinkUrl('');
     setLinkLabel('');
   };
 
   const removeLink = (index: number) => {
-    saveMaterials({ links: links.filter((_, i) => i !== index), observacoes });
+    saveMaterials({ links: links.filter((_, i) => i !== index) });
   };
 
   const saveObs = () => {
-    if (obs === null || obs === data.materials.observacoes) return;
-    saveMaterials({ links, observacoes: obs });
+    if (obs === null || obs === (data.materials?.observacoes ?? '')) return;
+    saveMaterials({ observacoes: obs });
   };
 
   const handleSubmit = async () => {
@@ -143,12 +146,8 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         <h2 className="font-serif text-2xl sm:text-3xl text-white">Materiais</h2>
         <p className="text-sm text-white/70 font-sans leading-relaxed">
           Mande o que você já tem sobre como vende hoje. Quanto mais real, melhor fica o script.
-          Tudo que os sócios do clube enviam aparece aqui para todos.
+          O que você envia aqui só você e o Danilo veem: cada sócio manda o seu.
         </p>
-        <SectionWarning
-          variant="info"
-          message={'Acessos de plataforma (login e senha) não entram aqui: mande ao Caio no WhatsApp.\nÁudio e vídeo de reuniões também vão pelo WhatsApp.'}
-        />
         {isSubmitted && (
           <p className="text-xs text-green-400 font-sans">
             Você avisou que enviou o que tinha em {formatDate(data.materials_submitted_at)}. Pode continuar adicionando.
@@ -156,23 +155,26 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         )}
       </div>
 
+      {/* Como funciona */}
+      <ComoFunciona prazo={data.config?.prazo_materiais} />
+
       {/* Categorias */}
       <div className="space-y-3">
-        {SCRIPT_MATERIAL_CATEGORIES.map((cat) => {
+        {MATERIAL_CATEGORIAS.map((cat) => {
           const catFiles = files.filter((f) => f.category === cat.id);
           return (
             <AccordionSection
               key={cat.id}
               title={cat.label}
-              icon={CATEGORY_ICONS[cat.id] || '📎'}
+              icon={cat.icon}
               badge="optional"
-              badgeLabel={catFiles.length ? `${catFiles.length} arquivo${catFiles.length > 1 ? 's' : ''}` : 'opcional'}
+              badgeLabel={catFiles.length ? plural(catFiles.length, 'arquivo', 'arquivos') : 'opcional'}
               isComplete={catFiles.length > 0}
               isOpen={openCat === cat.id}
               onToggle={() => setOpenCat((prev) => (prev === cat.id ? null : cat.id))}
             >
               <div className="space-y-3">
-                <p className="text-sm text-white/50 font-sans">{cat.hint}</p>
+                <p className="text-sm text-white/60 font-sans leading-relaxed">{cat.descricao}</p>
                 <FileUpload
                   files={catFiles.map(toUploaded)}
                   onFilesChange={(next) => handleFilesChange(cat.id, next)}
@@ -183,23 +185,21 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
                   allowedMimePrefixes={SCRIPT_MIME_PREFIXES}
                   allowedExtensions={SCRIPT_EXTENSIONS}
                   hint="Máx. 50MB por arquivo · PDF, Word, PowerPoint, Excel, CSV, TXT ou imagem"
-                  canDelete={(f) => catFiles.find((c) => c.id === f.id)?.mine !== false}
-                  fileMeta={(f) => {
-                    const c = catFiles.find((x) => x.id === f.id);
-                    if (!c || c.mine) return null;
-                    return `enviado por ${c.ownerName || c.ownerEmail || 'sócio'}`;
-                  }}
                 />
               </div>
             </AccordionSection>
           );
         })}
+        <SectionWarning
+          variant="info"
+          message="Áudio e vídeo não sobem por aqui: mande o link do Drive (abaixo) ou pelo WhatsApp."
+        />
       </div>
 
       {/* Links */}
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <h3 className="font-serif text-xl text-white">Links</h3>
-        <p className="text-sm text-white/50 font-sans">Pasta no Drive, site, plataforma de conteúdo. Só o link, sem senha.</p>
+        <p className="text-sm text-white/50 font-sans">Pasta no Drive, site, página de vendas, gravações. Só o link; acesso com senha vai na seção abaixo.</p>
         <div className="flex flex-wrap gap-2">
           {LINK_TYPES.map((t) => (
             <button
@@ -253,6 +253,9 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         )}
       </div>
 
+      {/* Acesso a plataforma de conteudo (opcional) */}
+      <AcessosPlataforma acessos={acessos} onChange={(next) => saveMaterials({ acessos: next })} />
+
       {/* Observacoes */}
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <h3 className="font-serif text-xl text-white">Alguma observação?</h3>
@@ -271,7 +274,9 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-white/70 font-sans">
-            {totalItems === 0 ? 'Nada enviado ainda. Sem material também dá: a ficha vem do que já temos.' : `${files.length} arquivo${files.length === 1 ? '' : 's'} e ${links.length} link${links.length === 1 ? '' : 's'} do clube.`}
+            {totalItems === 0
+              ? 'Nada enviado ainda. Sem material também dá: a ficha vem do que já temos.'
+              : `Você enviou ${plural(files.length, 'arquivo', 'arquivos')}, ${plural(links.length, 'link', 'links')} e ${plural(acessos.length, 'acesso', 'acessos')}.`}
           </p>
           <div className="flex flex-wrap gap-2">
             {onNavigate && (

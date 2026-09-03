@@ -51,6 +51,8 @@ const pipelineBrandBrainSchema = z.union([
 const scriptFieldUpdateSchema = z.object({
     valor: z.string().max(20000).optional(),
     status: z.enum(['confirmado', 'editado', 'aceito_vazio', 'sugerido', 'vazio']),
+    // JSON do widget (components/script/widgets); guardado ao lado do valor quando status = editado
+    estrutura: z.record(z.string(), z.any()).optional(),
 });
 
 const scriptFieldsUpdateSchema = z.object({

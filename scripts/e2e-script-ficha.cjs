@@ -10,7 +10,8 @@
  *
  * Fluxo: cria clube exemplo-clube (admin) -> login do membro pelo cohort (sem etapa do HubSpot)
  *        -> importa data/samples/prefill-exemplo.json -> GET ficha -> PUT fields -> complete
- *        -> materiais (links + submit) -> overview admin.
+ *        -> materiais POR PESSOA (A sobe arquivo, B do mesmo clube nao ve nem baixa; acessos de A
+ *           nao chegam a B; submit por pessoa; admin ve tudo; prazo via cohort_config) -> overview admin.
  * O token admin e cunhado com o JWT_SECRET do .env (mesmo padrao de scripts/deliver.cjs).
  */
 const path = require('path');
@@ -24,7 +25,9 @@ const args = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWith
 }));
 const BASE = args.base || 'http://localhost:3999';
 const EMAIL = args.email || 'mentor.exemplo@teste.local';
+const EMAIL_B = args.emailB || 'socio.exemplo@teste.local';
 const SLUG = 'exemplo-clube';
+const SENHA_A = 'Segredo#A-123';
 
 if (/prosperusclub|salesprime|\/\/(?!localhost|127\.0\.0\.1)/.test(BASE)) {
   console.error('Recusado: este e2e so roda em localhost.');
@@ -47,6 +50,23 @@ async function call(method, url, token, body, expectOk = true) {
   try { data = await res.json(); } catch { data = null; }
   if (expectOk && !res.ok) throw new Error(`${method} ${url} -> ${res.status}: ${JSON.stringify(data)}`);
   return { status: res.status, data };
+}
+
+/** Sobe um arquivo pequeno via POST /api/files/upload (multipart), como o front faz. */
+async function upload(token, category, name, content, expectOk = true) {
+  const fd = new FormData();
+  fd.append('category', category);
+  fd.append('file', new Blob([content], { type: 'text/plain' }), name);
+  const res = await fetch(BASE + '/api/files/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (expectOk && !res.ok) throw new Error(`upload ${name} -> ${res.status}: ${JSON.stringify(data)}`);
+  return { status: res.status, data };
+}
+
+async function raw(method, url, token) {
+  const res = await fetch(BASE + url, { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  return { status: res.status, text: await res.text() };
 }
 
 function step(msg) { console.log(`\n== ${msg}`); }
@@ -136,21 +156,103 @@ function step(msg) { console.log(`\n== ${msg}`); }
   console.log(reimp.data.message, '| skipped:', reimp.data.skipped.length);
   if (reimp.data.skipped.length !== 34) throw new Error('esperado 34 campos mantidos');
 
-  step('12. Materiais: links + submit');
+  step('12. Materiais por pessoa: A salva links + observacoes (sem submit ainda)');
   const mat = await call('PUT', '/api/script/ficha/materials', memberToken, {
     links: [{ url: 'https://drive.google.com/drive/folders/exemplo', rotulo: 'Pasta do Drive', tipo: 'drive' }],
     observacoes: 'Gravações vão pelo WhatsApp.',
   });
-  console.log('links salvos:', mat.data.materials.links.length);
-  const sub = await call('POST', '/api/script/ficha/materials/submit', memberToken, {});
-  console.log('submit ->', sub.data.materials_status, sub.data.materials_submitted_at);
+  console.log('links salvos:', mat.data.materials.links.length, '| acessos:', mat.data.materials.acessos.length);
+  if (mat.data.materials.links.length !== 1) throw new Error('esperado 1 link de A');
 
-  step('13. Admin overview');
+  step(`12a. Admin adiciona o socio B (${EMAIL_B}) ao mesmo clube; login de B`);
+  await call('PUT', `/api/admin/clubs/${SLUG}/members`, adminToken, { add: [{ email: EMAIL_B, nome: 'Sócio Exemplo' }] });
+  const loginB = await call('POST', '/auth/verify-member', null, { email: EMAIL_B });
+  if (!loginB.data.token) throw new Error('login de B sem token');
+  const memberBToken = loginB.data.token;
+  console.log('B logado; clube =', loginB.data.user.clubSlug);
+
+  step('12b. A sobe um arquivo (multipart); B nao ve nem baixa; A baixa');
+  const up = await upload(memberToken, 'script_transcricao_venda', 'reuniao-exemplo.txt', 'Transcrição de teste da reunião de venda.');
+  const fileId = up.data.data.id;
+  console.log('upload ->', fileId, up.data.data.fileName);
+  const badCat = await upload(memberToken, 'script_invalida', 'x.txt', 'x', false);
+  if (badCat.status !== 400) throw new Error('categoria invalida deveria dar 400');
+  const filesA = await call('GET', '/api/script/materials/files', memberToken);
+  const filesB = await call('GET', '/api/script/materials/files', memberBToken);
+  console.log('A ve', filesA.data.data.length, 'arquivo(s) | B ve', filesB.data.data.length);
+  if (!filesA.data.data.some((f) => f.id === fileId)) throw new Error('A deveria ver o proprio arquivo');
+  if (filesB.data.data.some((f) => f.id === fileId)) throw new Error('B NAO deveria ver o arquivo de A');
+  const fichaB = await call('GET', '/api/script/ficha', memberBToken);
+  if (fichaB.data.data.files.length !== 0) throw new Error('GET ficha de B deveria vir sem arquivos');
+  const dlB = await raw('GET', `/api/script/materials/files/${fileId}/download`, memberBToken);
+  const dlA = await raw('GET', `/api/script/materials/files/${fileId}/download`, memberToken);
+  console.log('download por B ->', dlB.status, '| por A ->', dlA.status, `(${dlA.text.length} bytes)`);
+  if (dlB.status !== 404 && dlB.status !== 403) throw new Error('B nao pode baixar o arquivo de A');
+  if (dlA.status !== 200 || !dlA.text.includes('Transcrição de teste')) throw new Error('A deveria baixar o proprio arquivo');
+
+  step('12c. A salva acesso de plataforma; B nao recebe nada de A');
+  const ac = await call('PUT', '/api/script/ficha/materials', memberToken, {
+    acessos: [{ plataforma_url: 'https://plataforma.exemplo.com/login', login: EMAIL, senha: SENHA_A, observacoes: 'O curso X está na aba Y.' }],
+  });
+  console.log('acessos de A:', ac.data.materials.acessos.length, '| links mantidos:', ac.data.materials.links.length);
+  if (ac.data.materials.acessos.length !== 1 || ac.data.materials.links.length !== 1) throw new Error('PUT parcial deveria manter os links');
+  const badAc = await call('PUT', '/api/script/ficha/materials', memberToken, { acessos: [{ plataforma_url: 'sem-protocolo', senha: 'x' }] }, false);
+  if (badAc.status !== 400) throw new Error('acesso sem http(s) deveria dar 400');
+  const fichaB2 = await raw('GET', '/api/script/ficha', memberBToken);
+  const fichaB2Json = JSON.parse(fichaB2.text);
+  console.log('B: materials =', JSON.stringify(fichaB2Json.data.materials));
+  if (fichaB2.text.includes(SENHA_A) || fichaB2.text.includes('plataforma.exemplo.com')) throw new Error('acessos de A vazaram para B');
+  if (fichaB2Json.data.materials.acessos.length !== 0 || fichaB2Json.data.materials.links.length !== 0) throw new Error('B deveria ver so os proprios materiais (vazios)');
+
+  step('12d. Submit por pessoa: B envia; A continua pending; clube vira submitted');
+  const subB = await call('POST', '/api/script/ficha/materials/submit', memberBToken, {});
+  console.log('submit B ->', subB.data.materials_status, subB.data.materials_submitted_at);
+  const fichaA = await call('GET', '/api/script/ficha', memberToken);
+  const fichaB3 = await call('GET', '/api/script/ficha', memberBToken);
+  console.log('A materials_status =', fichaA.data.data.materials_status, '| B =', fichaB3.data.data.materials_status);
+  if (fichaA.data.data.materials_status !== 'pending') throw new Error('A nao clicou ainda: deveria estar pending');
+  if (fichaB3.data.data.materials_status !== 'submitted') throw new Error('B deveria estar submitted');
+  const ov1 = await call('GET', '/api/admin/cohort', adminToken);
+  const row1 = ov1.data.data.find((r) => r.club_slug === SLUG);
+  console.log('overview: materials_status =', row1.materials_status, '| pessoas_enviaram =', row1.pessoas_enviaram, '| materiais_count =', row1.materiais_count);
+  if (row1.materials_status !== 'submitted' || row1.pessoas_enviaram !== 1) throw new Error('clube deveria estar submitted com 1 pessoa');
+  if (row1.materiais_count < 1) throw new Error('materiais_count deveria contar o arquivo de A');
+  const subA = await call('POST', '/api/script/ficha/materials/submit', memberToken, {});
+  console.log('submit A ->', subA.data.materials_status);
+
+  step('12e. Prazo (cohort_config): admin grava, membro le; vazio esconde');
+  const cfg = await call('PUT', '/api/admin/cohort/config', adminToken, { prazo_materiais: 'até sexta, 12/09' });
+  console.log('config ->', cfg.data.data);
+  const fichaCfg = await call('GET', '/api/script/ficha', memberToken);
+  if (fichaCfg.data.data.config.prazo_materiais !== 'até sexta, 12/09') throw new Error('membro deveria ler o prazo');
+  const cfgMember = await call('PUT', '/api/admin/cohort/config', memberToken, { prazo_materiais: 'x' }, false);
+  if (cfgMember.status !== 403) throw new Error('membro nao pode gravar config');
+  await call('PUT', '/api/admin/cohort/config', adminToken, { prazo_materiais: '' });
+  const fichaCfg2 = await call('GET', '/api/script/ficha', memberToken);
+  if (fichaCfg2.data.data.config.prazo_materiais !== '') throw new Error('prazo vazio deveria voltar vazio');
+  console.log('prazo lido pelo membro:', JSON.stringify(fichaCfg.data.data.config.prazo_materiais), '-> depois de limpar:', JSON.stringify(fichaCfg2.data.data.config.prazo_materiais));
+
+  step('13. Admin overview + detalhe por pessoa');
   const ov = await call('GET', '/api/admin/cohort', adminToken);
   const row = ov.data.data.find((r) => r.club_slug === SLUG);
   console.log(row);
+  if (row.pessoas_enviaram !== 2) throw new Error('esperado 2 pessoas com submit');
   const det = await call('GET', `/api/admin/clubs/${SLUG}/script-ficha`, adminToken);
-  console.log('detalhe: status', det.data.data.ficha_status, '| campos', det.data.data.blocos.reduce((s, b) => s + b.campos.length, 0), '| membros', det.data.data.membros.length);
+  console.log('detalhe: status', det.data.data.ficha_status, '| campos', det.data.data.blocos.reduce((s, b) => s + b.campos.length, 0), '| membros', det.data.data.membros.length, '| pessoas', det.data.data.pessoas.length);
+  const pA = det.data.data.pessoas.find((p) => p.email === EMAIL.toLowerCase());
+  const pB = det.data.data.pessoas.find((p) => p.email === EMAIL_B.toLowerCase());
+  console.log('A:', { files: pA.files.length, links: pA.links.length, acessos: pA.acessos.length, submitted_at: pA.submitted_at });
+  console.log('B:', { files: pB.files.length, links: pB.links.length, acessos: pB.acessos.length, submitted_at: pB.submitted_at });
+  if (!pA.files.some((f) => f.id === fileId) || pA.acessos.length !== 1 || pA.acessos[0].senha !== SENHA_A || pA.links.length !== 1) throw new Error('admin deveria ver arquivo, link e acesso (com senha) de A');
+  if (pB.files.length !== 0 || pB.acessos.length !== 0 || !pB.submitted_at) throw new Error('admin deveria ver B sem materiais e com submit');
+  const adminDl = await raw('GET', `/api/admin/files/${fileId}?token=${encodeURIComponent(adminToken)}`, null);
+  console.log('download admin ->', adminDl.status);
+  if (adminDl.status !== 200) throw new Error('admin deveria baixar o arquivo de A');
+
+  step('13a. Limpeza: A apaga o proprio arquivo');
+  await call('DELETE', `/api/files/${fileId}`, memberToken);
+  const afterDel = await call('GET', '/api/script/materials/files', memberToken);
+  console.log('arquivos de A depois:', afterDel.data.data.length);
 
   step('14. Usuario fora do cohort -> 403 { enabled: false }');
   const outsider = jwt.sign({ userId: 'user-fora-do-cohort', user: 'fora@teste.local', role: 'member', name: 'Fora' }, process.env.JWT_SECRET, { expiresIn: '1h' });

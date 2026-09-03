@@ -9,7 +9,12 @@ export interface CohortRow {
   club_nome: string;
   ativo: boolean;
   membros: { email: string; nome: string | null; user_id: string | null; ultimo_login: string | null }[];
+  /** Arquivos de todos os membros do clube. */
   materiais_count: number;
+  /** Links + acessos de plataforma de todos os membros. */
+  links_count: number;
+  /** Quantos membros clicaram em "Enviei o que tinha" (materiais sao por pessoa). */
+  pessoas_enviaram: number;
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
   ficha_status: FichaStatus;
@@ -62,6 +67,9 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('atividade');
   const [selected, setSelected] = useState<string | null>(null);
+  const [prazo, setPrazo] = useState('');
+  const [prazoSaved, setPrazoSaved] = useState('');
+  const [savingPrazo, setSavingPrazo] = useState(false);
 
   const fetchCohort = useCallback(async () => {
     setLoading(true);
@@ -75,7 +83,35 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
     }
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { fetchCohort(); }, [fetchCohort]);
+  const fetchConfig = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/admin/cohort/config', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        const v = res.data.data?.prazo_materiais || '';
+        setPrazo(v);
+        setPrazoSaved(v);
+      }
+    } catch { /* silencioso: a tabela pode nao existir ainda */ }
+  }, [token]);
+
+  useEffect(() => { fetchCohort(); fetchConfig(); }, [fetchCohort, fetchConfig]);
+
+  const savePrazo = async () => {
+    setSavingPrazo(true);
+    try {
+      const res = await axios.put('/api/admin/cohort/config', { prazo_materiais: prazo.trim() }, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        const v = res.data.data?.prazo_materiais || '';
+        setPrazo(v);
+        setPrazoSaved(v);
+        showToast('Prazo salvo', 'success');
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erro ao salvar o prazo', 'error');
+    } finally {
+      setSavingPrazo(false);
+    }
+  };
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -106,7 +142,7 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
   const totals = {
     clubes: rows.length,
     ativos: rows.filter((r) => r.ativo).length,
-    comMateriais: rows.filter((r) => r.materials_status === 'submitted' || r.materiais_count > 0).length,
+    comMateriais: rows.filter((r) => r.materials_status === 'submitted' || r.materiais_count > 0 || (r.links_count || 0) > 0).length,
     emRevisao: rows.filter((r) => r.ficha_status === 'em_revisao').length,
     confirmadas: rows.filter((r) => r.ficha_status === 'confirmada').length,
   };
@@ -148,6 +184,29 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
         </div>
       </div>
 
+      <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-2">
+        <label htmlFor="cohort-prazo-materiais" className="text-xs text-white/60 sm:w-64">
+          Prazo dos materiais <span className="text-white/40">(aparece no "Como funciona" da tela Materiais; vazio esconde)</span>
+        </label>
+        <input
+          id="cohort-prazo-materiais"
+          type="text"
+          value={prazo}
+          onChange={(e) => setPrazo(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); savePrazo(); } }}
+          maxLength={200}
+          placeholder="Ex.: até sexta, 12/09"
+          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-prosperus-gold/50"
+        />
+        <button
+          onClick={savePrazo}
+          disabled={savingPrazo || prazo.trim() === prazoSaved}
+          className="px-4 py-2 bg-prosperus-gold text-black text-sm font-semibold rounded-lg transition disabled:opacity-40"
+        >
+          {savingPrazo ? 'Salvando...' : 'Salvar prazo'}
+        </button>
+      </div>
+
       {loading ? (
         <div className="animate-pulse space-y-3">
           {[1, 2, 3].map((i) => <div key={i} className="h-16 bg-white/5 rounded-xl" />)}
@@ -186,7 +245,12 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                       <p className="text-xs text-white/70">{r.membros.length} {r.membros.length === 1 ? 'pessoa' : 'pessoas'}</p>
                       <p className="text-[11px] text-white/40 truncate max-w-[220px]">{r.membros.map((m) => m.email).join(', ') || 'sem e-mail'}</p>
                     </td>
-                    <td className="px-4 py-3"><MaterialsBadge status={r.materials_status} count={r.materiais_count} /></td>
+                    <td className="px-4 py-3">
+                      <MaterialsBadge status={r.materials_status} count={r.materiais_count} />
+                      <p className="text-[11px] text-white/40 mt-1">
+                        {r.pessoas_enviaram || 0} de {r.membros.length} {r.membros.length === 1 ? 'enviou' : 'enviaram'}{r.links_count ? ` · ${r.links_count} ${r.links_count === 1 ? 'link/acesso' : 'links/acessos'}` : ''}
+                      </p>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <FichaBadge status={r.ficha_status} />
@@ -213,6 +277,7 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                 <p className="text-xs text-white/50 mb-2">{r.membros.map((m) => m.email).join(', ') || 'sem e-mail'}</p>
                 <div className="flex flex-wrap gap-2 items-center">
                   <MaterialsBadge status={r.materials_status} count={r.materiais_count} />
+                  <span className="text-[11px] text-white/40">{r.pessoas_enviaram || 0}/{r.membros.length} enviaram</span>
                   <FichaBadge status={r.ficha_status} />
                   <span className="text-xs text-white/50">{r.confirmados}/{r.obrigatorios}</span>
                 </div>
