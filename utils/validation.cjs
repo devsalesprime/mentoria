@@ -45,6 +45,64 @@ const pipelineBrandBrainSchema = z.union([
     z.object({ status: z.string() }),
 ]);
 
+// ─── Script 7 Passos (ficha por clube) ────────────────────────────────────────
+
+const scriptFieldUpdateSchema = z.object({
+    valor: z.string().max(20000).optional(),
+    status: z.enum(['confirmado', 'editado', 'aceito_vazio', 'sugerido', 'vazio']),
+});
+
+const scriptFieldsUpdateSchema = z.object({
+    updates: z.record(z.string().max(8), scriptFieldUpdateSchema)
+        .refine((u) => Object.keys(u).length > 0, 'updates vazio')
+        .refine((u) => Object.keys(u).length <= 34, 'updates grande demais'),
+});
+
+const scriptMaterialLinkSchema = z.object({
+    url: z.string().max(2000).refine((v) => /^https?:\/\//i.test(v), 'URL deve começar com http:// ou https://'),
+    rotulo: z.string().max(200).optional().default(''),
+    tipo: z.enum(['drive', 'site', 'plataforma', 'outro']).optional().default('outro'),
+});
+
+const scriptMaterialsSchema = z.object({
+    links: z.array(scriptMaterialLinkSchema).max(50).optional().default([]),
+    observacoes: z.string().max(5000).optional().default(''),
+});
+
+const scriptPrefillAlternativaSchema = z.object({
+    sugerido: z.string().max(20000),
+    fonte: z.string().max(1000).optional().default(''),
+});
+
+const scriptPrefillCampoSchema = z.object({
+    sugerido: z.string().max(20000).optional().default(''),
+    classe: z.enum(['Fato', 'DER', 'VZ']),
+    fonte: z.string().max(1000).optional().default(''),
+    alternativas: z.array(scriptPrefillAlternativaSchema).optional().default([]),
+    nota_interna: z.string().max(5000).optional().default(''),
+});
+
+// Contrato: CONTRATO-prefill-json.md (campos 1.1 a 6.7; regras extras no route)
+const scriptPrefillSchema = z.object({
+    club_slug: z.string().max(100).optional(),
+    club_nome: z.string().max(200).optional(),
+    membros: z.array(z.string().max(320)).optional().default([]),
+    gerado_em: z.string().max(40).optional(),
+    gerado_por: z.string().max(100).optional(),
+    fontes_lidas: z.array(z.string().max(500)).optional().default([]),
+    campos: z.record(z.string().max(8), scriptPrefillCampoSchema),
+});
+
+const cohortMembersSchema = z.object({
+    nome: z.string().min(1).max(200).optional(),
+    ativo: z.union([z.literal(0), z.literal(1)]).optional(),
+    add: z.array(z.object({
+        email: z.string().email('Email inválido').max(320),
+        nome: z.string().max(200).optional(),
+    })).max(50).optional().default([]),
+    remove: z.array(z.string().email('Email inválido').max(320)).max(50).optional().default([]),
+});
+
 // ─── Middleware helper ────────────────────────────────────────────────────────
 
 /**
@@ -76,5 +134,9 @@ module.exports = {
     brandBrainSaveSchema,
     pipelineResearchSchema,
     pipelineBrandBrainSchema,
+    scriptFieldsUpdateSchema,
+    scriptMaterialsSchema,
+    scriptPrefillSchema,
+    cohortMembersSchema,
     validateBody,
 };

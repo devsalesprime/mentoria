@@ -16,6 +16,33 @@ module.exports = function createFilesRoutes({ db, dbGet, dbRun, dbAll, authMiddl
   });
   const uploadFiles = multer({ storage: fileStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 
+  // Script 7 Passos (Materiais): categorias e tipos aceitos. Audio/video vao pelo WhatsApp do Caio.
+  const SCRIPT_CATEGORIES = new Set([
+    'script_transcricao_venda',
+    'script_crm',
+    'script_apostila_slides',
+    'script_proposta_roteiro',
+    'script_outros',
+  ]);
+  const SCRIPT_ALLOWED_EXT = new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.csv', '.txt', '.md', '.json',
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.heif', '.svg']);
+  const SCRIPT_ALLOWED_MIME_PREFIXES = ['image/', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-',
+    'application/vnd.ms-', 'text/plain', 'text/csv', 'text/markdown', 'application/json'];
+
+  function scriptUploadError(file) {
+    const mime = (file.mimetype || '').toLowerCase();
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (mime.startsWith('audio/') || mime.startsWith('video/')) {
+      return 'Áudio e vídeo não sobem por aqui: mande pelo WhatsApp ao Caio.';
+    }
+    const mimeOk = mime && SCRIPT_ALLOWED_MIME_PREFIXES.some((p) => mime.startsWith(p));
+    const extOk = SCRIPT_ALLOWED_EXT.has(ext);
+    if (!mimeOk && !extOk) {
+      return 'Tipo não aceito. Envie PDF, Word, PowerPoint, Excel, CSV, TXT, Markdown, JSON ou imagem.';
+    }
+    return null;
+  }
+
   // POST /api/files/upload — Upload file(s)
   router.post('/api/files/upload', authMiddleware, uploadFiles.single('file'), async (req, res) => {
     try {
@@ -26,12 +53,26 @@ module.exports = function createFilesRoutes({ db, dbGet, dbRun, dbAll, authMiddl
         return res.status(400).json({ success: false, message: 'Nenhum arquivo enviado.' });
       }
 
+      let resolvedModule = fileModule || 'general';
+      if (category && String(category).startsWith('script_')) {
+        if (!SCRIPT_CATEGORIES.has(category)) {
+          try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+          return res.status(400).json({ success: false, message: 'Categoria de material inválida.' });
+        }
+        const err = scriptUploadError(req.file);
+        if (err) {
+          try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+          return res.status(400).json({ success: false, message: err });
+        }
+        resolvedModule = 'script';
+      }
+
       const fileId = uuidv4();
       const fileMeta = {
         id: fileId,
         userId,
         category: category || 'general',
-        module: fileModule || 'general',
+        module: resolvedModule,
         fileName: req.file.originalname,
         filePath: req.file.path,
         fileType: req.file.mimetype,

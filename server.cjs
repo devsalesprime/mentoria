@@ -37,9 +37,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_EMAIL = 'admin@salesprime.com.br';
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
 
-// Database path
-const DB_PATH = path.join(__dirname, 'data', 'prosperus.db');
+// Database path (DB_PATH env override is for local tests/e2e only; production keeps data/prosperus.db)
+const DB_PATH = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : path.join(__dirname, 'data', 'prosperus.db');
 const DATA_DIR = path.join(__dirname, 'data');
+const COHORT_SEED_PATH = path.join(DATA_DIR, 'cohort-seed.json');
 
 // Criar pasta data se não existir
 if (!fs.existsSync(DATA_DIR)) {
@@ -359,7 +360,63 @@ function initializeDatabase() {
     `);
     db.run(`INSERT OR IGNORE INTO schema_migrations (version, description) VALUES ('012', 'Add UNIQUE on pipeline.user_id, indexes, triggers')`);
 
-    console.log('✅ Banco inicializado com sucesso (Schema v2.1)');
+    // ---- v2.2 / migration 015: Cohort (clubes do Exclusive) + Ficha do Script (7 passos) ----
+    db.run(`
+      CREATE TABLE IF NOT EXISTS cohort_clubs (
+        slug TEXT PRIMARY KEY,
+        nome TEXT NOT NULL,
+        ativo INTEGER NOT NULL DEFAULT 1 CHECK(ativo IN (0, 1)),
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS cohort_members (
+        email TEXT PRIMARY KEY,
+        club_slug TEXT NOT NULL REFERENCES cohort_clubs(slug) ON DELETE CASCADE,
+        nome TEXT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_cohort_members_club ON cohort_members(club_slug)`);
+    db.run(`ALTER TABLE users ADD COLUMN cohort TEXT DEFAULT NULL`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ users.cohort migration error:', err.message);
+    });
+    db.run(`ALTER TABLE users ADD COLUMN club_slug TEXT DEFAULT NULL`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ users.club_slug migration error:', err.message);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_users_club_slug ON users(club_slug)`);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS script_fichas (
+        id TEXT PRIMARY KEY,
+        club_slug TEXT UNIQUE NOT NULL REFERENCES cohort_clubs(slug) ON DELETE CASCADE,
+        fields JSON NOT NULL DEFAULT '{}',
+        materials JSON NOT NULL DEFAULT '{}',
+        materials_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(materials_status IN ('pending', 'submitted')),
+        materials_submitted_at DATETIME,
+        ficha_status TEXT NOT NULL DEFAULT 'vazia'
+          CHECK(ficha_status IN ('vazia', 'pre_preenchida', 'em_revisao', 'confirmada')),
+        prefill_meta JSON,
+        prefilled_at DATETIME,
+        reviewed_at DATETIME,
+        last_user_activity_at DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.run(`CREATE TRIGGER IF NOT EXISTS trg_script_fichas_updated_at AFTER UPDATE ON script_fichas FOR EACH ROW WHEN NEW.updated_at = OLD.updated_at BEGIN UPDATE script_fichas SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id; END`);
+    db.run(`INSERT OR IGNORE INTO schema_migrations (version, description) VALUES ('015', 'Cohort clubs/members, users.cohort/club_slug, script_fichas')`);
+
+    console.log('✅ Banco inicializado com sucesso (Schema v2.2)');
+
+    // Seed idempotente do cohort (roda depois de todo o DDL acima, na mesma fila serializada)
+    db.run('SELECT 1', () => {
+      if (!fs.existsSync(COHORT_SEED_PATH)) return;
+      const { seedCohort } = require('./scripts/seed-cohort.cjs');
+      seedCohort(require('./utils/db-helpers.cjs')(db), COHORT_SEED_PATH)
+        .then((r) => console.log(`✅ Cohort seed: ${r.clubs} clubes, ${r.membersInserted} membros novos, ${r.usersMarked} usuários marcados`))
+        .catch((err) => console.error('⚠️ Cohort seed error:', err.message));
+    });
   });
 }
 
@@ -442,6 +499,8 @@ app.use(require('./routes/diagnostic.cjs')(deps));
 app.use(require('./routes/insights.cjs')(deps));
 app.use(require('./routes/files.cjs')(deps));
 app.use(require('./routes/audio.cjs')(deps));
+app.use(require('./routes/script.cjs')(deps));
+app.use(require('./routes/admin-cohort.cjs')(deps));
 
 // ============================================
 // ⭐ ARQUIVOS ESTÁTICOS E FALLBACK

@@ -1,0 +1,86 @@
+{
+  "_leia": {
+    "o_que_e": "Seed dos clubes do Prosperus Exclusive (cohort) e dos e-mails que fazem login no app sem depender da etapa do HubSpot. 1 clube = 1 ficha do script; socios do mesmo clube revisam a mesma ficha.",
+    "fontes": [
+      "business/campanhas/prosperus-exclusive/ROSTER-mentorados-hubspot.md (extracao HubSpot de 09/08/2026, 19 negocios)",
+      "business/campanhas/prosperus-exclusive/painel-mentorandos/roster.json (slugs; ana-e-gustavo e marcelo-mc-participacoes vieram daqui)"
+    ],
+    "regras": [
+      "E-mail sempre minusculo; e a chave de login e de cohort_members.",
+      "ativo = 0 mantem o clube cadastrado mas NAO libera o login pelo cohort (humanas-home-care: churn confirmado em 05/08; dr-peanut: negocio ainda em Proposta na extracao).",
+      "O seed roda no boot do servidor e por `node scripts/seed-cohort.cjs`; ele cria o que falta e atualiza o nome do clube, mas nunca remove membro nem sobrescreve membro editado pelo admin."
+    ]
+  },
+  "clubs": [
+    { "slug": "dedicare-cuidados", "nome": "Dedicare Cuidados", "ativo": 1, "members": [
+      { "email": "thiago@dedicarecuidados.com.br", "nome": "Thiago Barbosa Mancussi" }
+    ]},
+    { "slug": "gtc-group", "nome": "GTC Group", "ativo": 1, "members": [
+      { "email": "eduardo@gtcgroup.com.br", "nome": "Eduardo Campbell" },
+      { "email": "drataiz@gtcgroup.com.br", "nome": "Taiz Campbell" }
+    ]},
+    { "slug": "cacau-show", "nome": "Cacau Show", "ativo": 1, "members": [
+      { "email": "rosangela@cacaushowvaiatevoce.com.br", "nome": "Rosângela Fátima Lopes" },
+      { "email": "ale.moura@cacaushowvaiatevoce.com.br", "nome": "Alessandra Moura Lopes" }
+    ]},
+    { "slug": "elevate-med-club", "nome": "Elevate Med Club", "ativo": 1, "members": [
+      { "email": "katherine@elevatemedperformance.com", "nome": "Katherine Pontes Heide" },
+      { "email": "tefonsec@gmail.com", "nome": "Stefano Lopes Monteiro da Fonseca" }
+    ]},
+    { "slug": "clinica-lohara-fereguetti", "nome": "Clínica Lohara Bazilato Fereguetti", "ativo": 1, "members": [
+      { "email": "admloharafereguetti@gmail.com", "nome": "Lohara Bazilato Fereguetti" },
+      { "email": "pvhespanha@gmail.com", "nome": "Paulo Victor De Castro Hespanha" }
+    ]},
+    { "slug": "humanas-home-care", "nome": "Humana's Home Care", "ativo": 0, "members": [
+      { "email": "flaviaalvessousa73@gmail.com", "nome": "Flávia Alves de Sousa" }
+    ]},
+    { "slug": "pamaris-papelaria", "nome": "Pamaris Papelaria", "ativo": 1, "members": [
+      { "email": "paulo@pamaris.com.br", "nome": "Paulo Mariano" },
+      { "email": "mi_ruiz@hotmail.com", "nome": "" }
+    ]},
+    { "slug": "marcelo-miron-cordovil", "nome": "Marcelo Miron Cordovil", "ativo": 1, "members": [
+      { "email": "macordovil@gmail.com", "nome": "Marcelo Miron Cordovil Moutinho dos Santos" }
+    ]},
+    { "slug": "paloma-venturelli", "nome": "Moinho Globo", "ativo": 1, "members": [
+      { "email": "paloma@moinhoglobo.com.br", "nome": "Paloma Venturelli" }
+    ]},
+    { "slug": "o-ponto-cego-da-marcenaria", "nome": "O Ponto Cego da Marcenaria", "ativo": 1, "members": [
+      { "email": "gibask@gmail.com", "nome": "Gilberto Klein" }
+    ]},
+    { "slug": "edcasa-lar", "nome": "EdCasa Lar", "ativo": 1, "members": [
+      { "email": "ederomedeiros@gmail.com", "nome": "Ederson Oliveira Medeiros" }
+    ]},
+    { "slug": "vermont-assessoria", "nome": "Vermont Assessoria e Treinamentos", "ativo": 1, "members": [
+      { "email": "jorgenriquecosta@gmail.com", "nome": "Jorgenrique Costa Costa" },
+      { "email": "filosofasim@hotmail.com", "nome": "Andréa Vermont" }
+    ]},
+    { "slug": "dr-peanut", "nome": "Dr Peanut", "ativo": 0, "members": [
+      { "email": "rodrigo.cardoso@grupo-brava.com", "nome": "Rodrigo Cardoso" }
+    ]},
+    { "slug": "arthur-e-renan", "nome": "Laser Tech Distribuidora", "ativo": 1, "members": [
+      { "email": "renan.f.oliveira@hotmail.com", "nome": "Renan Freitas Oliveira" },
+      { "email": "arthur@lasertechdistribuidora.com.br", "nome": "Arthur Freitas" }
+    ]},
+    { "slug": "ceder-consultoria", "nome": "Ceder Serviços de Consultoria", "ativo": 1, "members": [
+      { "email": "emanuela.pimenta@clinicaceder.com.br", "nome": "Emanuela Pimenta" },
+      { "email": "lmfonseca70@gmail.com", "nome": "Luiz Maurício Lemos da Fonseca" }
+    ]},
+    { "slug": "bkr-administradora", "nome": "BKR Administradora de Bens", "ativo": 1, "members": [
+      { "email": "drbarakat@drbarakat.com.br", "nome": "Mohamad Ali Barakat" }
+    ]},
+    { "slug": "fabiana-williams", "nome": "Fabiana Almeida Williams", "ativo": 1, "members": [
+      { "email": "fabianawilliams19@gmail.com", "nome": "Fabiana Almeida Williams" }
+    ]},
+    { "slug": "brisa-consorcio", "nome": "Brisa Consórcio", "ativo": 1, "members": [
+      { "email": "marcos@carraroseguros.com.br", "nome": "Marcos Carraro" },
+      { "email": "suellen.marques@consorcioguerrabrasil.com.br", "nome": "Suellen Marques Reis" }
+    ]},
+    { "slug": "julio-fratantonio", "nome": "Ceramfix", "ativo": 1, "members": [
+      { "email": "julio.filho@ceramfix.com.br", "nome": "Júlio César Fratantonio Filho" }
+    ]},
+    { "slug": "ana-e-gustavo", "nome": "Mushagency", "ativo": 1, "members": [
+      { "email": "gustavo.costa@mush.pt", "nome": "Gustavo Gomes Morais Pinho Costa" }
+    ]},
+    { "slug": "marcelo-mc-participacoes", "nome": "M&C Participações", "ativo": 1, "members": [] }
+  ]
+}

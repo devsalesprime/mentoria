@@ -15,6 +15,19 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         [userId]
       );
 
+      // Cohort (Script 7 Passos): vem de users + cohort_clubs, nunca do token
+      const cohortRow = await dbGet(
+        `SELECT u.cohort, u.club_slug, cc.nome AS club_nome
+           FROM users u LEFT JOIN cohort_clubs cc ON cc.slug = u.club_slug
+          WHERE u.id = ?`,
+        [userId]
+      );
+      const cohort = {
+        cohort: cohortRow?.cohort || null,
+        club_slug: cohortRow?.club_slug || null,
+        club_nome: cohortRow?.club_nome || null,
+      };
+
       if (!row) {
         return res.json({
           success: true,
@@ -27,7 +40,8 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
             current_module: 'pre_module',
             current_step: 0,
             progress_percentage: 0,
-            status: 'in_progress'
+            status: 'in_progress',
+            ...cohort
           }
         });
       }
@@ -49,7 +63,8 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         is_legacy: row.is_legacy === 1,
         submitted_at: row.submitted_at,
         last_updated: row.updated_at,
-        created_at: row.created_at
+        created_at: row.created_at,
+        ...cohort
       };
 
       res.json({ success: true, data });

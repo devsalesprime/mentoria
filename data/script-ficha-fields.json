@@ -1,0 +1,59 @@
+{
+  "versao": "0.1",
+  "fonte": "SPEC-ficha-script-v0.1.md secao 2 (34 campos, 6 blocos)",
+  "tipos": { "tc": "texto curto", "tx": "texto", "ls": "lista", "num": "numero", "esc": "escolha" },
+  "dias": [
+    { "dia": 1, "titulo": "Meta, Mentor e Mentorado", "blocos": [1, 2, 3], "minutos": 25 },
+    { "dia": 2, "titulo": "Método, A Mentoria e Venda", "blocos": [4, 5, 6], "minutos": 27 },
+    { "dia": 3, "titulo": "Revisar o script", "blocos": [], "minutos": 30 }
+  ],
+  "blocos": [
+    { "numero": 1, "nome": "Meta", "descricao": "resultado-alvo com número, prazo, mix e cadência" },
+    { "numero": 2, "nome": "Mentor", "descricao": "história, habilidades, princípios e valores e, sobretudo, posicionamento" },
+    { "numero": 3, "nome": "Mentorado", "descricao": "ICP e avatar: dor, desejo, setor, bolso, território" },
+    { "numero": 4, "nome": "Método", "descricao": "fio condutor, pilares ou etapas, passos, nomenclatura autoral" },
+    { "numero": 5, "nome": "A Mentoria", "descricao": "Oferta: promessa, formato, entrega, preço, jornada do cliente" },
+    { "numero": 6, "nome": "Venda", "descricao": "como a venda acontece hoje" }
+  ],
+  "campos": [
+    { "key": "1.1", "bloco": 1, "nome": "Oferta que o script vende", "pergunta": "Qual produto da sua esteira este script vende? (mais de um = um script por produto)", "tipo": "esc", "tipoRaw": "esc", "obrigatorio": true, "passo": "P3, P5", "fontes": "EB-P2 > APP:offer.goal > BRF > MESA", "minutos": 1 },
+    { "key": "1.2", "bloco": 1, "nome": "Meta e cadência", "pergunta": "Quantos clientes até quando, e quantas reuniões de venda por semana isso exige?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": false, "passo": "moldura: ritmo do bloco 6 e opção que abre em P5", "fontes": "MESA (Meta acordada) > TRN > VZ", "minutos": 1 },
+
+    { "key": "2.1", "bloco": 2, "nome": "Frase de especialista", "pergunta": "Em uma frase, quem é você e no que é especialista?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P1 (pessoa antes da empresa), P3", "fontes": "EB-P1 > APP:1.1 > BRF > PEG", "minutos": 2 },
+    { "key": "2.2", "bloco": 2, "nome": "História de autoridade e 3 provas", "pergunta": "O que na sua trajetória te legitima a ensinar isso? Cite 3 conquistas contadas.", "tipo": "tx", "tipoRaw": "tx", "obrigatorio": true, "passo": "P1, P3", "fontes": "EB-P1 > APP:1.2 + 1.3 > PEG > MESA", "minutos": 2 },
+    { "key": "2.3", "bloco": 2, "nome": "Diferencial", "pergunta": "O que o mercado faz e o que você faz diferente?", "tipo": "tx", "tipoRaw": "tx", "obrigatorio": true, "passo": "P3, P2-S", "fontes": "APP:1.5a + 1.5b > EB-P3 > BRF", "minutos": 2 },
+    { "key": "2.4", "bloco": 2, "nome": "Propósito", "pergunta": "Por que você faz isso, como diria ao cliente?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P7 (P do EVPC)", "fontes": "EB-P1 (valores) > MESA > TRN > VZ", "minutos": 1 },
+    { "key": "2.5", "bloco": 2, "nome": "Experiência vendendo", "pergunta": "Nunca vendeu, vendeu algumas ou vende há tempo?", "tipo": "esc", "tipoRaw": "esc", "obrigatorio": false, "passo": "P1 (variação do iniciante)", "fontes": "APP:1.4 startingFromZero > APP:mentorLevel > BRF", "minutos": 0.5, "opcoes": ["Nunca vendi", "Vendi algumas", "Vendo há tempo"] },
+
+    { "key": "3.1", "bloco": 3, "nome": "Cliente ideal", "pergunta": "Setor, papel, tamanho ou bolso, território?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P2-C, P7", "fontes": "EB-P1 > APP:2.5 > MESA > BRF", "minutos": 1 },
+    { "key": "3.2", "bloco": 3, "nome": "Quem decide junto", "pergunta": "Sócio, cônjuge, família?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P2-C, P4 (decisor no agendamento)", "fontes": "EB-P1 > MESA > TRN > VZ", "minutos": 1 },
+    { "key": "3.3", "bloco": 3, "nome": "Dor, nas palavras dele", "pergunta": "Que 3 frases ele diz sobre o problema?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P2-N, P3 (recapitular)", "fontes": "APP:2.2a + 2.2b > EB-P1 > MESA", "minutos": 2 },
+    { "key": "3.4", "bloco": 3, "nome": "Desejo, nas palavras dele", "pergunta": "O que ele quer de verdade, do jeito que fala?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P2-N (desejo antes), P3", "fontes": "APP:2.4b > EB-P1 > MESA", "minutos": 2 },
+    { "key": "3.5", "bloco": 3, "nome": "Consequência de não resolver", "pergunta": "Mais 1 ano igual: o que acontece?", "tipo": "tx", "tipoRaw": "tx", "obrigatorio": true, "passo": "P2-C, P5 (custo da inação)", "fontes": "EB-P1 > APP:2.2b > DER(3.3)", "minutos": 1.5 },
+    { "key": "3.6", "bloco": 3, "nome": "Consequência de resolver", "pergunta": "Daqui a 1 ano resolvido: como ele se vê?", "tipo": "tx", "tipoRaw": "tx", "obrigatorio": true, "passo": "P2-C, P5 (ancoragem por resultado)", "fontes": "EB-P2 > APP:2.4a > DER(3.4)", "minutos": 1.5 },
+    { "key": "3.7", "bloco": 3, "nome": "Soluções que ele já tentou", "pergunta": "O que já tentou ou considera (concorrente, consultor, sozinho, esperar) e quanto custa, se souber?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P2-S, P3, P5 (ancorar contra o mercado)", "fontes": "EB-P3 > APP:competitors > APP:2.3a > BRF", "minutos": 2 },
+    { "key": "3.8", "bloco": 3, "nome": "As 5 a 7 informações da proposta", "pergunta": "Que 5 a 7 coisas você precisa saber dele para montar a proposta?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P2-C (específicas: \"faça a sua lista\")", "fontes": "DER(3.1, 4.2) > BRF > VZ", "minutos": 3 },
+    { "key": "3.9", "bloco": 3, "nome": "Quem não é cliente", "pergunta": "Para quem sua mentoria não serve?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": false, "passo": "pré-venda (BANT), P1 (entregar o controle)", "fontes": "APP:2.6 > EB-P1 > VZ", "minutos": 1 },
+
+    { "key": "4.1", "bloco": 4, "nome": "Nome e fio condutor", "pergunta": "Nome do método e como leva de A para B, em 1 frase?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P3", "fontes": "EB-P1 > APP:method.name + promise > BRF > MESA", "minutos": 1.5 },
+    { "key": "4.2", "bloco": 4, "nome": "Pilares ou etapas", "pergunta": "Quais são (3 a 8) e o que cada um resolve?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P3 (só o que resolve)", "fontes": "EB-P1 > APP:pillars ou steps > BRF", "minutos": 2 },
+    { "key": "4.3", "bloco": 4, "nome": "Pilar que resolve a dor principal", "pergunta": "Qual pilar resolve a dor do 3.3?", "tipo": "esc", "tipoRaw": "esc", "obrigatorio": true, "passo": "P3 (diagnóstico, não catálogo)", "fontes": "DER(3.3 × 4.2)", "minutos": 1 },
+    { "key": "4.4", "bloco": 4, "nome": "Obstáculos por etapa", "pergunta": "Onde o cliente trava em cada etapa e como o método resolve?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": false, "passo": "P3, P4 (\"meu caso é específico\")", "fontes": "APP:obstacles > EB-P1 > VZ", "minutos": 1.5 },
+
+    { "key": "5.1", "bloco": 5, "nome": "Promessa", "pergunta": "Que resultado, em que prazo, em 1 frase?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P3, P5", "fontes": "EB-P2 > APP:promise > BRF > MESA", "minutos": 1 },
+    { "key": "5.2", "bloco": 5, "nome": "Formato e entrega", "pergunta": "O que está incluído, com que frequência, por quanto tempo?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P3, P6", "fontes": "EB-P2 > APP:description + deliverables > BRF", "minutos": 2 },
+    { "key": "5.3", "bloco": 5, "nome": "Preço e opções", "pergunta": "2 ou 3 opções, da mais alta para a mais baixa, e a entrada?", "tipo": "ls", "tipoRaw": "ls nº", "obrigatorio": true, "passo": "P5 (ancorar contra você mesmo; mais alta primeiro)", "fontes": "EB-P2 > APP:pricing (1 opção) > BRF > VZ", "minutos": 2 },
+    { "key": "5.4", "bloco": 5, "nome": "Condições", "pergunta": "À vista, parcelado, contrato de quanto tempo, o que pede em troca de desconto?", "tipo": "tx", "tipoRaw": "tx", "obrigatorio": true, "passo": "P5 (contrapartida), P6 (parcelado, piloto)", "fontes": "EB-P2 > BRF > VZ", "minutos": 1.5 },
+    { "key": "5.5", "bloco": 5, "nome": "Retorno financeiro", "pergunta": "Quanto ele alcança sozinho e quanto com você, em que prazo?", "tipo": "tc", "tipoRaw": "tc nº", "obrigatorio": true, "passo": "P5 (a conta na frente dele)", "fontes": "EB-P2 > casos do 6.6 > VZ", "minutos": 2 },
+    { "key": "5.6", "bloco": 5, "nome": "Retorno não financeiro", "pergunta": "O que ganha além do dinheiro (tempo, rede, portas, conhecimento)?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P5, P2-C", "fontes": "EB-P2 > APP:2.4b > DER(3.4)", "minutos": 1 },
+    { "key": "5.7", "bloco": 5, "nome": "Bônus e objeção que mata", "pergunta": "Que bônus tem e qual objeção cada um derruba?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": false, "passo": "P5 (não descontar o núcleo), P4", "fontes": "APP:bonuses > EB-P2 > VZ", "minutos": 1 },
+
+    { "key": "6.1", "bloco": 6, "nome": "Canal e formato", "pergunta": "Presencial, vídeo ou ligação? Dura quanto? Uma reunião ou mais?", "tipo": "esc", "tipoRaw": "esc", "obrigatorio": true, "passo": "P1 (ligação > vídeo > presencial; nunca só WhatsApp), P6", "fontes": "BRF > TRN > VZ", "minutos": 0.5 },
+    { "key": "6.2", "bloco": 6, "nome": "Quem vende e de onde vem o lead", "pergunta": "Quem conduz (você, sócio, closer) e como o lead chega?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": true, "passo": "P1 (quem fala), P2-C (\"o que te fez estar aqui\")", "fontes": "ROSTER/HubSpot > BRF > TRN", "minutos": 1 },
+    { "key": "6.3", "bloco": 6, "nome": "Objeções que já ouviu", "pergunta": "Quais aparecem e o que você responde hoje?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P4 (antecipar, acolher, cebola)", "fontes": "APP:2.3a > APP:objectionsItKills > EB-P4 > TRN > DER(3.7)", "minutos": 3 },
+    { "key": "6.4", "bloco": 6, "nome": "O que faz decidir", "pergunta": "O que faz o cliente dizer \"eu preciso disso\"?", "tipo": "tc", "tipoRaw": "tc", "obrigatorio": false, "passo": "P4 (temperatura), P5 (condução ao sim)", "fontes": "APP:2.3b > TRN > VZ", "minutos": 1 },
+    { "key": "6.5", "bloco": 6, "nome": "Próximo passo padrão", "pergunta": "Depois do sim: contrato, dados, pagamento, início? E depois do \"vou pensar\"?", "tipo": "tx", "tipoRaw": "tx", "obrigatorio": true, "passo": "P5 (fechar com clareza), P6 (data e hora)", "fontes": "BRF > TRN > VZ", "minutos": 1.5 },
+    { "key": "6.6", "bloco": 6, "nome": "Casos reais (prova social)", "pergunta": "Quem já teve resultado: nome ou perfil, antes, depois, pode citar?", "tipo": "ls", "tipoRaw": "ls", "obrigatorio": true, "passo": "P3 (prova parecida), P5", "fontes": "APP:1.4 testimonials > EB-P1 > PEG > VZ", "minutos": 3 },
+    { "key": "6.7", "bloco": 6, "nome": "Ciclo de venda", "pergunta": "Quantas conversas e dias do primeiro contato ao fechamento?", "tipo": "num", "tipoRaw": "nº", "obrigatorio": false, "passo": "P6, P1", "fontes": "TRN > BRF > VZ", "minutos": 0.5 }
+  ]
+}
