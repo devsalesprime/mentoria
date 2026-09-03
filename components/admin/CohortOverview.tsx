@@ -59,6 +59,202 @@ export const MaterialsBadge: React.FC<{ status: MaterialsStatus; count: number }
   </span>
 );
 
+// ─── Fila de pre-preenchimento (cohort_jobs) ─────────────────────────────────
+
+export type CohortJobStatus = 'queued' | 'running' | 'done' | 'error' | 'needs_human';
+
+/** Linha de GET /api/admin/cohort/jobs (job + nome do clube e da pessoa). */
+export interface CohortJob {
+  id: string;
+  tipo: string;
+  club_slug: string;
+  club_nome?: string | null;
+  email: string;
+  pessoa_nome?: string | null;
+  notify_phone: string | null;
+  status: CohortJobStatus;
+  attempts: number;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+const JOB_STATUS_LABEL: Record<CohortJobStatus, string> = {
+  queued: 'Na fila',
+  running: 'Rodando',
+  done: 'Concluído',
+  error: 'Erro',
+  needs_human: 'Precisa de humano',
+};
+
+const JOB_STATUS_CLASS: Record<CohortJobStatus, string> = {
+  queued: 'bg-blue-600/20 text-blue-300',
+  running: 'bg-yellow-600/20 text-yellow-300',
+  done: 'bg-green-600/20 text-green-400',
+  error: 'bg-red-600/20 text-red-300',
+  needs_human: 'bg-purple-600/20 text-purple-300',
+};
+
+export const JobStatusBadge: React.FC<{ status: CohortJobStatus }> = ({ status }) => (
+  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${JOB_STATUS_CLASS[status] || JOB_STATUS_CLASS.queued}`}>
+    {JOB_STATUS_LABEL[status] || status}
+  </span>
+);
+
+/** Painel "Fila": jobs de pre-preenchimento com Reprocessar. */
+export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToast }) => {
+  const [jobs, setJobs] = useState<CohortJob[]>([]);
+  const [filaLigada, setFilaLigada] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<boolean | null>(null);
+  const [requeuing, setRequeuing] = useState<string | null>(null);
+
+  const fetchJobs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/admin/cohort/jobs', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        const list: CohortJob[] = res.data.data || [];
+        setJobs(list);
+        setFilaLigada(res.data.fila_ligada ?? null);
+        // Abre sozinho quando ha algo pendente ou com problema
+        setOpen((prev) => (prev === null ? list.some((j) => j.status !== 'done') : prev));
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erro ao carregar a fila', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+
+  const requeue = async (job: CohortJob) => {
+    if (!window.confirm(`Reprocessar o pré-preenchimento de ${job.pessoa_nome || job.email}?`)) return;
+    setRequeuing(job.id);
+    try {
+      const res = await axios.post(`/api/admin/cohort/jobs/${job.id}/requeue`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        showToast('Job de volta na fila', 'success');
+        await fetchJobs();
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erro ao reprocessar', 'error');
+    } finally {
+      setRequeuing(null);
+    }
+  };
+
+  const pendentes = jobs.filter((j) => j.status === 'queued' || j.status === 'running').length;
+  const problemas = jobs.filter((j) => j.status === 'error' || j.status === 'needs_human').length;
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={!!open}
+        className="w-full flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-left hover:bg-white/5 transition"
+      >
+        <span className="text-sm font-semibold text-white">
+          Fila de pré-preenchimento
+          <span className="ml-2 text-xs font-normal text-white/50">
+            {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'}{pendentes ? ` · ${pendentes} pendentes` : ''}{problemas ? ` · ${problemas} com problema` : ''}
+          </span>
+        </span>
+        <span className="flex items-center gap-3 text-xs text-white/50">
+          {filaLigada === false && <span className="text-yellow-300">fila desligada no servidor (COHORT_JOBS_TOKEN vazio)</span>}
+          {open ? '▲' : '▼'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-3">
+          <div className="flex justify-end">
+            <button
+              onClick={fetchJobs}
+              disabled={loading}
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs rounded-lg transition disabled:opacity-50"
+            >
+              {loading ? 'Atualizando...' : 'Atualizar fila'}
+            </button>
+          </div>
+          {jobs.length === 0 ? (
+            <p className="text-xs text-white/40">Nenhum job ainda. Um job nasce quando o mentor clica em "Confirmar e ir para a ficha".</p>
+          ) : (
+            <>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-white/50">
+                      <th className="px-3 py-2 text-left">Pessoa</th>
+                      <th className="px-3 py-2 text-left">Clube</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">Tentativas</th>
+                      <th className="px-3 py-2 text-left">Criado</th>
+                      <th className="px-3 py-2 text-left">Erro</th>
+                      <th className="px-3 py-2 text-left"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobs.map((j) => (
+                      <tr key={j.id} className="border-b border-white/5 text-xs">
+                        <td className="px-3 py-2">
+                          <p className="text-white">{j.pessoa_nome || j.email}</p>
+                          <p className="text-white/40">{j.email}{j.notify_phone ? ` · ${j.notify_phone}` : ''}</p>
+                        </td>
+                        <td className="px-3 py-2 text-white/70">{j.club_nome || j.club_slug}</td>
+                        <td className="px-3 py-2"><JobStatusBadge status={j.status} /></td>
+                        <td className="px-3 py-2 text-white/70">{j.attempts}</td>
+                        <td className="px-3 py-2 text-white/60">{formatDateTime(j.created_at)}{j.finished_at ? <span className="block text-white/40">fim {formatDateTime(j.finished_at)}</span> : null}</td>
+                        <td className="px-3 py-2 text-red-300 max-w-[260px] break-words">{j.error || ''}</td>
+                        <td className="px-3 py-2 text-right">
+                          {j.status !== 'queued' && j.status !== 'running' && (
+                            <button
+                              onClick={() => requeue(j)}
+                              disabled={requeuing === j.id}
+                              className="px-3 py-1.5 bg-prosperus-gold text-black text-xs font-semibold rounded-lg transition disabled:opacity-40"
+                            >
+                              {requeuing === j.id ? '...' : 'Reprocessar'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="md:hidden space-y-2">
+                {jobs.map((j) => (
+                  <div key={j.id} className="border border-white/10 rounded-lg p-3 space-y-1 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-white font-semibold">{j.pessoa_nome || j.email}</span>
+                      <JobStatusBadge status={j.status} />
+                    </div>
+                    <p className="text-white/50">{j.email}{j.notify_phone ? ` · ${j.notify_phone}` : ''}</p>
+                    <p className="text-white/60">{j.club_nome || j.club_slug} · {j.attempts} {j.attempts === 1 ? 'tentativa' : 'tentativas'} · {formatDateTime(j.created_at)}</p>
+                    {j.error && <p className="text-red-300 break-words">{j.error}</p>}
+                    {j.status !== 'queued' && j.status !== 'running' && (
+                      <button
+                        onClick={() => requeue(j)}
+                        disabled={requeuing === j.id}
+                        className="mt-1 px-3 py-2 min-h-[44px] bg-prosperus-gold text-black text-xs font-semibold rounded-lg transition disabled:opacity-40"
+                      >
+                        {requeuing === j.id ? '...' : 'Reprocessar'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 type SortKey = 'atividade' | 'nome' | 'ficha';
 
 export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast }) => {
@@ -206,6 +402,8 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
           {savingPrazo ? 'Salvando...' : 'Salvar prazo'}
         </button>
       </div>
+
+      <CohortJobsPanel token={token} showToast={showToast} />
 
       {loading ? (
         <div className="animate-pulse space-y-3">

@@ -2,6 +2,8 @@ const { Router } = require('express');
 const SF = require('../utils/script-ficha.cjs');
 const { scriptFieldsUpdateSchema, validateBody } = require('../utils/validation.cjs');
 const VM = require('../utils/validation-materials.cjs');
+const PIA = require('../utils/script-prompt-ia.cjs');
+const JOBS = require('../utils/cohort-jobs.cjs');
 
 /**
  * Script 7 Passos (membro): Materiais + Ficha do Script.
@@ -14,6 +16,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   const router = Router();
 
   VM.ensureCohortConfigTable(dbRun).catch((e) => console.error('cohort_config DDL error:', e.message));
+  VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
 
   const SCRIPT_CATEGORIES = [
     'script_transcricao_venda',
@@ -85,7 +88,16 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   }
 
-  function fichaPayload(ficha, user, files, config) {
+  /** Resumo do job da pessoa para o front (sem payload/result). */
+  function jobView(job) {
+    if (!job) return null;
+    return {
+      id: job.id, tipo: job.tipo, status: job.status, attempts: job.attempts,
+      created_at: job.created_at, started_at: job.started_at, finished_at: job.finished_at,
+    };
+  }
+
+  function fichaPayload(ficha, user, files, config, job) {
     const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: false });
     const materials = VM.normalizeMaterials(ficha.materials);
     const mine = VM.memberMaterialsView(materials, user.email);
@@ -96,6 +108,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       materials_status: mine.submitted_at ? 'submitted' : 'pending',
       materials_submitted_at: mine.submitted_at,
       materials: mine,
+      // Ultimo job de pre-preenchimento DESTA pessoa (queued/running = "ja estamos processando")
+      job: jobView(job),
       config,
       prefilled_at: ficha.prefilled_at,
       reviewed_at: ficha.reviewed_at,
@@ -122,10 +136,36 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // GET /api/script/ficha
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
-      const [files, config] = await Promise.all([listOwnFiles(req.user.userId), VM.readCohortConfig(dbAll)]);
-      res.json({ success: true, enabled: true, data: fichaPayload(req.ficha, req.cohort, files, config) });
+      const [files, config, job] = await Promise.all([
+        listOwnFiles(req.user.userId),
+        VM.readCohortConfig(dbAll),
+        JOBS.findLatestJob({ dbGet }, { club_slug: req.cohort.club_slug, email: req.cohort.email }),
+      ]);
+      res.json({ success: true, enabled: true, data: fichaPayload(req.ficha, req.cohort, files, config, job) });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/script/prompt-ia  -> { prompt } gerado por clube ("Peca para a sua IA preencher")
+  router.get('/api/script/prompt-ia', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const membros = await dbAll(
+        `SELECT cm.email, cm.nome, u.name AS user_name FROM cohort_members cm
+           LEFT JOIN users u ON lower(u.email) = cm.email
+          WHERE cm.club_slug = ? ORDER BY cm.created_at ASC`,
+        [req.cohort.club_slug]
+      );
+      const nomes = [];
+      for (const m of membros) {
+        const n = m.nome || m.user_name;
+        if (n && !nomes.includes(n)) nomes.push(n);
+      }
+      const prompt = PIA.buildPromptIA({ mentorNome: req.cohort.name, clubNome: req.cohort.club_nome, membros: nomes });
+      res.json({ success: true, prompt, campos: SF.FIELD_KEYS.length });
+    } catch (error) {
+      console.error('Error in GET /api/script/prompt-ia:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
@@ -202,13 +242,23 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       const materials = await freshMaterials(req.cohort.club_slug);
       const cur = materials.por_pessoa[key] || VM.emptyPessoa();
       const next = { ...cur };
+      let leitura = null;
       if (req.body.links !== undefined) next.links = req.body.links;
       if (req.body.observacoes !== undefined) next.observacoes = req.body.observacoes;
       if (req.body.acessos !== undefined) next.acessos = req.body.acessos;
+      if (req.body.resposta_ia !== undefined) {
+        const texto = String(req.body.resposta_ia);
+        if (texto.trim()) {
+          leitura = PIA.parseRespostaIA(texto);
+          next.resposta_ia = { texto, salvo_em: new Date().toISOString(), resumo: leitura.resumo };
+        } else {
+          delete next.resposta_ia;
+        }
+      }
       if (req.cohort.name) next.nome = req.cohort.name;
       materials.por_pessoa[key] = next;
       await touchActivity(req.cohort.club_slug, ', materials = ?', [JSON.stringify(materials)]);
-      res.json({ success: true, materials: VM.memberMaterialsView(materials, key) });
+      res.json({ success: true, materials: VM.memberMaterialsView(materials, key), ...(leitura ? { resposta_ia: leitura } : {}) });
     } catch (error) {
       // Nunca logar o body: pode conter login/senha de plataforma.
       console.error('Error in PUT /api/script/ficha/materials:', error.message);
@@ -216,14 +266,22 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // POST /api/script/ficha/materials/submit  ("Enviei o que tinha", por pessoa; o clube vira submitted com o primeiro)
-  router.post('/api/script/ficha/materials/submit', authMiddleware, cohortGuard, async (req, res) => {
+  // POST /api/script/ficha/materials/submit  { notify_phone?, notify? }
+  // "Confirmar e ir para a ficha": marca o submit DESTA pessoa (o clube vira submitted com o primeiro)
+  // e enfileira 1 job de pre-preenchimento para o worker. Job ativo da mesma pessoa = devolve o existente.
+  router.post('/api/script/ficha/materials/submit', authMiddleware, cohortGuard, validateBody(VM.scriptMaterialsSubmitSchema), async (req, res) => {
     try {
+      const phone = VM.normalizePhone(req.body.notify_phone);
+      if (!phone.ok) return res.status(400).json({ success: false, message: phone.message, errors: [phone.message] });
+      const notifyPhone = req.body.notify === false ? null : phone.phone;
+
       const key = VM.normEmail(req.cohort.email);
       const materials = await freshMaterials(req.cohort.club_slug);
       const cur = materials.por_pessoa[key] || VM.emptyPessoa();
       const submittedAt = new Date().toISOString();
-      materials.por_pessoa[key] = { ...cur, submitted_at: submittedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      const next = { ...cur, submitted_at: submittedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      if (notifyPhone) next.notify_phone = notifyPhone;
+      materials.por_pessoa[key] = next;
       await dbRun(
         `UPDATE script_fichas
             SET materials = ?, materials_status = 'submitted',
@@ -232,7 +290,22 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
           WHERE club_slug = ?`,
         [JSON.stringify(materials), req.cohort.club_slug]
       );
-      res.json({ success: true, materials_status: 'submitted', materials_submitted_at: submittedAt });
+
+      const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+        tipo: 'prefill',
+        club_slug: req.cohort.club_slug,
+        email: key,
+        notify_phone: notifyPhone,
+        payload: { nome: req.cohort.name || null, submitted_at: submittedAt, notify: req.body.notify !== false },
+      });
+
+      res.json({
+        success: true,
+        materials_status: 'submitted',
+        materials_submitted_at: submittedAt,
+        notify_phone: notifyPhone,
+        job: { ...jobView(job), existing },
+      });
     } catch (error) {
       console.error('Error in POST /api/script/ficha/materials/submit:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });

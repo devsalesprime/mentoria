@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
-import { FichaBadge, MaterialsBadge, formatDateTime } from './CohortOverview';
+import { FichaBadge, MaterialsBadge, JobStatusBadge, formatDateTime } from './CohortOverview';
+import type { CohortJob } from './CohortOverview';
 import { MATERIAL_CATEGORIA_LABEL } from '../script/materiais/categorias';
 import { maskSenha } from '../script/materiais/AcessosPlataforma';
 import type { ScriptBlockView, ScriptFieldView, FichaStatus, MaterialsStatus } from '../../data/script-ficha-fields';
@@ -20,6 +21,10 @@ interface Pessoa {
   links: MaterialLink[];
   observacoes: string;
   acessos: MaterialAcesso[];
+  /** Resposta colada da IA do mentor ("Peca para a sua IA preencher"). */
+  resposta_ia: { texto: string; salvo_em: string | null; resumo: string } | null;
+  /** WhatsApp informado em "Confirmar e ir para a ficha" (aviso do pre-preenchimento). */
+  notify_phone: string | null;
   submitted_at: string | null;
 }
 
@@ -29,6 +34,8 @@ interface ClubDetail {
   files: ClubFile[];
   pessoas: Pessoa[];
   pessoas_enviaram: number;
+  /** Fila de pre-preenchimento deste clube (mais recentes primeiro). */
+  jobs?: CohortJob[];
   /** Forma antiga (por clube) que existia antes dos materiais por pessoa. */
   legado: { links: MaterialLink[]; observacoes: string } | null;
   materials_status: MaterialsStatus;
@@ -92,8 +99,23 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true });
   // Senhas de acesso a plataforma: mascaradas por padrao, "mostrar" por item (chave email:indice)
   const [senhaVisivel, setSenhaVisivel] = useState<Record<string, boolean>>({});
+  // Resposta da IA por pessoa: fechada por padrao (texto longo)
+  const [respostaAberta, setRespostaAberta] = useState<Record<string, boolean>>({});
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  const downloadRespostaMd = (p: Pessoa) => {
+    if (!p.resposta_ia?.texto) return;
+    const blob = new Blob([p.resposta_ia.texto], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `resposta-ia-${slug}-${p.email.replace(/[^a-z0-9]+/gi, '-')}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
@@ -280,7 +302,30 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                     {p.submitted_at ? `Enviou em ${formatDateTime(p.submitted_at)}` : 'Não clicou em "Enviei o que tinha"'}
                   </span>
                 </div>
-                {total === 0 && !p.observacoes && <p className="text-xs text-white/40">Nada enviado por esta pessoa.</p>}
+                {p.notify_phone && (
+                  <p className="text-[11px] text-white/50">WhatsApp para o aviso: <span className="font-mono text-white/80">{p.notify_phone}</span></p>
+                )}
+                {total === 0 && !p.observacoes && !p.resposta_ia && <p className="text-xs text-white/40">Nada enviado por esta pessoa.</p>}
+
+                {p.resposta_ia?.texto && (
+                  <div className="space-y-1 border border-white/10 rounded-lg p-2 bg-white/[0.02]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRespostaAberta((s) => ({ ...s, [p.email]: !s[p.email] }))}
+                        className="text-xs font-semibold text-white/70 hover:text-white text-left"
+                        aria-expanded={!!respostaAberta[p.email]}
+                      >
+                        Resposta da IA {respostaAberta[p.email] ? '▲' : '▼'}
+                        <span className="ml-2 font-normal text-white/50">{p.resposta_ia.resumo || 'sem leitura'}{p.resposta_ia.salvo_em ? ` · ${formatDateTime(p.resposta_ia.salvo_em)}` : ''}</span>
+                      </button>
+                      <Button variant="outline" size="xs" onClick={() => downloadRespostaMd(p)}>Baixar .md</Button>
+                    </div>
+                    {respostaAberta[p.email] && (
+                      <pre className="text-[11px] text-white/80 font-mono whitespace-pre-wrap break-words max-h-96 overflow-y-auto custom-scrollbar bg-prosperus-navy rounded p-2">{p.resposta_ia.texto}</pre>
+                    )}
+                  </div>
+                )}
 
                 {p.files.length > 0 && (
                   <div className="space-y-1">
@@ -365,6 +410,24 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
               {detail.legado.observacoes && (
                 <p className="text-xs text-white/60 whitespace-pre-line">Observações: {detail.legado.observacoes}</p>
               )}
+            </div>
+          )}
+
+          {(detail.jobs || []).length > 0 && (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+              <h4 className="text-sm font-semibold text-white">Fila de pré-preenchimento deste clube</h4>
+              <ul className="space-y-1">
+                {(detail.jobs || []).map((j) => (
+                  <li key={j.id} className="flex flex-wrap items-center gap-2 text-xs border-b border-white/5 py-1.5">
+                    <JobStatusBadge status={j.status} />
+                    <span className="text-white/80">{j.email}</span>
+                    {j.notify_phone && <span className="font-mono text-white/50">{j.notify_phone}</span>}
+                    <span className="text-white/40">tentativas {j.attempts} · criado {formatDateTime(j.created_at)}{j.finished_at ? ` · fim ${formatDateTime(j.finished_at)}` : ''}</span>
+                    {j.error && <span className="text-red-300 break-all">{j.error}</span>}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-white/40">Reprocessar e ver todos: painel "Fila" na aba Cohort.</p>
             </div>
           )}
         </div>

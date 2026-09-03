@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import type { UseScriptFicha, ClubFile, MaterialLink } from '../../hooks/useScriptFicha';
 import type { UploadedFile } from '../../types/audio';
-import { MATERIAL_CATEGORIAS } from './materiais/categorias';
+import { MATERIAL_CATEGORIAS, LINKS_DICA } from './materiais/categorias';
 import { ComoFunciona } from './materiais/ComoFunciona';
 import { AcessosPlataforma } from './materiais/AcessosPlataforma';
+import { PromptIA } from './materiais/PromptIA';
+import { ConfirmarEnvioModal } from './materiais/ConfirmarEnvioModal';
 import { AccordionSection } from '../shared/AccordionSection';
 import { FileUpload } from '../shared/FileUpload';
 import { SectionWarning } from '../shared/SectionWarning';
@@ -63,8 +65,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const [linkType, setLinkType] = useState<MaterialLink['tipo']>('drive');
   const [linkError, setLinkError] = useState('');
   const [obs, setObs] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submittedNow, setSubmittedNow] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (loading && !data) {
     return (
@@ -90,6 +91,8 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const acessos = data.materials?.acessos || [];
   const observacoes = obs ?? data.materials?.observacoes ?? '';
   const isSubmitted = data.materials_status === 'submitted';
+  const job = data.job || null;
+  const processing = !!job && (job.status === 'queued' || job.status === 'running');
   const totalItems = files.length + links.length + acessos.length;
 
   const handleFilesChange = (categoryId: string, next: UploadedFile[]) => {
@@ -130,12 +133,15 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
     saveMaterials({ observacoes: obs });
   };
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
+  // "Enviei o que tinha" abre a confirmacao; o POST so acontece em "Confirmar e ir para a ficha"
+  const handleSubmit = () => {
     saveObs();
-    const ok = await submitMaterials();
-    setSubmitting(false);
-    if (ok) setSubmittedNow(true);
+    setConfirmOpen(true);
+  };
+
+  const goToFicha = () => {
+    setConfirmOpen(false);
+    onNavigate?.('script_ficha');
   };
 
   return (
@@ -146,7 +152,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         <h2 className="font-serif text-2xl sm:text-3xl text-white">Materiais</h2>
         <p className="text-sm text-white/70 font-sans leading-relaxed">
           Mande o que você já tem sobre como vende hoje. Quanto mais real, melhor fica o script.
-          O que você envia aqui só você e o Danilo veem: cada sócio manda o seu.
+          O que você envia aqui só você e o Danilo veem.
         </p>
         {isSubmitted && (
           <p className="text-xs text-green-400 font-sans">
@@ -199,7 +205,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
       {/* Links */}
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <h3 className="font-serif text-xl text-white">Links</h3>
-        <p className="text-sm text-white/50 font-sans">Pasta no Drive, site, página de vendas, gravações. Só o link; acesso com senha vai na seção abaixo.</p>
+        <p className="text-sm text-white/50 font-sans">{LINKS_DICA}</p>
         <div className="flex flex-wrap gap-2">
           {LINK_TYPES.map((t) => (
             <button
@@ -253,6 +259,13 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         )}
       </div>
 
+      {/* Peca para a sua IA preencher */}
+      <PromptIA
+        token={token}
+        resposta={data.materials?.resposta_ia || null}
+        onSave={(texto) => saveMaterials({ resposta_ia: texto })}
+      />
+
       {/* Acesso a plataforma de conteudo (opcional) */}
       <AcessosPlataforma acessos={acessos} onChange={(next) => saveMaterials({ acessos: next })} />
 
@@ -282,15 +295,26 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
             {onNavigate && (
               <Button variant="ghost" size="md" onClick={() => onNavigate('script_ficha')}>Ir para a ficha</Button>
             )}
-            <Button variant="primary" size="lg" onClick={handleSubmit} loading={submitting}>
+            <Button variant="primary" size="lg" className="min-h-[44px]" onClick={handleSubmit}>
               {isSubmitted ? 'Enviei mais coisas' : 'Enviei o que tinha'}
             </Button>
           </div>
         </div>
-        {submittedNow && (
-          <p className="text-xs text-green-400 font-sans">Recebido. O Caio avisa quando a ficha estiver pronta para revisar.</p>
+        {processing && (
+          <p className="text-xs text-prosperus-gold-light font-sans">Já estamos processando o que você enviou. Você pode continuar enviando material e ir revisando a ficha.</p>
+        )}
+        {job && job.status === 'done' && (
+          <p className="text-xs text-green-400 font-sans">Pré-preenchimento concluído. A sua ficha está pronta para revisar.</p>
         )}
       </div>
+
+      <ConfirmarEnvioModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={(opts) => submitMaterials(opts)}
+        onGoToFicha={goToFicha}
+        initialPhone={data.materials?.notify_phone || ''}
+      />
     </div>
   );
 };

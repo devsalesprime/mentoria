@@ -11,8 +11,14 @@
  * Fluxo: cria clube exemplo-clube (admin) -> login do membro pelo cohort (sem etapa do HubSpot)
  *        -> importa data/samples/prefill-exemplo.json -> GET ficha -> PUT fields -> complete
  *        -> materiais POR PESSOA (A sobe arquivo, B do mesmo clube nao ve nem baixa; acessos de A
- *           nao chegam a B; submit por pessoa; admin ve tudo; prazo via cohort_config) -> overview admin.
+ *           nao chegam a B; submit por pessoa; admin ve tudo; prazo via cohort_config)
+ *        -> prompt da IA + resposta colada -> "Confirmar e ir para a ficha" com WhatsApp -> job na fila
+ *        -> worker (POST /api/jobs/next com COHORT_JOBS_TOKEN) le materiais/ficha, grava o prefill, fecha o job
+ *        -> admin ve a fila e reprocessa -> overview admin.
  * O token admin e cunhado com o JWT_SECRET do .env (mesmo padrao de scripts/deliver.cjs).
+ * COHORT_JOBS_TOKEN precisa estar no ambiente DOS DOIS processos (servidor e este script), com o mesmo valor:
+ *   COHORT_JOBS_TOKEN=e2e-token DB_PATH=/tmp/e2e.db PORT=3999 node server.cjs
+ *   COHORT_JOBS_TOKEN=e2e-token node scripts/e2e-script-ficha.cjs
  */
 const path = require('path');
 const fs = require('fs');
@@ -37,6 +43,13 @@ if (!process.env.JWT_SECRET) {
   console.error('JWT_SECRET ausente no .env');
   process.exit(1);
 }
+const JOBS_TOKEN = (process.env.COHORT_JOBS_TOKEN || '').trim();
+if (!JOBS_TOKEN) {
+  console.error('COHORT_JOBS_TOKEN ausente no ambiente (o mesmo valor tem que estar no servidor). Ex.: COHORT_JOBS_TOKEN=e2e-token');
+  process.exit(1);
+}
+const PHONE_A = '(11) 98765-4321';
+const PHONE_A_NORM = '5511987654321';
 
 const adminToken = jwt.sign({ userId: 'admin-001', role: 'admin', user: 'admin', name: 'Admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
@@ -67,6 +80,20 @@ async function upload(token, category, name, content, expectOk = true) {
 async function raw(method, url, token) {
   const res = await fetch(BASE + url, { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
   return { status: res.status, text: await res.text() };
+}
+
+/** Chamadas do worker (a Naia): Authorization: Bearer <COHORT_JOBS_TOKEN>. */
+async function worker(method, url, body, token = JOBS_TOKEN, expectOk = true) {
+  const res = await fetch(BASE + url, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch { data = null; }
+  if (expectOk && !res.ok) throw new Error(`worker ${method} ${url} -> ${res.status}: ${text.slice(0, 300)}`);
+  return { status: res.status, data, text };
 }
 
 function step(msg) { console.log(`\n== ${msg}`); }
@@ -231,6 +258,134 @@ function step(msg) { console.log(`\n== ${msg}`); }
   const fichaCfg2 = await call('GET', '/api/script/ficha', memberToken);
   if (fichaCfg2.data.data.config.prazo_materiais !== '') throw new Error('prazo vazio deveria voltar vazio');
   console.log('prazo lido pelo membro:', JSON.stringify(fichaCfg.data.data.config.prazo_materiais), '-> depois de limpar:', JSON.stringify(fichaCfg2.data.data.config.prazo_materiais));
+
+  step('12f. Prompt da IA (GET /api/script/prompt-ia) e resposta colada (PUT materials { resposta_ia })');
+  const pr = await call('GET', '/api/script/prompt-ia', memberToken);
+  const promptLines = pr.data.prompt.split('\n').filter((l) => /^\d\.\d+\. /.test(l));
+  console.log('prompt:', pr.data.prompt.length, 'chars |', promptLines.length, 'campos | FONTES:', pr.data.prompt.includes('### FONTES'), '| travessão:', pr.data.prompt.includes('—'));
+  if (promptLines.length !== 34 || !pr.data.prompt.includes('### FONTES') || pr.data.prompt.includes('—')) throw new Error('prompt fora do esperado');
+  if (!pr.data.prompt.includes('Mentor Exemplo')) throw new Error('prompt deveria citar o nome do mentor');
+  // Marcador unico: a ficha (por clube) legitimamente contem "Mentoria Exemplo" do prefill; o que nao pode vazar e a resposta de A
+  const MARCA_IA = 'MARCADOR-RESPOSTA-IA-DE-A-7391';
+  const respostaIA = `### 1.1 [CERTO]\nMentoria Exemplo (${MARCA_IA})\n### 2.1 [PARCIAL]\nEspecialista em X\n### 3.3 [INCERTO]\nnão sei\n### FONTES\n- exclusive book`;
+  const ria = await call('PUT', '/api/script/ficha/materials', memberToken, { resposta_ia: respostaIA });
+  console.log('resposta_ia ->', ria.data.resposta_ia.resumo, '| salvo_em:', ria.data.materials.resposta_ia.salvo_em);
+  if (ria.data.resposta_ia.resumo !== '3 campos: 1 certo, 1 parcial, 1 incerto') throw new Error('resumo da resposta da IA errado');
+  const fichaBria = await raw('GET', '/api/script/ficha', memberBToken);
+  if (fichaBria.text.includes(MARCA_IA)) throw new Error('resposta da IA de A vazou para B');
+  const fichaAria = await raw('GET', '/api/script/ficha', memberToken);
+  if (!fichaAria.text.includes(MARCA_IA)) throw new Error('A deveria receber a propria resposta da IA no GET ficha');
+
+  step('12g. "Confirmar e ir para a ficha": telefone invalido -> 400; A confirma com WhatsApp -> job (ja existia do 12d: existing)');
+  const badPhone = await call('POST', '/api/script/ficha/materials/submit', memberToken, { notify_phone: '123' }, false);
+  console.log('telefone invalido ->', badPhone.status, badPhone.data.message);
+  if (badPhone.status !== 400) throw new Error('telefone invalido deveria dar 400');
+  const subPhone = await call('POST', '/api/script/ficha/materials/submit', memberToken, { notify_phone: PHONE_A });
+  console.log('submit com telefone ->', subPhone.data.notify_phone, '| job:', subPhone.data.job.id, subPhone.data.job.status, '| existing:', subPhone.data.job.existing);
+  if (subPhone.data.notify_phone !== PHONE_A_NORM) throw new Error('telefone deveria vir normalizado com 55');
+  if (subPhone.data.job.status !== 'queued' || subPhone.data.job.existing !== true) throw new Error('A ja tinha job queued (12d): deveria devolver o existente');
+  const jobAId = subPhone.data.job.id;
+  const fichaJob = await call('GET', '/api/script/ficha', memberToken);
+  console.log('GET ficha: job =', fichaJob.data.data.job, '| notify_phone =', fichaJob.data.data.materials.notify_phone);
+  if (!fichaJob.data.data.job || fichaJob.data.data.job.id !== jobAId || fichaJob.data.data.job.status !== 'queued') throw new Error('GET ficha deveria trazer o job queued da pessoa');
+
+  step('12h. Worker (Naia): auth da fila');
+  const noTokW = await worker('POST', '/api/jobs/next', { tipo: 'prefill' }, null, false);
+  const badTokW = await worker('POST', '/api/jobs/next', { tipo: 'prefill' }, 'token-errado', false);
+  console.log('sem token ->', noTokW.status, '| token errado ->', badTokW.status);
+  if (noTokW.status !== 401 || badTokW.status !== 401) throw new Error('fila deveria exigir o Bearer certo (401)');
+  const memberW = await call('GET', '/api/jobs', memberToken, null, false);
+  if (memberW.status !== 401) throw new Error('token de membro nao vale na fila');
+
+  step('12i. Worker: POST /api/jobs/next pega o mais antigo (B, do 12d), depois A (com telefone), depois 204');
+  const n1 = await worker('POST', '/api/jobs/next', { tipo: 'prefill' });
+  console.log('next 1 ->', n1.data.job.email, n1.data.job.status, 'tentativa', n1.data.job.attempts, '| clube:', n1.data.club.nome, '| app_url:', n1.data.app_url);
+  if (n1.data.job.email !== EMAIL_B.toLowerCase() || n1.data.job.status !== 'running' || n1.data.job.attempts !== 1) throw new Error('primeiro da fila deveria ser B, running, tentativa 1');
+  const jobBId = n1.data.job.id;
+  const n2 = await worker('POST', '/api/jobs/next', { tipo: 'prefill' });
+  console.log('next 2 ->', n2.data.job.email, '| pessoa:', n2.data.pessoa);
+  if (n2.data.job.id !== jobAId || n2.data.pessoa.notify_phone !== PHONE_A_NORM || n2.data.pessoa.nome !== 'Mentor Exemplo') throw new Error('segundo da fila deveria ser A com o telefone e o nome');
+  const n3 = await worker('POST', '/api/jobs/next', { tipo: 'prefill' }, JOBS_TOKEN, false);
+  console.log('next 3 ->', n3.status, '(fila vazia)');
+  if (n3.status !== 204) throw new Error('fila vazia deveria dar 204');
+  const gj = await worker('GET', `/api/jobs/${jobAId}`);
+  if (gj.data.job.status !== 'running' || gj.data.job.club_slug !== SLUG) throw new Error('GET /api/jobs/:id fora do esperado');
+
+  step('12j. Worker: materiais do CLUBE por pessoa (arquivo de A com download_url, acesso com senha, resposta da IA), download do arquivo');
+  const wm = await worker('GET', `/api/jobs/${jobAId}/materials`);
+  const wA = wm.data.pessoas.find((p) => p.email === EMAIL.toLowerCase());
+  const wB = wm.data.pessoas.find((p) => p.email === EMAIL_B.toLowerCase());
+  console.log('A:', { files: wA.files.map((f) => f.name), links: wA.links.length, acessos: wA.acessos.length, resposta_ia: wA.resposta_ia && wA.resposta_ia.resumo, notify_phone: wA.notify_phone });
+  console.log('B:', { files: wB.files.length, submitted_at: wB.submitted_at });
+  if (!wA.files.some((f) => f.id === fileId && f.download_url === `/api/jobs/${jobAId}/files/${fileId}`)) throw new Error('worker deveria ver o arquivo de A com download_url');
+  if (wA.acessos.length !== 1 || wA.acessos[0].senha !== SENHA_A) throw new Error('worker precisa dos acessos (com senha) para extrair a plataforma');
+  if (!wA.resposta_ia || !wA.resposta_ia.texto.includes(MARCA_IA)) throw new Error('worker deveria receber a resposta da IA de A');
+  if (wA.notify_phone !== PHONE_A_NORM || !wB.submitted_at) throw new Error('worker deveria ver telefone de A e submit de B');
+  const wdl = await worker('GET', wA.files.find((f) => f.id === fileId).download_url);
+  console.log('download pelo worker ->', wdl.status, `(${wdl.text.length} bytes)`);
+  if (wdl.status !== 200 || !wdl.text.includes('Transcrição de teste')) throw new Error('worker deveria baixar o arquivo do clube');
+  const wdl404 = await worker('GET', `/api/jobs/${jobAId}/files/nao-existe`, null, JOBS_TOKEN, false);
+  if (wdl404.status !== 404) throw new Error('arquivo inexistente deveria dar 404');
+
+  step('12k. Worker: GET ficha (o que o mentor ja decidiu) e PUT prefill (nao sobrescreve os 34 decididos)');
+  const wf = await worker('GET', `/api/jobs/${jobAId}/ficha`);
+  console.log('ficha pelo worker: status', wf.data.ficha_status, '| decididos', wf.data.decididos.length, '| blocos', wf.data.blocos.length);
+  if (wf.data.decididos.length !== 34 || wf.data.blocos.length !== 6) throw new Error('ficha pelo worker fora do esperado (a ficha foi fechada no passo 10)');
+  const wrongSlug = await worker('PUT', `/api/jobs/${jobAId}/prefill`, { ...sample, club_slug: 'outro-clube' }, JOBS_TOKEN, false);
+  if (wrongSlug.status !== 400) throw new Error('club_slug diferente do job deveria dar 400');
+  const wp = await worker('PUT', `/api/jobs/${jobAId}/prefill`, sample);
+  console.log('prefill pelo worker ->', wp.data.message, '| imported:', wp.data.imported, '| skipped:', wp.data.skipped.length);
+  if (wp.data.imported !== 0 || wp.data.skipped.length !== 34) throw new Error('prefill via job nao pode sobrescrever campo decidido');
+  const fichaAfterW = await call('GET', '/api/script/ficha', memberToken);
+  if (fichaAfterW.data.data.ficha_status !== 'confirmada') throw new Error('ficha confirmada deveria continuar confirmada');
+
+  step('12l. Worker: PATCH done (A) e needs_human (B); lista por status; phones');
+  const pd = await worker('PATCH', `/api/jobs/${jobAId}`, { status: 'done', result: { imported: 0, skipped: 34 } });
+  console.log('PATCH done ->', pd.data.job.status, '| finished_at:', pd.data.job.finished_at);
+  if (pd.data.job.status !== 'done' || !pd.data.job.finished_at) throw new Error('done deveria gravar finished_at');
+  const pnh = await worker('PATCH', `/api/jobs/${jobBId}`, { status: 'needs_human', error: 'B não enviou material' });
+  if (pnh.data.job.status !== 'needs_human' || pnh.data.job.error !== 'B não enviou material') throw new Error('needs_human deveria guardar o erro');
+  const ldone = await worker('GET', '/api/jobs?status=done');
+  const lnh = await worker('GET', '/api/jobs?status=needs_human');
+  console.log('done:', ldone.data.data.map((j) => j.email), '| needs_human:', lnh.data.data.map((j) => j.email));
+  if (!ldone.data.data.some((j) => j.id === jobAId) || !lnh.data.data.some((j) => j.id === jobBId)) throw new Error('lista por status fora do esperado');
+  const phones = await worker('GET', '/api/jobs/phones');
+  console.log('phones ->', phones.data.phones);
+  if (!phones.data.phones.includes(PHONE_A_NORM)) throw new Error('phones deveria trazer o telefone de A');
+  const fichaDone = await call('GET', '/api/script/ficha', memberToken);
+  if (fichaDone.data.data.job.status !== 'done') throw new Error('GET ficha deveria mostrar o job done');
+
+  step('12m. Admin: fila (GET /api/admin/cohort/jobs) e Reprocessar (requeue de B) -> worker pega de novo e fecha');
+  const aj = await call('GET', '/api/admin/cohort/jobs', adminToken);
+  const ajA = aj.data.data.find((j) => j.id === jobAId);
+  const ajB = aj.data.data.find((j) => j.id === jobBId);
+  console.log('admin fila:', aj.data.data.length, 'jobs | fila_ligada:', aj.data.fila_ligada, '| A:', ajA && { status: ajA.status, club_nome: ajA.club_nome, pessoa_nome: ajA.pessoa_nome, notify_phone: ajA.notify_phone });
+  if (!ajA || ajA.status !== 'done' || ajA.club_nome !== 'Clube Exemplo' || ajA.notify_phone !== PHONE_A_NORM) throw new Error('admin deveria listar o job de A como done com clube e telefone');
+  if (!ajB || ajB.status !== 'needs_human') throw new Error('admin deveria listar o job de B como needs_human');
+  if (aj.data.fila_ligada !== true) throw new Error('fila_ligada deveria ser true (COHORT_JOBS_TOKEN no servidor)');
+  const memberAj = await call('GET', '/api/admin/cohort/jobs', memberToken, null, false);
+  if (memberAj.status !== 403) throw new Error('membro nao ve a fila do admin');
+  const rq = await call('POST', `/api/admin/cohort/jobs/${jobBId}/requeue`, adminToken, {});
+  console.log('requeue B ->', rq.data.job.status, '| attempts:', rq.data.job.attempts, '| error:', rq.data.job.error);
+  if (rq.data.job.status !== 'queued' || rq.data.job.error !== null) throw new Error('requeue deveria voltar para queued e limpar o erro');
+  const n4 = await worker('POST', '/api/jobs/next', { tipo: 'prefill' });
+  if (n4.data.job.id !== jobBId || n4.data.job.attempts !== 2) throw new Error('worker deveria pegar B de novo (tentativa 2)');
+  const rqRunning = await call('POST', `/api/admin/cohort/jobs/${jobBId}/requeue`, adminToken, {}, false);
+  if (rqRunning.status !== 409) throw new Error('requeue de job running deveria dar 409');
+  await worker('PATCH', `/api/jobs/${jobBId}`, { status: 'done' });
+  const detJobs = await call('GET', `/api/admin/clubs/${SLUG}/script-ficha`, adminToken);
+  const detA = detJobs.data.data.pessoas.find((p) => p.email === EMAIL.toLowerCase());
+  console.log('detalhe: jobs do clube =', detJobs.data.data.jobs.length, '| A.notify_phone =', detA.notify_phone, '| A.resposta_ia =', detA.resposta_ia && detA.resposta_ia.resumo);
+  if (detJobs.data.data.jobs.length < 2 || detA.notify_phone !== PHONE_A_NORM || !detA.resposta_ia) throw new Error('detalhe do clube deveria trazer jobs, telefone e resposta da IA');
+
+  step('12n. Depois de done, A confirma de novo -> job novo (existing: false); worker fecha (limpeza)');
+  const subNew = await call('POST', '/api/script/ficha/materials/submit', memberToken, { notify_phone: PHONE_A });
+  console.log('novo submit ->', subNew.data.job.id, subNew.data.job.status, '| existing:', subNew.data.job.existing);
+  if (subNew.data.job.existing !== false || subNew.data.job.id === jobAId) throw new Error('depois de done deveria nascer um job novo');
+  const n5 = await worker('POST', '/api/jobs/next', { tipo: 'prefill' });
+  await worker('PATCH', `/api/jobs/${n5.data.job.id}`, { status: 'done' });
+  const emptyQ = await worker('POST', '/api/jobs/next', { tipo: 'prefill' }, JOBS_TOKEN, false);
+  if (emptyQ.status !== 204) throw new Error('fila deveria estar vazia no fim');
 
   step('13. Admin overview + detalhe por pessoa');
   const ov = await call('GET', '/api/admin/cohort', adminToken);

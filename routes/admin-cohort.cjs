@@ -2,6 +2,8 @@ const { Router } = require('express');
 const SF = require('../utils/script-ficha.cjs');
 const { scriptPrefillSchema, cohortMembersSchema, validateBody } = require('../utils/validation.cjs');
 const VM = require('../utils/validation-materials.cjs');
+const CM = require('../utils/cohort-materials.cjs');
+const JOBS = require('../utils/cohort-jobs.cjs');
 
 /**
  * Admin do cohort (clubes do Exclusive) e da Ficha do Script.
@@ -12,6 +14,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   const router = Router();
 
   VM.ensureCohortConfigTable(dbRun).catch((e) => console.error('cohort_config DDL error:', e.message));
+  VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
 
   const normEmail = VM.normEmail;
 
@@ -29,19 +32,12 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   }
 
   // 1 linha por e-mail mesmo se users tiver duplicata por caixa (fica a de updated_at mais recente)
-  const LATEST_USER_JOIN = `LEFT JOIN users u ON u.id = (
-        SELECT u2.id FROM users u2 WHERE lower(u2.email) = cm.email ORDER BY u2.updated_at DESC, u2.created_at DESC LIMIT 1)`;
+  const LATEST_USER_JOIN = CM.LATEST_USER_JOIN;
 
-  async function listMembers(slug) {
-    return dbAll(
-      `SELECT cm.email, cm.nome, cm.created_at, u.id AS user_id, u.name AS user_name, u.updated_at AS ultimo_login
-         FROM cohort_members cm
-         ${LATEST_USER_JOIN}
-        WHERE cm.club_slug = ?
-        ORDER BY cm.created_at ASC`,
-      [slug]
-    );
-  }
+  // Membros, arquivos e materiais por pessoa: compartilhados com routes/jobs.cjs (utils/cohort-materials.cjs)
+  const listMembers = (slug) => CM.listClubMembers({ dbAll }, slug);
+  const listFiles = (slug) => CM.listClubFiles({ dbAll }, slug);
+  const buildPessoas = CM.buildPessoas;
 
   /** Reaplica users.cohort para os membros do clube conforme cohort_clubs.ativo. */
   async function resyncClubUsers(slug) {
@@ -56,46 +52,6 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     } else {
       await dbRun(`UPDATE users SET cohort = NULL, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`, [slug]);
     }
-  }
-
-  async function listFiles(slug) {
-    const rows = await dbAll(
-      `SELECT f.id, f.user_id, f.category, f.file_name, f.file_type, f.file_size, f.created_at,
-              u.email AS owner_email, u.name AS owner_name
-         FROM uploaded_files f JOIN users u ON u.id = f.user_id
-        WHERE u.club_slug = ? AND f.category LIKE 'script_%'
-        ORDER BY f.created_at ASC`,
-      [slug]
-    );
-    return rows.map((r) => ({
-      id: r.id, userId: r.user_id, category: r.category, fileName: r.file_name,
-      fileType: r.file_type, fileSize: r.file_size, createdAt: r.created_at,
-      ownerEmail: normEmail(r.owner_email), ownerName: r.owner_name || null,
-    }));
-  }
-
-  /** Materiais por pessoa: uniao de membros do clube, entradas em por_pessoa e donos de arquivo (ex-membro que enviou). */
-  function buildPessoas(membros, files, materials) {
-    const emails = new Set([
-      ...membros.map((m) => normEmail(m.email)),
-      ...Object.keys(materials.por_pessoa),
-      ...files.map((f) => f.ownerEmail),
-    ]);
-    return [...emails].filter(Boolean).map((email) => {
-      const m = membros.find((x) => normEmail(x.email) === email);
-      const p = materials.por_pessoa[email] || VM.emptyPessoa();
-      return {
-        email,
-        nome: (m && (m.nome || m.user_name)) || p.nome || null,
-        user_id: m ? m.user_id : null,
-        membro: !!m,
-        files: files.filter((f) => f.ownerEmail === email),
-        links: p.links,
-        observacoes: p.observacoes,
-        acessos: p.acessos,
-        submitted_at: p.submitted_at,
-      };
-    });
   }
 
   /** Marca users.cohort/club_slug para os e-mails informados (se ja tem conta); clube inativo so aponta o club_slug. */
@@ -182,7 +138,11 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
       const ficha = await ensureFicha(club.slug);
       const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: true });
-      const [membros, files] = await Promise.all([listMembers(club.slug), listFiles(club.slug)]);
+      const [membros, files, jobs] = await Promise.all([
+        listMembers(club.slug),
+        listFiles(club.slug),
+        dbAll(`SELECT * FROM cohort_jobs WHERE club_slug = ? ORDER BY created_at DESC LIMIT 50`, [club.slug]),
+      ]);
       const materials = VM.normalizeMaterials(ficha.materials);
       res.json({
         success: true,
@@ -190,9 +150,11 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
           club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 },
           membros,
           files,
-          // Por pessoa (arquivos, links, observacoes, acessos, submitted_at). `legado` = forma antiga por clube, se existia.
+          // Por pessoa (arquivos, links, observacoes, acessos, resposta_ia, notify_phone, submitted_at). `legado` = forma antiga por clube.
           pessoas: buildPessoas(membros, files, materials),
           pessoas_enviaram: VM.countSubmitted(materials),
+          // Fila de pre-preenchimento deste clube (mais recentes primeiro)
+          jobs: jobs.map(JOBS.rowToJob),
           legado: materials.legado || null,
           materials,
           materials_status: ficha.materials_status,
@@ -215,34 +177,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   router.put('/api/admin/clubs/:slug/script-ficha', authMiddleware, adminMiddleware, validateBody(scriptPrefillSchema), async (req, res) => {
     try {
       const slug = req.params.slug;
-      const body = req.body;
-      const errors = [];
-      const warnings = [];
-
-      if (body.club_slug && body.club_slug !== slug) {
-        errors.push(`club_slug do JSON ("${body.club_slug}") difere da rota ("${slug}").`);
-      }
-
-      const keys = Object.keys(body.campos || {});
-      const missing = SF.FIELD_KEYS.filter((k) => !keys.includes(k));
-      const extra = keys.filter((k) => !SF.FIELD_BY_KEY[k]);
-      if (missing.length) errors.push(`Faltam ${missing.length} campos: ${missing.join(', ')}.`);
-      if (extra.length) errors.push(`Chaves desconhecidas: ${extra.join(', ')}.`);
-
-      for (const k of keys) {
-        const c = body.campos[k];
-        if (!SF.FIELD_BY_KEY[k] || !c) continue;
-        if (c.classe !== 'VZ') {
-          if (!String(c.fonte || '').trim()) errors.push(`${k}: fonte obrigatória quando classe é ${c.classe}.`);
-          if (!String(c.sugerido || '').trim()) errors.push(`${k}: sugerido vazio com classe ${c.classe} (use classe VZ).`);
-        } else if (String(c.sugerido || '').trim()) {
-          warnings.push(`${k}: classe VZ com sugerido preenchido; o texto será ignorado.`);
-        }
-        if ((c.alternativas || []).length > 2) errors.push(`${k}: no máximo 2 alternativas.`);
-        const textos = [c.sugerido, ...(c.alternativas || []).map((a) => a.sugerido)].filter(Boolean);
-        if (textos.some((t) => String(t).includes('—'))) warnings.push(`${k}: contém travessão.`);
-      }
-
+      // Validacao e import compartilhados com PUT /api/jobs/:id/prefill (utils/script-ficha.cjs)
+      const { errors, warnings } = SF.validatePrefillBody(req.body, slug);
       if (errors.length) {
         return res.status(400).json({ success: false, message: 'JSON fora do contrato.', errors, warnings });
       }
@@ -252,34 +188,15 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
         return res.status(404).json({ success: false, message: `Clube "${slug}" não encontrado. Cadastre o clube (membros) antes de importar.` });
       }
 
-      const ficha = await ensureFicha(slug);
-      const { fields, imported, skipped } = SF.applyPrefill(safeJsonParse(ficha.fields, {}), body.campos);
-      const nextStatus = ficha.ficha_status === 'vazia' ? 'pre_preenchida' : ficha.ficha_status;
-      const meta = {
-        club_nome: body.club_nome || null,
-        membros: body.membros || [],
-        gerado_em: body.gerado_em || null,
-        gerado_por: body.gerado_por || null,
-        fontes_lidas: body.fontes_lidas || [],
-        importado_em: new Date().toISOString(),
-      };
-
-      await dbRun(
-        `UPDATE script_fichas
-            SET fields = ?, ficha_status = ?, prefill_meta = ?, prefilled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-          WHERE club_slug = ?`,
-        [JSON.stringify(fields), nextStatus, JSON.stringify(meta), slug]
-      );
-
-      const summary = SF.summarize(fields);
+      const r = await SF.importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, req.body, { importado_por: 'admin' });
       res.json({
         success: true,
-        message: `Importados ${imported.length} campos; ${skipped.length} mantidos (já decididos pelo mentor).`,
-        imported: imported.length,
-        skipped,
+        message: `Importados ${r.imported.length} campos; ${r.skipped.length} mantidos (já decididos pelo mentor).`,
+        imported: r.imported.length,
+        skipped: r.skipped,
         warnings,
-        ficha_status: nextStatus,
-        resumo: summary,
+        ficha_status: r.ficha_status,
+        resumo: r.resumo,
       });
     } catch (error) {
       console.error('Error in PUT /api/admin/clubs/:slug/script-ficha:', error);
@@ -311,6 +228,55 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       res.json({ success: true, data: await VM.readCohortConfig(dbAll) });
     } catch (error) {
       console.error('Error in PUT /api/admin/cohort/config:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/admin/cohort/jobs?status=  (fila de pre-preenchimento; mesma lista que GET /api/jobs)
+  router.get('/api/admin/cohort/jobs', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const status = req.query.status ? String(req.query.status) : null;
+      if (status && !VM.JOB_STATUSES.includes(status)) {
+        return res.status(400).json({ success: false, message: `status inválido (use ${VM.JOB_STATUSES.join('|')}).` });
+      }
+      const jobs = await JOBS.listJobs({ dbAll }, { status, limit: req.query.limit });
+      const slugs = [...new Set(jobs.map((j) => j.club_slug))];
+      const clubs = slugs.length
+        ? await dbAll(`SELECT slug, nome FROM cohort_clubs WHERE slug IN (${slugs.map(() => '?').join(',')})`, slugs)
+        : [];
+      const nomeBySlug = Object.fromEntries(clubs.map((c) => [c.slug, c.nome]));
+      const emails = [...new Set(jobs.map((j) => j.email))];
+      const membros = emails.length
+        ? await dbAll(`SELECT email, nome FROM cohort_members WHERE email IN (${emails.map(() => '?').join(',')})`, emails)
+        : [];
+      const nomeByEmail = Object.fromEntries(membros.map((m) => [m.email, m.nome]));
+      res.json({
+        success: true,
+        data: jobs.map((j) => ({
+          ...j,
+          club_nome: nomeBySlug[j.club_slug] || null,
+          pessoa_nome: nomeByEmail[j.email] || (j.payload && j.payload.nome) || null,
+        })),
+        fila_ligada: !!String(process.env.COHORT_JOBS_TOKEN || '').trim(),
+      });
+    } catch (error) {
+      console.error('Error in GET /api/admin/cohort/jobs:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/admin/cohort/jobs/:id/requeue  (volta para queued; nao duplica)
+  router.post('/api/admin/cohort/jobs/:id/requeue', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const job = await JOBS.getJob({ dbGet }, req.params.id);
+      if (!job) return res.status(404).json({ success: false, message: 'Job não encontrado.' });
+      if (job.status === 'running') {
+        return res.status(409).json({ success: false, message: 'Job em execução. Espere terminar (ou marque como erro pela API da fila).' });
+      }
+      const updated = await JOBS.requeueJob({ dbGet, dbRun }, job.id);
+      res.json({ success: true, job: updated });
+    } catch (error) {
+      console.error('Error in POST /api/admin/cohort/jobs/:id/requeue:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

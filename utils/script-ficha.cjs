@@ -165,6 +165,81 @@ function applyPrefill(fields, campos) {
   return { fields: next, imported, skipped };
 }
 
+/**
+ * Valida o JSON do contrato de pre-preenchimento (CONTRATO-prefill-json.md) alem do schema zod:
+ * 34 chaves exatas, fonte/sugerido obrigatorios fora de VZ, max. 2 alternativas, club_slug igual ao alvo.
+ * Travessao so avisa. Compartilhado por PUT /api/admin/clubs/:slug/script-ficha e PUT /api/jobs/:id/prefill.
+ */
+function validatePrefillBody(body, slug) {
+  const errors = [];
+  const warnings = [];
+  const campos = (body && body.campos) || {};
+
+  if (body && body.club_slug && slug && body.club_slug !== slug) {
+    errors.push(`club_slug do JSON ("${body.club_slug}") difere do clube alvo ("${slug}").`);
+  }
+
+  const keys = Object.keys(campos);
+  const missing = FIELD_KEYS.filter((k) => !keys.includes(k));
+  const extra = keys.filter((k) => !FIELD_BY_KEY[k]);
+  if (missing.length) errors.push(`Faltam ${missing.length} campos: ${missing.join(', ')}.`);
+  if (extra.length) errors.push(`Chaves desconhecidas: ${extra.join(', ')}.`);
+
+  for (const k of keys) {
+    const c = campos[k];
+    if (!FIELD_BY_KEY[k] || !c) continue;
+    if (c.classe !== 'VZ') {
+      if (!String(c.fonte || '').trim()) errors.push(`${k}: fonte obrigatória quando classe é ${c.classe}.`);
+      if (!String(c.sugerido || '').trim()) errors.push(`${k}: sugerido vazio com classe ${c.classe} (use classe VZ).`);
+    } else if (String(c.sugerido || '').trim()) {
+      warnings.push(`${k}: classe VZ com sugerido preenchido; o texto será ignorado.`);
+    }
+    if ((c.alternativas || []).length > 2) errors.push(`${k}: no máximo 2 alternativas.`);
+    const textos = [c.sugerido, ...(c.alternativas || []).map((a) => a.sugerido)].filter(Boolean);
+    if (textos.some((t) => String(t).includes('—'))) warnings.push(`${k}: contém travessão.`);
+  }
+
+  return { errors, warnings };
+}
+
+/** Garante a linha de script_fichas do clube (1 por clube) e a devolve. */
+async function ensureFichaRow({ dbGet, dbRun, uuidv4 }, clubSlug) {
+  await dbRun(
+    `INSERT OR IGNORE INTO script_fichas (id, club_slug, fields, materials, materials_status, ficha_status)
+     VALUES (?, ?, '{}', '{"por_pessoa":{}}', 'pending', 'vazia')`,
+    [`ficha-${uuidv4()}`, clubSlug]
+  );
+  return dbGet(`SELECT * FROM script_fichas WHERE club_slug = ?`, [clubSlug]);
+}
+
+/**
+ * Importa o JSON de pre-preenchimento ja validado (schema + validatePrefillBody) na ficha do clube.
+ * Nunca sobrescreve campo decidido (confirmado / editado / aceito_vazio). vazia -> pre_preenchida.
+ * @returns {{ imported: string[], skipped: string[], ficha_status: string, resumo: object, fields: object }}
+ */
+async function importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, body, extraMeta = {}) {
+  const parse = safeJsonParse || ((s, fb) => { try { return s ? JSON.parse(s) : fb; } catch { return fb; } });
+  const ficha = await ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
+  const { fields, imported, skipped } = applyPrefill(parse(ficha.fields, {}), body.campos);
+  const nextStatus = ficha.ficha_status === 'vazia' ? 'pre_preenchida' : ficha.ficha_status;
+  const meta = {
+    club_nome: body.club_nome || null,
+    membros: body.membros || [],
+    gerado_em: body.gerado_em || null,
+    gerado_por: body.gerado_por || null,
+    fontes_lidas: body.fontes_lidas || [],
+    importado_em: new Date().toISOString(),
+    ...extraMeta,
+  };
+  await dbRun(
+    `UPDATE script_fichas
+        SET fields = ?, ficha_status = ?, prefill_meta = ?, prefilled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE club_slug = ?`,
+    [JSON.stringify(fields), nextStatus, JSON.stringify(meta), slug]
+  );
+  return { fields, imported, skipped, ficha_status: nextStatus, resumo: summarize(fields), meta };
+}
+
 /** Chaves obrigatorias ainda sem decisao. */
 function missingRequired(fields) {
   const f = normalizeFields(fields);
@@ -304,6 +379,9 @@ module.exports = {
   effectiveValue,
   applyUpdates,
   applyPrefill,
+  validatePrefillBody,
+  ensureFichaRow,
+  importPrefill,
   missingRequired,
   buildFichaView,
   summarize,

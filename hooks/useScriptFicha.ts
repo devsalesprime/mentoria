@@ -33,18 +33,55 @@ export interface MaterialAcesso {
   observacoes: string;
 }
 
+/** Resposta colada da IA do mentor ("Peca para a sua IA preencher"), com a leitura leve do servidor. */
+export interface MaterialRespostaIA {
+  texto: string;
+  salvo_em: string | null;
+  /** Ex.: "34 campos: 20 certos, 8 parciais, 6 incertos" ou "formato não reconhecido, salvamos mesmo assim". */
+  resumo: string;
+}
+
 /** Materiais da PROPRIA pessoa (links, observacoes, acessos). Socios nao veem uns aos outros. */
 export interface ScriptMaterials {
   links: MaterialLink[];
   observacoes: string;
   acessos: MaterialAcesso[];
   submitted_at: string | null;
+  resposta_ia?: MaterialRespostaIA | null;
+  notify_phone?: string | null;
 }
 
-export type ScriptMaterialsPatch = Partial<Pick<ScriptMaterials, 'links' | 'observacoes' | 'acessos'>>;
+/** PUT parcial: resposta_ia vai como texto; o servidor devolve { texto, salvo_em, resumo }. */
+export type ScriptMaterialsPatch = Partial<Pick<ScriptMaterials, 'links' | 'observacoes' | 'acessos'>> & { resposta_ia?: string };
 
 export interface ScriptConfig {
   prazo_materiais: string;
+}
+
+export type ScriptJobStatus = 'queued' | 'running' | 'done' | 'error' | 'needs_human';
+
+/** Ultimo job de pre-preenchimento desta pessoa (queued/running = "ja estamos processando"). */
+export interface ScriptJobInfo {
+  id: string;
+  tipo: string;
+  status: ScriptJobStatus;
+  attempts: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface SubmitMaterialsOptions {
+  notify_phone?: string;
+  notify?: boolean;
+}
+
+export interface SubmitMaterialsResult {
+  ok: boolean;
+  /** true quando ja havia job queued/running desta pessoa (o servidor nao duplicou). */
+  existing?: boolean;
+  job?: ScriptJobInfo | null;
+  message?: string;
 }
 
 export interface ScriptFichaData {
@@ -54,6 +91,7 @@ export interface ScriptFichaData {
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
   materials: ScriptMaterials;
+  job?: ScriptJobInfo | null;
   config: ScriptConfig;
   prefilled_at: string | null;
   reviewed_at: string | null;
@@ -289,7 +327,12 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   /** Salva so o que veio no patch (links, observacoes e/ou acessos) da propria pessoa; o resto e mantido no servidor. */
   const saveMaterials = useCallback(async (patch: ScriptMaterialsPatch): Promise<boolean> => {
     const previous = dataRef.current?.materials;
-    setData((prev) => (prev ? { ...prev, materials: { ...prev.materials, ...patch } } : prev));
+    const { resposta_ia, ...rest } = patch;
+    const optimistic: Partial<ScriptMaterials> = { ...rest };
+    if (typeof resposta_ia === 'string') {
+      optimistic.resposta_ia = resposta_ia.trim() ? { texto: resposta_ia, salvo_em: new Date().toISOString(), resumo: '' } : null;
+    }
+    setData((prev) => (prev ? { ...prev, materials: { ...prev.materials, ...optimistic } } : prev));
     setSaveState('saving');
     try {
       const res = await axios.put('/api/script/ficha/materials', patch, authHeaders(token));
@@ -309,18 +352,33 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [token]);
 
-  const submitMaterials = useCallback(async (): Promise<boolean> => {
+  /** "Confirmar e ir para a ficha": marca o submit desta pessoa e enfileira o pre-preenchimento (1 job ativo por pessoa). */
+  const submitMaterials = useCallback(async (opts: SubmitMaterialsOptions = {}): Promise<SubmitMaterialsResult> => {
     try {
-      const res = await axios.post('/api/script/ficha/materials/submit', {}, authHeaders(token));
+      const body: SubmitMaterialsOptions = {};
+      if (opts.notify_phone !== undefined) body.notify_phone = opts.notify_phone;
+      if (opts.notify !== undefined) body.notify = opts.notify;
+      const res = await axios.post('/api/script/ficha/materials/submit', body, authHeaders(token));
       if (res.data?.success) {
         const at = res.data.materials_submitted_at || new Date().toISOString();
-        setData((prev) => (prev ? { ...prev, materials_status: 'submitted', materials_submitted_at: at, materials: { ...prev.materials, submitted_at: at } } : prev));
-        return true;
+        const job: ScriptJobInfo | null = res.data.job
+          ? { id: res.data.job.id, tipo: res.data.job.tipo, status: res.data.job.status, attempts: res.data.job.attempts,
+              created_at: res.data.job.created_at, started_at: res.data.job.started_at, finished_at: res.data.job.finished_at }
+          : null;
+        setData((prev) => (prev ? {
+          ...prev,
+          materials_status: 'submitted',
+          materials_submitted_at: at,
+          job: job ?? prev.job ?? null,
+          materials: { ...prev.materials, submitted_at: at, ...(res.data.notify_phone ? { notify_phone: res.data.notify_phone } : {}) },
+        } : prev));
+        return { ok: true, existing: !!res.data.job?.existing, job };
       }
-      return false;
+      return { ok: false, message: res.data?.message };
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || 'Erro ao enviar');
-      return false;
+      const message = e?.response?.data?.errors?.join('; ') || e?.response?.data?.message || e?.message || 'Erro ao enviar';
+      setError(message);
+      return { ok: false, message };
     }
   }, [token]);
 

@@ -16,6 +16,7 @@ import { CasosWidget, ChecklistCondicoesWidget, EscadaWidget, HistoriaPodioWidge
 
 export type { Estrutura, ParseContext, ParseResult, WidgetTemplate, WidgetType, WidgetProps };
 export { ESTRUTURA, isWidgetType, parseEstrutura, renderEstrutura, vaziaEstrutura } from './estrutura';
+export { DISPLAYS, TextoBruto, type DisplayProps } from './display';
 
 export const WIDGETS: Record<WidgetType, React.FC<WidgetProps>> = {
   escolha: EscolhaWidget,

@@ -3,6 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import type { UseScriptFicha } from '../../hooks/useScriptFicha';
 import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-fields';
 import { FichaField } from './FichaField';
+import { FichaWizard } from './FichaWizard';
 import { AccordionSection } from '../shared/AccordionSection';
 import { CelebrationOverlay } from '../shared/CelebrationOverlay';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -14,6 +15,10 @@ interface FichaScreenProps {
 }
 
 const BLOCK_ICONS: Record<number, string> = { 1: '🎯', 2: '👤', 3: '🧭', 4: '🧩', 5: '📦', 6: '🤝' };
+
+// Modo de preenchimento lembrado no navegador: 'passo' (uma pergunta por tela, padrao) ou 'tudo' (acordeoes)
+const MODO_KEY = 'ficha-script-modo';
+type Modo = 'passo' | 'tudo';
 
 // Uma frase por M (5 M's) para situar o bloco antes das perguntas
 const BLOCK_INTRO: Record<number, string> = {
@@ -53,6 +58,10 @@ const SaveIndicator: React.FC<{ state: UseScriptFicha['saveState'] }> = ({ state
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
   const { data, loading, loaded, error, saveState, decide, complete } = ficha;
   const [openBlock, setOpenBlock] = useState<number | null>(null);
+  const [modo, setModo] = useState<Modo>(() => {
+    try { return window.localStorage.getItem(MODO_KEY) === 'tudo' ? 'tudo' : 'passo'; } catch { return 'passo'; }
+  });
+  const trocarModo = (m: Modo) => { setModo(m); try { window.localStorage.setItem(MODO_KEY, m); } catch { /* sem storage */ } };
   const [celebrating, setCelebrating] = useState<number | null>(null);
   const [closingFicha, setClosingFicha] = useState(false);
   const [closedNow, setClosedNow] = useState(false);
@@ -221,16 +230,13 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-serif text-lg text-prosperus-gold-light">Dia 3: revisar o script</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/60 font-sans">em breve</span>
-              <span className="text-xs text-white/50 font-sans">≈ {hoje.minutos} min · você recebe o script v1 para ler e ajustar</span>
+              <span className="text-xs text-white/50 font-sans">você recebe o script v1 para ler e ajustar</span>
             </div>
           ) : (
             <div className="space-y-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-serif text-lg text-prosperus-gold-light">Hoje: {hoje.titulo}</span>
-                <span className="text-sm text-white/70 font-sans">· ≈ {hoje.minutos} min</span>
-              </div>
+              <span className="font-serif text-lg text-prosperus-gold-light">Hoje: {hoje.titulo}</span>
               <p className="text-xs text-white/50 font-sans">
-                Dia {hoje.dia} de 3 · blocos {hoje.blocos.join(', ')} · {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios decididos
+                Dia {hoje.dia} de 3 · {hoje.blocos.map((n) => `${n}. ${blocos.find((b) => b.numero === n)?.nome || ''}`.trim()).join(' · ')} · {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios decididos
               </p>
             </div>
           )}
@@ -259,10 +265,31 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         )}
       </AnimatePresence>
 
-      {/* Blocos */}
-      <div className="space-y-3">
-        {blocos.map(renderBlock)}
+      {/* Modo: passo a passo (padrao) ou ver tudo */}
+      <div className="flex gap-2" role="group" aria-label="Modo de preenchimento">
+        {(['passo', 'tudo'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => trocarModo(m)}
+            aria-pressed={modo === m}
+            className={`min-h-[44px] flex-1 sm:flex-none px-4 rounded-lg text-sm font-sans border transition ${
+              modo === m ? 'bg-prosperus-gold-dark text-black border-prosperus-gold-dark font-semibold' : 'border-white/15 text-white/60 hover:text-white hover:border-white/30'
+            }`}
+          >
+            {m === 'passo' ? 'Passo a passo' : 'Ver tudo'}
+          </button>
+        ))}
       </div>
+
+      {/* Blocos: uma pergunta por tela (wizard) ou acordeoes */}
+      {modo === 'passo' ? (
+        <FichaWizard ficha={ficha} contexto={contexto} onFecharFicha={handleClose} fechandoFicha={closingFicha} />
+      ) : (
+        <div className="space-y-3">
+          {blocos.map(renderBlock)}
+        </div>
+      )}
 
       {/* Rodape */}
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">

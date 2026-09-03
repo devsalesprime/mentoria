@@ -37,6 +37,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_EMAIL = 'admin@salesprime.com.br';
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
 
+// Fila do Script 7 Passos (worker externo). Vazio = /api/jobs/* responde 503 "fila desligada".
+const COHORT_JOBS_TOKEN = (process.env.COHORT_JOBS_TOKEN || '').trim();
+const APP_URL = (process.env.APP_URL || '').trim();
+
 // Database path (DB_PATH env override is for local tests/e2e only; production keeps data/prosperus.db)
 const DB_PATH = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : path.join(__dirname, 'data', 'prosperus.db');
 const DATA_DIR = path.join(__dirname, 'data');
@@ -110,8 +114,18 @@ const apiLimiter = rateLimit({
   message: { success: false, message: 'Limite de requisições excedido. Tente novamente em 1 minuto.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // /api/jobs/* (worker da fila) tem limite proprio: baixa varios arquivos por job
+  skip: (req) => String(req.originalUrl || '').startsWith('/api/jobs'),
+});
+const jobsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 600,
+  message: { success: false, message: 'Limite de requisições da fila excedido. Tente novamente em 1 minuto.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/auth/', loginLimiter);
+app.use('/api/jobs/', jobsLimiter);
 app.use('/api/', apiLimiter);
 
 app.use(express.json({ limit: '50mb' }));
@@ -479,6 +493,7 @@ const deps = {
   jwt, axios, fs, path, uuidv4, multer,
   JWT_SECRET, HUBSPOT_TOKEN, HUBSPOT_WIN_STAGE,
   ADMIN_EMAIL, ADMIN_PASSWORD_HASH,
+  COHORT_JOBS_TOKEN, APP_URL,
   DATA_DIR, AUDIO_DIR, UPLOADS_DIR,
   authMiddleware, adminMiddleware,
   generateId, validateToken, logToFile, safeJsonParse,
@@ -501,6 +516,7 @@ app.use(require('./routes/files.cjs')(deps));
 app.use(require('./routes/audio.cjs')(deps));
 app.use(require('./routes/script.cjs')(deps));
 app.use(require('./routes/admin-cohort.cjs')(deps));
+app.use(require('./routes/jobs.cjs')(deps));
 
 // ============================================
 // ⭐ ARQUIVOS ESTÁTICOS E FALLBACK
@@ -563,6 +579,7 @@ try {
     console.log(`💾 Banco de dados: ${DB_PATH}`);
     console.log(`🔐 Autenticação HubSpot: ${HUBSPOT_TOKEN ? '✅ Ativa' : '❌ Inativa'}`);
     console.log(`📊 Win Stage: ${HUBSPOT_WIN_STAGE}`);
+    console.log(`🧵 Fila /api/jobs: ${COHORT_JOBS_TOKEN ? '✅ Ligada' : '❌ Desligada (COHORT_JOBS_TOKEN vazio)'}`);
     console.log('');
   });
 } catch (listenError) {

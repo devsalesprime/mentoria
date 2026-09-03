@@ -38,7 +38,7 @@ export const MATERIAL_CATEGORIAS: MaterialCategoria[] = [
   {
     id: 'script_outros',
     label: 'Outros',
-    descricao: 'Depoimentos, cases, prints de resultado, pesquisa de mercado, entrevistas, o que mais contar a história da sua mentoria.',
+    descricao: 'Depoimentos, cases, prints de resultado, pesquisa de mercado, podcasts, entrevistas, reportagens, posts de blog: o que mais contar a história da sua mentoria.',
     icon: '📎',
   },
 ];
@@ -56,6 +56,13 @@ export const COMO_FUNCIONA_PASSOS: string[] = [
 
 export const COMO_FUNCIONA_FRASE =
   'Quem faz antes recebe antes. Mandou os arquivos e revisou a ficha? Em menos de um dia o seu script está na sua mão para a próxima reunião.';
+
+export const LINKS_DICA =
+  'Links do seu site, página de vendas, Instagram, podcasts, entrevistas, reportagens, blog, aulas públicas. Só o link; acesso com senha vai na seção abaixo.';
+
+/** Secao "Peca para a sua IA preencher" (o prompt em si vem de GET /api/script/prompt-ia). */
+export const PROMPT_IA_INTRO =
+  'Copie o prompt abaixo, cole no ChatGPT, Claude ou Gemini que você mais usa (de preferência um que já conheça a sua mentoria) e traga a resposta para cá. A sua IA responde com o que sabe de você, marcando o que tem certeza e o que é parcial ou incerto.';
 
 export const ACESSO_PLATAFORMA_AVISO =
   'Guardamos este acesso só para extrair o conteúdo das suas aulas e transformar em base de conhecimento da sua IA. Só o Danilo vê. Você pode trocar a senha depois.';
