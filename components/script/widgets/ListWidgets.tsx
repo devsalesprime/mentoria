@@ -1,5 +1,6 @@
 import React from 'react';
-import { Area, BotaoAdd, BotaoIcone, Campo, Chip, Contador, Dica, Entrada, Numero, Rotulo, lista, type WidgetProps } from './ui';
+import { Area, BotaoAdd, BotaoIcone, Campo, Chip, Contador, Dica, Entrada, Numero, Rotulo, lista, move, type WidgetProps } from './ui';
+import { IconeSeta, IconeX } from '../contexto/icones';
 
 /** chips_texto: chips fixos (template.chips) + texto livre. */
 export const ChipsTextoWidget: React.FC<WidgetProps> = ({ campo, template, value, onChange }) => {
@@ -46,26 +47,46 @@ export const EscolhaDeListaWidget: React.FC<WidgetProps> = ({ campo, value, onCh
   );
 };
 
-/** citacoes: cartoes de citacao, cada um com as palavras do cliente entre aspas (template.min / max). */
+/**
+ * citacoes: cartões de citação com aspas grandes, as palavras do cliente em serifa; sobe, desce e remove.
+ * template.min / max; template.filete = 'ouro' põe o filete dourado (3.4, o desejo).
+ */
 export const CitacoesWidget: React.FC<WidgetProps> = ({ campo, template, value, onChange }) => {
   const min: number = template.min || 3;
   const max: number = template.max || 5;
+  const filete = template.filete === 'ouro';
   const itens = lista<string>(value.citacoes);
   const rows = itens.length < min ? [...itens, ...Array(min - itens.length).fill('')] : itens;
-  const set = (i: number, v: string) => { const next = rows.slice(); next[i] = v; onChange({ citacoes: next }); };
-  const remove = (i: number) => onChange({ citacoes: rows.filter((_, k) => k !== i) });
+  const update = (next: string[]) => onChange({ citacoes: next });
+  const set = (i: number, v: string) => { const next = rows.slice(); next[i] = v; update(next); };
+  const remove = (i: number) => update(rows.filter((_, k) => k !== i));
   return (
     <div className="space-y-2">
       {rows.map((c, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <span className="font-serif text-2xl text-prosperus-gold-dark/70 leading-none select-none" aria-hidden="true">“</span>
-          <Entrada value={c} onChange={(e) => set(i, e.target.value)} aria-label={`${campo.nome}: frase ${i + 1}`} placeholder="Do jeito que ele fala" />
-          <BotaoIcone onClick={() => remove(i)} label={`Remover frase ${i + 1}`} disabled={rows.length <= 1}>×</BotaoIcone>
+        <div
+          key={i}
+          data-testid="citacao-carta"
+          className={`rounded-lg border bg-white/[0.03] p-3 flex gap-2 items-start ${filete ? 'border-white/10 border-l-2 border-l-prosperus-gold-dark' : 'border-white/10'}`}
+        >
+          <span className="font-serif text-3xl text-prosperus-gold-dark/70 leading-none select-none -mt-1" aria-hidden="true">“</span>
+          <Area
+            value={c}
+            onChange={(e) => set(i, e.target.value)}
+            rows={2}
+            aria-label={`${campo.nome}: frase ${i + 1}`}
+            placeholder="Do jeito que ele fala"
+            className="!bg-transparent !border-0 !px-0 !py-1 !min-h-0 font-serif italic !text-base !leading-snug"
+          />
+          <div className="flex flex-col gap-0.5 -mr-1">
+            <BotaoIcone onClick={() => update(move(rows, i, i - 1))} label={`Subir frase ${i + 1}`} disabled={i === 0} className="!min-h-[36px] !min-w-[36px]"><IconeSeta direcao="cima" /></BotaoIcone>
+            <BotaoIcone onClick={() => update(move(rows, i, i + 1))} label={`Descer frase ${i + 1}`} disabled={i === rows.length - 1} className="!min-h-[36px] !min-w-[36px]"><IconeSeta direcao="baixo" /></BotaoIcone>
+            <BotaoIcone onClick={() => remove(i)} label={`Remover frase ${i + 1}`} disabled={rows.length <= 1} className="!min-h-[36px] !min-w-[36px]"><IconeX /></BotaoIcone>
+          </div>
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Contador n={rows.filter((c) => c.trim()).length} min={min} max={max} unidade="frases" />
-        {rows.length < max && <BotaoAdd onClick={() => onChange({ citacoes: [...rows, ''] })}>+ Frase</BotaoAdd>}
+        {rows.length < max && <BotaoAdd onClick={() => update([...rows, ''])}>+ Frase</BotaoAdd>}
       </div>
     </div>
   );
@@ -85,7 +106,7 @@ export const ListaNumeradaWidget: React.FC<WidgetProps> = ({ campo, template, va
         <div key={i} className="flex items-center gap-2">
           <Numero n={i + 1} />
           <Entrada value={it} onChange={(e) => set(i, e.target.value)} aria-label={`${campo.nome}: item ${i + 1}`} placeholder={template.placeholder || 'O que você precisa saber'} />
-          <BotaoIcone onClick={() => remove(i)} label={`Remover item ${i + 1}`} disabled={rows.length <= 1}>×</BotaoIcone>
+          <BotaoIcone onClick={() => remove(i)} label={`Remover item ${i + 1}`} disabled={rows.length <= 1}><IconeX /></BotaoIcone>
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -125,7 +146,7 @@ export const TabelaWidget: React.FC<WidgetProps> = ({ campo, template, value, on
               />
             </Campo>
           ))}
-          <BotaoIcone onClick={() => remove(i)} label={`Remover linha ${i + 1}`} disabled={rows.length <= 1} className="justify-self-end sm:justify-self-auto">×</BotaoIcone>
+          <BotaoIcone onClick={() => remove(i)} label={`Remover linha ${i + 1}`} disabled={rows.length <= 1} className="justify-self-end sm:justify-self-auto"><IconeX /></BotaoIcone>
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2">

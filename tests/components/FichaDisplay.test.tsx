@@ -13,7 +13,7 @@ vi.mock('framer-motion', () => ({
 }));
 
 import { FichaDisplay } from '../../components/script/widgets/FichaDisplay';
-import { FichaField } from '../../components/script/FichaField';
+import { COPY_VAZIO, FichaField } from '../../components/script/FichaField';
 import { SCRIPT_FIELD_BY_KEY, type ScriptFieldView } from '../../data/script-ficha-fields';
 import paloma from '../fixtures/paloma-sugeridos.json';
 
@@ -96,9 +96,9 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
     expect(screen.getByText(/A entrada soma cerca de R\$20 mil/)).toBeInTheDocument();
   });
 
-  it('6.3 tabela: cada objeção numa linha, resposta em branco (nunca "a definir")', () => {
+  it('6.3 baralho: cada objeção numa carta, resposta em branco (nunca "a definir")', () => {
     render(<FichaDisplay campo={daPaloma('6.3')} />);
-    const rows = screen.getAllByTestId('tabela-linha');
+    const rows = screen.getAllByTestId('carta-objecao');
     expect(rows).toHaveLength(linhas('6.3').length);
     expect(within(rows[0]).getByText(/O meu caso é específico/)).toBeInTheDocument();
     expect(within(rows[0]).getByText('em branco')).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('FichaDisplay: sugestão no visual do widget (prefill real da Paloma)',
   it('6.6 casos: sem sugestão no prefill, o cartão abre o editor de casos com o convite', () => {
     expect(fx['6.6'].sugerido).toBe('');
     render(<FichaField campo={daPaloma('6.6')} onDecide={vi.fn()} />);
-    expect(screen.getByText('Não encontramos nos seus materiais. Conte com as suas palavras ou grave um áudio.')).toBeInTheDocument();
+    expect(screen.getByText(COPY_VAZIO)).toBeInTheDocument();
     expect(screen.getByLabelText('Casos reais (prova social): nome ou perfil do caso 1')).toBeInTheDocument();
     expect(screen.queryByTestId('display-6.6')).not.toBeInTheDocument();
   });

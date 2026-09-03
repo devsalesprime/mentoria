@@ -1,53 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
-import { renderMarkdown } from '../../utils/markdown';
 import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo } from '../../hooks/useScriptFicha';
+import { cleanScriptMarkdown, parseScript, slugify, splitScript } from './script/parseScript';
+import { ScriptPaper } from './script/ScriptPaper';
+
+export { splitScript };
 
 /**
  * "Seu script" (/dashboard/script): o script escrito pelo worker a partir da ficha confirmada.
  * Estado 1: sem versao -> aviso "está sendo escrito" + status do job `script`, se houver.
- * Estado 2: versao -> markdown renderizado (utils/markdown.ts), dividido nos "## Passo N", com caixa de
- * comentario por passo, indice flutuante, Baixar (.md), Imprimir ou salvar em PDF, Aprovar, Pedir nova versao.
- * Mobile-first: indice vira faixa de chips no topo; no desktop fica fixo a direita.
+ * Estado 2: versao -> documento diagramado (components/script/script/parseScript.ts + ScriptPaper.tsx): papel creme,
+ * bloco de titulo, indice fixo dos 7 passos (chips no celular, coluna a esquerda no desktop), cada passo com medalhao,
+ * falas em cartoes com "copiar", perguntas em checklist, notas lado a lado, Mapa de preparacao, Cartao de bolso.
+ * Scripts com dois documentos (treinamento e campo) ganham um seletor; a impressao leva os dois.
+ * Comentarios por passo ficam recolhidos ("Comentar este passo"). Acoes: Baixar (.md), Imprimir ou salvar em PDF,
+ * Aprovar, Pedir nova versao. A folha de impressao (@media print) e as classes .script-* vivem em styles/globals.css.
  */
 
 interface ScriptScreenProps {
   ficha: UseScriptFicha;
   token: string;
   onNavigate?: (id: string) => void;
-}
-
-interface Section {
-  /** 0 = geral (antes do primeiro passo ou secao sem numero), 1..7 = passo. */
-  passo: number;
-  titulo: string;
-  md: string;
-  html: string;
-}
-
-const PASSO_RE = /^##\s+Passo\s+(\d)\b[^\n]*$/im;
-
-/** Divide o markdown por "## Passo N" (e outros "## "), mantendo o cabecalho dentro da secao. */
-export function splitScript(md: string): Section[] {
-  const lines = (md || '').replace(/\r\n/g, '\n').split('\n');
-  const out: { passo: number; titulo: string; lines: string[] }[] = [];
-  let cur: { passo: number; titulo: string; lines: string[] } = { passo: 0, titulo: 'Abertura', lines: [] };
-  for (const line of lines) {
-    const h2 = /^##\s+(.+?)\s*$/.exec(line);
-    if (h2 && !/^#/.test(h2[1])) {
-      if (cur.lines.some((l) => l.trim())) out.push(cur);
-      const m = PASSO_RE.exec(line);
-      cur = { passo: m ? Number(m[1]) : 0, titulo: h2[1].replace(/#+$/, '').trim(), lines: [line] };
-      continue;
-    }
-    cur.lines.push(line);
-  }
-  if (cur.lines.some((l) => l.trim())) out.push(cur);
-  return out.map((s) => {
-    const body = s.lines.join('\n').trim();
-    return { passo: s.passo, titulo: s.titulo, md: body, html: renderMarkdown(body) };
-  });
 }
 
 function jobStatusLabel(job: ScriptJobInfo | null | undefined): string | null {
@@ -69,28 +43,6 @@ function formatDate(iso: string | null | undefined) {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function slugify(s: string) {
-  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'x';
-}
-
-/** Folha de impressao: papel creme, titulos em serifa, sem menu (window.print). */
-const PRINT_CSS = `
-@media print {
-  body { background: #FCF7F0 !important; color: #111 !important; }
-  body * { visibility: hidden !important; }
-  #script-print-root, #script-print-root * { visibility: visible !important; }
-  #script-print-root { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; margin: 0 !important;
-    padding: 18mm 16mm !important; background: #FCF7F0 !important; color: #111 !important; box-shadow: none !important; border: 0 !important; }
-  #script-print-root .no-print { display: none !important; }
-  #script-print-root h1, #script-print-root h2, #script-print-root h3 { font-family: "EB Garamond", Georgia, serif !important; color: #0A2540 !important; page-break-after: avoid; }
-  #script-print-root h2 { border-bottom: 1px solid #CA9A43; padding-bottom: 4px; margin-top: 18pt; }
-  #script-print-root .script-secao { page-break-inside: avoid; }
-  #script-print-root .script-md { color: #111 !important; font-size: 11.5pt; line-height: 1.5; }
-  #script-print-root .script-md * { color: #111 !important; background: transparent !important; }
-  #script-print-root a { color: #0A2540 !important; text-decoration: none !important; }
-  @page { size: A4; margin: 12mm; }
-}
-`;
 
 export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavigate }) => {
   const [versoes, setVersoes] = useState<ScriptVersion[] | null>(null);
@@ -106,6 +58,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const [pedindo, setPedindo] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [activePasso, setActivePasso] = useState<number | null>(null);
+  const [docAtivo, setDocAtivo] = useState<string>('');
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const headers = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
@@ -150,12 +103,17 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     return () => clearInterval(t);
   }, [waiting, loadList]);
 
-  const sections = useMemo(() => (versao?.content_md ? splitScript(versao.content_md) : []), [versao?.content_md]);
-  const passos = useMemo(() => sections.filter((s) => s.passo > 0), [sections]);
+  const parsed = useMemo(() => (versao?.content_md ? parseScript(versao.content_md) : null), [versao?.content_md]);
+  const docAtual = useMemo(() => {
+    if (!parsed) return null;
+    return parsed.documentos.find((d) => d.id === docAtivo) || parsed.documentos[0] || null;
+  }, [parsed, docAtivo]);
+  const passosIndice = docAtual?.passos ?? [];
+  const temPassos = parsed ? parsed.documentos.some((d) => d.passos.length > 0) : false;
 
   // Indice: destaca a secao visivel
   useEffect(() => {
-    if (!sections.length || typeof IntersectionObserver === 'undefined') return;
+    if (!parsed || typeof IntersectionObserver === 'undefined') return;
     const obs = new IntersectionObserver((entries) => {
       const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
       if (visible) {
@@ -165,16 +123,18 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }, { rootMargin: '-20% 0px -60% 0px' });
     Object.values(sectionRefs.current).forEach((el) => { if (el) obs.observe(el); });
     return () => obs.disconnect();
-  }, [sections]);
+  }, [parsed, docAtual]);
+
+  const refFor = useCallback((key: string) => (el: HTMLElement | null) => { sectionRefs.current[key] = el; }, []);
 
   const scrollTo = (key: string) => {
-    const el = sectionRefs.current[key];
+    const el = sectionRefs.current[key] || (typeof document !== 'undefined' ? document.getElementById(key) : null);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const download = () => {
     if (!versao?.content_md) return;
-    const blob = new Blob([versao.content_md], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([cleanScriptMarkdown(versao.content_md)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -238,49 +198,56 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   const comentariosDo = (passo: number) => comentarios.filter((c) => c.passo === passo);
 
-  /** Caixa de comentario de um passo (0 = geral). */
+  /** Caixa de comentario de um passo (0 = geral), recolhida. */
   const renderComentarios = (passo: number) => {
     const lista = comentariosDo(passo);
+    const titulo = passo > 0 ? 'Comentar este passo' : 'Comentar o script como um todo';
     return (
-      <div className="no-print mt-4 rounded-xl border border-prosperus-navy-panel/15 bg-white/60 p-3 sm:p-4 space-y-3">
-        {lista.length > 0 && (
-          <ul className="space-y-2">
-            {lista.map((c) => (
-              <li key={c.id} className="text-sm text-prosperus-neutral-black">
-                <span className="font-semibold text-prosperus-navy-panel">{c.autor_nome || c.autor_email || 'Você'}</span>
-                <span className="text-[11px] text-prosperus-navy-panel/50 ml-2">{formatDate(c.created_at)}</span>
-                <p className="whitespace-pre-line leading-relaxed">{c.texto}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-        <label className="block">
-          <span className="text-[11px] uppercase tracking-[0.16em] text-prosperus-navy-panel/60 font-semibold">
-            {passo > 0 ? `Comentar o passo ${passo}` : 'Comentário geral'}
-          </span>
-          <textarea
-            value={draft[passo] || ''}
-            onChange={(e) => setDraft((d) => ({ ...d, [passo]: e.target.value }))}
-            rows={2}
-            placeholder={passo > 0 ? 'O que mudar, cortar ou reforçar neste passo?' : 'O que achou do script como um todo?'}
-            className="mt-1 w-full bg-white border border-prosperus-navy-panel/20 rounded-lg px-3 py-2 text-sm text-prosperus-neutral-black placeholder-prosperus-navy-panel/40 outline-none focus:border-prosperus-gold-dark min-h-[64px]"
-          />
-        </label>
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => enviarComentario(passo)}
-            disabled={!(draft[passo] || '').trim() || sending === passo}
-            className="min-h-[40px] px-4 py-2 rounded-lg bg-prosperus-navy-panel text-white text-xs font-semibold disabled:opacity-40 hover:bg-prosperus-navy-light transition"
-          >
-            {sending === passo ? 'Enviando...' : 'Enviar comentário'}
-          </button>
+      <details className="script-no-print script-comentarios mt-5" open={lista.length > 0 ? true : undefined}>
+        <summary className="script-comentarios-titulo">
+          {titulo}
+          {lista.length > 0 && <span className="ml-2 text-prosperus-gold-dark">· {lista.length} {lista.length === 1 ? 'comentário' : 'comentários'}</span>}
+        </summary>
+        <div className="mt-3 rounded-xl border border-prosperus-navy-panel/15 bg-white/70 p-3 sm:p-4 space-y-3">
+          {lista.length > 0 && (
+            <ul className="space-y-2">
+              {lista.map((c) => (
+                <li key={c.id} className="text-sm text-prosperus-neutral-black">
+                  <span className="font-semibold text-prosperus-navy-panel">{c.autor_nome || c.autor_email || 'Você'}</span>
+                  <span className="text-[11px] text-prosperus-navy-panel/50 ml-2">{formatDate(c.created_at)}</span>
+                  <p className="whitespace-pre-line leading-relaxed">{c.texto}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <label className="block">
+            <span className="text-[11px] uppercase tracking-[0.16em] text-prosperus-navy-panel/60 font-semibold">
+              {passo > 0 ? `Comentar o passo ${passo}` : 'Comentário geral'}
+            </span>
+            <textarea
+              value={draft[passo] || ''}
+              onChange={(e) => setDraft((d) => ({ ...d, [passo]: e.target.value }))}
+              rows={2}
+              placeholder={passo > 0 ? 'O que mudar, cortar ou reforçar neste passo?' : 'O que achou do script como um todo?'}
+              className="mt-1 w-full bg-white border border-prosperus-navy-panel/20 rounded-lg px-3 py-2 text-sm text-prosperus-neutral-black placeholder-prosperus-navy-panel/40 outline-none focus:border-prosperus-gold-dark min-h-[64px]"
+            />
+          </label>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => enviarComentario(passo)}
+              disabled={!(draft[passo] || '').trim() || sending === passo}
+              className="min-h-[40px] px-4 py-2 rounded-lg bg-prosperus-navy-panel text-white text-xs font-semibold disabled:opacity-40 hover:bg-prosperus-navy-light transition"
+            >
+              {sending === passo ? 'Enviando...' : 'Enviar comentário'}
+            </button>
+          </div>
         </div>
-      </div>
+      </details>
     );
   };
 
-  // ─── Estado 0: carregando / erro ─────────────────────────────────────────
+  // Estado 0: carregando / erro
   if (loading && versoes === null) {
     return <div className="animate-pulse h-40 bg-white/5 rounded-xl" />;
   }
@@ -293,7 +260,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     );
   }
 
-  // ─── Estado 1: ainda sem versao ──────────────────────────────────────────
+  // Estado 1: ainda sem versao
   if (!versoes || versoes.length === 0) {
     const fichaConfirmada = ficha.data?.ficha_status === 'confirmada';
     const status = jobStatusLabel(job);
@@ -331,16 +298,15 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     );
   }
 
-  // ─── Estado 2: versao presente ───────────────────────────────────────────
+  // Estado 2: versao presente
   const aprovado = versao?.status === 'aprovado';
   const scriptJobAtivo = job && (job.status === 'queued' || job.status === 'running');
+  const clubNome = ficha.data?.club.nome || 'Prosperus Exclusive';
 
   return (
     <div className="space-y-4">
-      <style>{PRINT_CSS}</style>
-
       {/* Cabecalho e acoes */}
-      <div className="no-print flex flex-col gap-3">
+      <div className="script-no-print flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-[0.2em] text-prosperus-gold-dark font-semibold">Seu script</p>
@@ -351,7 +317,6 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
             <p className="text-xs text-white/50 mt-1">
               {versao?.created_at ? `escrito em ${formatDate(versao.created_at)}` : ''}
               {versao?.resumo ? ` · ${versao.resumo}` : ''}
-              {aprovado && versao?.aprovado_em ? ` · aprovado em ${formatDate(versao.aprovado_em)}` : ''}
             </p>
           </div>
           {versoes.length > 1 && (
@@ -370,13 +335,29 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="md" onClick={download} disabled={!versao?.content_md}>Baixar (.md)</Button>
           <Button variant="outline" size="md" onClick={print} disabled={!versao?.content_md}>Imprimir ou salvar em PDF</Button>
-          {!aprovado && <Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar este script</Button>}
+          {!aprovado && <Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar</Button>}
           <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || !!scriptJobAtivo}>
             {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
           </Button>
+          {parsed && parsed.documentos.length > 1 && (
+            <div role="tablist" aria-label="Documento do script" className="inline-flex rounded-lg border border-white/15 overflow-hidden ml-auto">
+              {parsed.documentos.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={docAtual?.id === d.id}
+                  onClick={() => setDocAtivo(d.id)}
+                  className={`min-h-[40px] px-3 text-xs font-semibold transition ${docAtual?.id === d.id ? 'bg-prosperus-gold-dark text-black' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                >
+                  {d.rotulo || d.titulo}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {aviso && <p className="text-xs text-prosperus-gold-light">{aviso}</p>}
         {scriptJobAtivo && !aviso && (
@@ -384,69 +365,60 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         )}
       </div>
 
-      <div className="lg:grid lg:grid-cols-[1fr_200px] lg:gap-6 lg:items-start">
-        {/* Indice: chips no celular, coluna fixa no desktop */}
-        {passos.length > 0 && (
-          <nav aria-label="Índice do script" className="no-print lg:order-2 lg:sticky lg:top-4">
-            <div className="flex gap-1.5 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible lg:pb-0 lg:bg-prosperus-navy-mid lg:border lg:border-white/10 lg:rounded-xl lg:p-3">
+      <div className="lg:grid lg:grid-cols-[180px_minmax(0,760px)] lg:justify-center lg:gap-6 lg:items-start">
+        {/* Indice: chips fixos no topo do celular, coluna fixa a esquerda no desktop */}
+        {passosIndice.length > 0 && docAtual && (
+          <nav aria-label="Índice do script" className="script-no-print sticky top-0 z-10 -mx-1 px-1 py-2 bg-prosperus-navy/95 backdrop-blur lg:top-4 lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none">
+            <div className="flex gap-1.5 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0 lg:bg-prosperus-navy-mid lg:border lg:border-white/10 lg:rounded-xl lg:p-3">
               <p className="hidden lg:block text-[10px] uppercase tracking-[0.18em] text-white/40 font-semibold mb-1">Os 7 passos</p>
-              {passos.map((s) => (
+              {passosIndice.map((p) => (
                 <button
-                  key={`nav-${s.passo}`}
+                  key={`nav-${docAtual.id}-${p.n}`}
                   type="button"
-                  onClick={() => scrollTo(`p${s.passo}`)}
-                  className={`shrink-0 min-h-[40px] px-3 py-1.5 rounded-lg text-xs text-left transition border ${activePasso === s.passo ? 'bg-prosperus-gold-dark text-black border-prosperus-gold-dark font-semibold' : 'bg-white/5 text-white/70 border-white/10 hover:text-white hover:bg-white/10'}`}
+                  aria-label={`Passo ${p.n}: ${p.nome}`}
+                  onClick={() => scrollTo(`${docAtual.id}-p${p.n}`)}
+                  className={`shrink-0 min-h-[40px] px-3 py-1.5 rounded-lg text-xs text-left transition border ${activePasso === p.n ? 'bg-prosperus-gold-dark text-black border-prosperus-gold-dark font-semibold' : 'bg-white/5 text-white/70 border-white/10 hover:text-white hover:bg-white/10'}`}
                 >
-                  <span className="lg:hidden">Passo {s.passo}</span>
-                  <span className="hidden lg:inline truncate block">{s.titulo}</span>
+                  <span className="lg:hidden">Passo {p.n}</span>
+                  <span className="hidden lg:block truncate"><span className="font-serif text-sm mr-1.5 opacity-70">{p.n}</span>{p.nome}</span>
                 </button>
               ))}
+              {parsed?.cartao && (
+                <button
+                  type="button"
+                  onClick={() => scrollTo('script-cartao')}
+                  className="shrink-0 min-h-[40px] px-3 py-1.5 rounded-lg text-xs text-left transition border bg-white/5 text-prosperus-gold-light border-prosperus-gold-dark/40 hover:bg-white/10"
+                >
+                  Cartão de bolso
+                </button>
+              )}
             </div>
           </nav>
         )}
 
-        {/* O script */}
-        <article id="script-print-root" className="lg:order-1 bg-prosperus-neutral-white text-prosperus-neutral-black rounded-2xl p-5 sm:p-8 shadow-2xl">
-          <header className="mb-6 border-b border-prosperus-gold-dark/40 pb-4">
-            <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">{ficha.data?.club.nome || 'Prosperus Exclusive'}</p>
-            <h1 className="font-serif text-3xl sm:text-4xl text-prosperus-navy-panel leading-tight mt-1">Script de 7 passos · v{versao?.versao ?? selected}</h1>
-          </header>
-
-          {sections.length === 0 && <p className="text-sm text-prosperus-navy-panel/70">Esta versão veio vazia.</p>}
-
-          {sections.map((s, i) => {
-            const key = s.passo > 0 ? `p${s.passo}` : `g${i}`;
-            return (
-              <section
-                key={key}
-                data-passo={s.passo}
-                ref={(el) => { sectionRefs.current[key] = el; }}
-                className="script-secao scroll-mt-4 mb-8"
-              >
-                <div
-                  className="script-md prose prose-sm sm:prose-base max-w-none font-sans text-prosperus-neutral-black
-                    [&_h1]:font-serif [&_h1]:text-prosperus-navy-panel [&_h1]:text-2xl [&_h1]:mt-2 [&_h1]:mb-3
-                    [&_h2]:font-serif [&_h2]:text-prosperus-navy-panel [&_h2]:text-2xl [&_h2]:mt-2 [&_h2]:mb-3 [&_h2]:border-b [&_h2]:border-prosperus-gold-dark/40 [&_h2]:pb-1
-                    [&_h3]:font-serif [&_h3]:text-prosperus-navy-panel [&_h3]:text-xl [&_h3]:mt-5 [&_h3]:mb-2
-                    [&_p]:my-2 [&_p]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1
-                    [&_blockquote]:border-l-4 [&_blockquote]:border-prosperus-gold-dark [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-prosperus-navy-panel/80
-                    [&_strong]:text-prosperus-navy-panel [&_a]:text-prosperus-navy-light [&_a]:underline
-                    [&_table]:w-full [&_table]:text-sm [&_th]:text-left [&_th]:border-b [&_th]:border-prosperus-navy-panel/20 [&_td]:border-b [&_td]:border-prosperus-navy-panel/10 [&_td]:py-1 [&_th]:py-1
-                    [&_hr]:border-prosperus-gold-dark/30 [&_hr]:my-4 [&_code]:bg-prosperus-navy-panel/5 [&_code]:px-1 [&_code]:rounded"
-                  dangerouslySetInnerHTML={{ __html: s.html }}
-                />
-
-                {s.passo > 0 && renderComentarios(s.passo)}
-              </section>
-            );
-          })}
-          {sections.length > 0 && (
-            <section className="script-secao mt-2" data-passo="0">
-              <h3 className="no-print font-serif text-xl text-prosperus-navy-panel">Sobre o script como um todo</h3>
-              {renderComentarios(0)}
-            </section>
+        <div className={`mt-3 lg:mt-0 ${passosIndice.length > 0 ? '' : 'lg:col-span-2'}`}>
+          {parsed && (
+            <ScriptPaper
+              doc={parsed}
+              clubNome={clubNome}
+              versao={versao?.versao ?? selected}
+              escritoEm={formatDate(versao?.created_at)}
+              aprovadoEm={aprovado ? formatDate(versao?.aprovado_em) : null}
+              docAtivo={docAtual?.id || ''}
+              refFor={refFor}
+              comentariosDo={renderComentarios}
+            />
           )}
-        </article>
+          {parsed && !temPassos && (
+            <p className="text-sm text-white/60 mt-3">Esta versão veio sem os passos numerados; o texto acima é o conteúdo como chegou.</p>
+          )}
+          {!parsed && <p className="text-sm text-white/60">Esta versão veio vazia.</p>}
+          {parsed && (
+            <div className="script-no-print max-w-[760px] mx-auto mt-4 rounded-2xl bg-prosperus-neutral-white px-5 py-4 sm:px-10">
+              {renderComentarios(0)}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -132,21 +132,31 @@ describe('widgets da ficha: definição por campo', () => {
       expect(typeof f.template).toBe('object');
     }
     expect(Object.keys(ESTRUTURA).sort()).toEqual([
-      'antes_depois', 'canal', 'casos', 'checklist_condicoes', 'chips_texto', 'citacoes', 'dois_campos', 'dois_numeros', 'dois_textos',
-      'escada', 'escolha', 'escolha_de_lista', 'frase', 'historia_podio', 'icp', 'lista_numerada', 'meta', 'pilares', 'tabela', 'texto', 'vs',
+      'antes_depois', 'baralho', 'canal', 'casos', 'checklist_condicoes', 'chips_texto', 'citacoes', 'dois_campos', 'dois_numeros', 'dois_textos',
+      'escada', 'escolha', 'escolha_de_lista', 'frase', 'historia_podio', 'icp', 'lacunas', 'lista_numerada', 'meta', 'pilares', 'quem_vende', 'tabela', 'texto', 'vs',
     ]);
+  });
+
+  it('todos os 34 campos têm a linha "por que isso importa no script" (ajuda), sem travessão nem a palavra diagnóstico', () => {
+    for (const f of SCRIPT_FIELDS) {
+      expect(typeof f.ajuda).toBe('string');
+      expect((f.ajuda || '').length).toBeGreaterThan(20);
+      expect(f.ajuda).not.toContain('—');
+      expect((f.ajuda || '').toLowerCase()).not.toContain('diagnóstico');
+    }
+    expect(SCRIPT_FIELD_BY_KEY['6.2'].ajuda).toBe('Isso define em que voz o seu script será escrito.');
   });
 
   it('mapa de widgets por campo segue o combinado', () => {
     const w = (k: string) => SCRIPT_FIELD_BY_KEY[k].widget;
     expect(w('1.1')).toBe('escolha'); expect(w('1.2')).toBe('meta');
-    expect(w('2.1')).toBe('frase'); expect(w('2.2')).toBe('historia_podio'); expect(w('2.3')).toBe('vs'); expect(w('2.4')).toBe('frase'); expect(w('2.5')).toBe('escolha');
+    expect(w('2.1')).toBe('lacunas'); expect(w('2.2')).toBe('historia_podio'); expect(w('2.3')).toBe('vs'); expect(w('2.4')).toBe('frase'); expect(w('2.5')).toBe('escolha');
     expect(w('3.1')).toBe('icp'); expect(w('3.2')).toBe('chips_texto'); expect(w('3.3')).toBe('citacoes'); expect(w('3.4')).toBe('citacoes');
     expect(w('3.5')).toBe('antes_depois'); expect(w('3.6')).toBe('antes_depois'); expect(w('3.7')).toBe('tabela'); expect(w('3.8')).toBe('lista_numerada'); expect(w('3.9')).toBe('chips_texto');
     expect(w('4.1')).toBe('dois_campos'); expect(w('4.2')).toBe('pilares'); expect(w('4.3')).toBe('escolha_de_lista'); expect(w('4.4')).toBe('tabela');
-    expect(w('5.1')).toBe('frase'); expect(w('5.2')).toBe('tabela'); expect(w('5.3')).toBe('escada'); expect(w('5.4')).toBe('checklist_condicoes');
+    expect(w('5.1')).toBe('lacunas'); expect(w('5.2')).toBe('tabela'); expect(w('5.3')).toBe('escada'); expect(w('5.4')).toBe('checklist_condicoes');
     expect(w('5.5')).toBe('dois_numeros'); expect(w('5.6')).toBe('chips_texto'); expect(w('5.7')).toBe('tabela');
-    expect(w('6.1')).toBe('canal'); expect(w('6.2')).toBe('dois_campos'); expect(w('6.3')).toBe('tabela'); expect(w('6.4')).toBe('texto');
+    expect(w('6.1')).toBe('canal'); expect(w('6.2')).toBe('quem_vende'); expect(w('6.3')).toBe('baralho'); expect(w('6.4')).toBe('texto');
     expect(w('6.5')).toBe('dois_textos'); expect(w('6.6')).toBe('casos'); expect(w('6.7')).toBe('dois_numeros');
     expect(T('5.6').chips).toEqual(['tempo', 'rede', 'portas que abrem', 'conhecimento', 'segurança emocional', 'velocidade', 'status', 'tranquilidade da família']);
     expect(T('3.2').chips).toEqual(['sócio', 'cônjuge', 'família', 'decide sozinho']);
@@ -211,6 +221,34 @@ describe('widgets da ficha: parse + render (ida e volta)', () => {
     roundTrip('dois_textos', { sim: 'contrato\ne pagamento', pensar: 'retorno em 48h' }, T('6.5'));
     expect(roundTrip('escolha', { opcao: 'Vendi algumas', texto: '' }, {}, { opcoes: ['Nunca vendi', 'Vendi algumas'] })).toBe('Vendi algumas');
     expect(roundTrip('escolha_de_lista', { escolhido: 'Processos', texto: '' }, {}, { pilares: ['Mapa', 'Processos'] })).toBe('Processos');
+  });
+
+  it('quem_vende (6.2): render determinístico e parse de ida e volta', () => {
+    expect(roundTrip('quem_vende', { quem: 'closer', nome: 'Pedro', origem_lead: 'indicação e Instagram' })).toBe('Quem conduz: Um closer ou consultor do meu time (Pedro) / Lead: indicação e Instagram');
+    expect(roundTrip('quem_vende', { quem: 'mentor', nome: '', origem_lead: '' })).toBe('Quem conduz: Eu mesmo(a)');
+    expect(roundTrip('quem_vende', { quem: 'socio', nome: 'Caio', origem_lead: 'eventos' })).toBe('Quem conduz: Meu sócio ou sócia (Caio) / Lead: eventos');
+    expect(roundTrip('quem_vende', { quem: 'outro', nome: 'Ana', origem_lead: '' })).toBe('Quem conduz: Outro (Ana)');
+    // sem quem escolhido nao pode salvar (a voz do script depende disso)
+    expect(renderEstrutura('quem_vende', { quem: '', nome: '', origem_lead: 'indicação' })).toBe('Lead: indicação');
+  });
+
+  it('quem_vende (6.2): heurística das sugestões antigas e do texto corrido', () => {
+    const q = (t: string) => parseEstrutura('quem_vende', t);
+    // formato antigo (dois_campos)
+    expect(q('Quem conduz: a própria Paloma\nDe onde vem o lead: indicação e Instagram')).toEqual({ estrutura: { quem: 'mentor', nome: 'Paloma', origem_lead: 'indicação e Instagram' }, bruto: false });
+    expect(q('Quem conduz: você\nDe onde vem o lead: Instagram').estrutura.quem).toBe('mentor');
+    expect(q('Quem conduz: closer do time\nDe onde vem o lead: tráfego').estrutura).toEqual({ quem: 'closer', nome: '', origem_lead: 'tráfego' });
+    expect(q('Quem conduz: sócio\nDe onde vem o lead: eventos').estrutura.quem).toBe('socio');
+    // texto corrido
+    expect(q('Eu mesma conduzo; os leads vêm de indicação.')).toEqual({ estrutura: { quem: 'mentor', nome: '', origem_lead: 'indicação' }, bruto: false });
+    expect(q('Um closer do meu time (Pedro) conduz. Lead: Instagram e eventos.').estrutura).toEqual({ quem: 'closer', nome: 'Pedro', origem_lead: 'Instagram e eventos' });
+    expect(q('A própria Paloma conduz e os leads vêm de indicação').estrutura).toEqual({ quem: 'mentor', nome: 'Paloma', origem_lead: 'indicação' });
+    expect(q('Meu sócio Caio fecha as vendas').estrutura).toEqual({ quem: 'socio', nome: 'Caio', origem_lead: '' });
+    expect(q('SDR agenda e o consultor fecha').estrutura.quem).toBe('closer');
+    expect(q('Paloma').estrutura).toEqual({ quem: 'mentor', nome: 'Paloma', origem_lead: '' });
+    // nada reconhecido: texto vai para a origem do lead e fica "bruto"
+    expect(q('Depende do cliente.')).toEqual({ estrutura: { quem: '', nome: '', origem_lead: 'Depende do cliente.' }, bruto: true });
+    expect(q('')).toEqual({ estrutura: { quem: '', nome: '', origem_lead: '' }, bruto: false });
   });
 
   it('texto corrido cai no primeiro slot livre com bruto = true; lista/tabela nunca são "brutas"', () => {

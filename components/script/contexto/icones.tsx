@@ -75,8 +75,69 @@ export const IconeLixeira: React.FC<IconeProps> = (p) => base(p, (
   </>
 ));
 
-export const IconeSeta: React.FC<IconeProps & { direcao?: 'esq' | 'dir' }> = ({ direcao = 'dir', ...p }) => base(p, (
-  direcao === 'dir' ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />
+export const IconeSeta: React.FC<IconeProps & { direcao?: 'esq' | 'dir' | 'cima' | 'baixo' }> = ({ direcao = 'dir', ...p }) => base(p, (
+  direcao === 'dir' ? <path d="M9 6l6 6-6 6" />
+    : direcao === 'esq' ? <path d="M15 6l-6 6 6 6" />
+    : direcao === 'cima' ? <path d="M6 15l6-6 6 6" />
+    : <path d="M6 9l6 6 6-6" />
+));
+
+export const IconeX: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </>
+));
+
+export const IconeMais: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </>
+));
+
+export const IconeMenos: React.FC<IconeProps> = (p) => base(p, <line x1="5" y1="12" x2="19" y2="12" />);
+
+/** Virar a carta (duas setas em arco). */
+export const IconeVirar: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <path d="M4 12a8 8 0 0 1 14-5.3" />
+    <path d="M18 3v4h-4" />
+    <path d="M20 12a8 8 0 0 1-14 5.3" />
+    <path d="M6 21v-4h4" />
+  </>
+));
+
+export const IconeCadeado: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </>
+));
+
+export const IconeLivro: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <path d="M3 5h6a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H3z" />
+    <path d="M21 5h-6a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h7z" />
+  </>
+));
+
+/** Degraus: 1, 2 ou 3 (experiência vendendo). */
+export const IconeDegraus: React.FC<IconeProps & { n?: 1 | 2 | 3 }> = ({ n = 3, ...p }) => base(p, (
+  <>
+    <path d="M3 20h18" />
+    {n >= 1 && <path d="M3 20v-5h6" />}
+    {n >= 2 && <path d="M9 15v-5h6" />}
+    {n >= 3 && <path d="M15 10V5h6" />}
+  </>
+));
+
+/** Aspas de abertura (cartão de citação). */
+export const IconeAspas: React.FC<IconeProps> = (p) => base(p, (
+  <>
+    <path d="M10 8H6a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3" />
+    <path d="M20 8h-4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3" />
+  </>
 ));
 
 export const ICONE_TIPO: Record<ContextoTipo, React.FC<IconeProps>> = {

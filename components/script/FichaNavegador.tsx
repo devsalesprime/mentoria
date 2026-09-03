@@ -1,12 +1,13 @@
 /**
- * Navegação da Ficha do Script no passo a passo: pílulas dos 6 blocos, lista de perguntas
- * (folha de baixo no celular, barra lateral no desktop), mapa dos blocos no fim e o ponto de
- * estado de cada pergunta. Sem emoji: glifos em serifa e SVG.
+ * Navegação da Ficha do Script no passo a passo: UM navegador, hierárquico, na mesma linguagem do
+ * menu lateral do app (seção em caixa alta, itens com o estado ativo dourado, painel navy). Os 6
+ * blocos são seções; as perguntas são itens do bloco aberto, com o ponto de estado. Coluna esquerda
+ * fixa no desktop; folha de baixo ("Perguntas") no celular. Sem emoji: glifos em SVG.
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ScriptBlockView, ScriptFieldStatus, ScriptFieldView } from '../../data/script-ficha-fields';
 import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
-import { IconeCheck } from './contexto/icones';
+import { IconeCheck, IconeSeta, IconeX } from './contexto/icones';
 import { Button } from '../ui/Button';
 
 /** Uma tela do passo a passo: um campo, ou o par antes × depois (3.5 e 3.6). */
@@ -16,7 +17,7 @@ export interface PassoNav {
   campos: ScriptFieldView[];
 }
 
-// Uma frase por M (5 M's) para situar o bloco antes das perguntas
+// Uma frase por M (5 M's) para situar o bloco na primeira pergunta dele
 export const BLOCK_INTRO: Record<number, string> = {
   1: 'Meta: onde você quer chegar, com número e prazo.',
   2: 'Mentor: quem você é e o que te legitima a cobrar caro.',
@@ -38,18 +39,21 @@ export const PREVIA_SCRIPT: Record<number, string> = {
 
 export type StatusNav = ScriptFieldStatus | 'refinando';
 
+/** Vocabulário único de estado em toda a ficha: sugerido, confirmado, editado, em branco, aceito em branco, em revisão pela IA. */
 export const STATUS_NAV: Record<StatusNav, { rotulo: string; classe: string }> = {
   sugerido: { rotulo: 'Sugerido', classe: 'bg-prosperus-gold-dark' },
   confirmado: { rotulo: 'Confirmado', classe: 'bg-green-400' },
-  editado: { rotulo: 'Editado por você', classe: 'bg-teal-300' },
-  vazio: { rotulo: 'Vazio', classe: 'bg-transparent border border-white/40' },
-  aceito_vazio: { rotulo: 'Deixado em branco', classe: 'bg-white/30' },
+  editado: { rotulo: 'Editado', classe: 'bg-teal-300' },
+  vazio: { rotulo: 'Em branco', classe: 'bg-transparent border border-white/40' },
+  aceito_vazio: { rotulo: 'Aceito em branco', classe: 'bg-white/30' },
   refinando: { rotulo: 'Em revisão pela IA', classe: 'bg-prosperus-gold-light animate-pulse' },
 };
 
 const ORDEM_LEGENDA: StatusNav[] = ['sugerido', 'confirmado', 'editado', 'vazio', 'aceito_vazio', 'refinando'];
 
-/** Estado visual do campo: em revisão pela IA > estado salvo; sugestão só de marcador conta como vazio. */
+export const rotuloStatus = (s: StatusNav): string => (STATUS_NAV[s] || STATUS_NAV.vazio).rotulo;
+
+/** Estado visual do campo: em revisão pela IA > estado salvo; sugestão só de marcador conta como em branco. */
 export function statusNav(c: ScriptFieldView): StatusNav {
   if (campoRefinando(c as { refinando?: boolean })) return 'refinando';
   if (c.status === 'sugerido' && sugestaoVazia(c.sugerido)) return 'vazio';
@@ -60,15 +64,8 @@ export const pendenteNav = (p: PassoNav) => p.campos.some((c) => !c.decidido);
 
 export const PontoStatus: React.FC<{ status: StatusNav; className?: string }> = ({ status, className = '' }) => {
   const s = STATUS_NAV[status] || STATUS_NAV.vazio;
-  return <span role="img" aria-label={s.rotulo} title={s.rotulo} className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${s.classe} ${className}`} data-status={status} />;
+  return <span role="img" aria-label={s.rotulo} title={s.rotulo} className={`inline-block w-2 h-2 rounded-full shrink-0 ${s.classe} ${className}`} data-status={status} />;
 };
-
-/** Glifo do bloco: numeral em serifa; check quando fechado. */
-export const GlifoBloco: React.FC<{ numero: number; fechado?: boolean; className?: string }> = ({ numero, fechado = false, className = '' }) => (
-  fechado
-    ? <IconeCheck className={className} title="Bloco fechado" />
-    : <span className={`font-serif leading-none ${className}`} aria-hidden="true">{numero}</span>
-);
 
 export const Legenda: React.FC = () => (
   <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Legenda dos estados">
@@ -81,85 +78,116 @@ export const Legenda: React.FC = () => (
   </ul>
 );
 
-/** As 6 pílulas dos blocos (grade de 6 colunas). */
-export const PilulasBlocos: React.FC<{ blocos: ScriptBlockView[]; atual: number | null; onIr: (numero: number) => void }> = ({ blocos, atual, onIr }) => (
-  <nav aria-label="Blocos da ficha" className="grid grid-cols-6 gap-1.5">
+function tituloDoPasso(p: PassoNav): string {
+  return p.campos.length > 1 ? 'Daqui a 1 ano' : p.campos[0].nome;
+}
+
+/** Blocos abertos no navegador: ao trocar de bloco, só o atual fica aberto; toque no cabeçalho abre ou fecha. */
+export function useBlocosAbertos(blocoAtual: number | null): [number[], (n: number) => void] {
+  const [abertos, setAbertos] = useState<number[]>(blocoAtual != null ? [blocoAtual] : []);
+  useEffect(() => { if (blocoAtual != null) setAbertos([blocoAtual]); }, [blocoAtual]);
+  const toggle = (n: number) => setAbertos((a) => (a.includes(n) ? a.filter((x) => x !== n) : [...a, n]));
+  return [abertos, toggle];
+}
+
+interface NavegadorFichaProps {
+  blocos: ScriptBlockView[];
+  passos: PassoNav[];
+  atual: number;
+  blocoAtual: number | null;
+  abertos: number[];
+  onToggle: (numero: number) => void;
+  onIr: (indice: number) => void;
+  idPrefixo?: string;
+}
+
+/** Seções (blocos) e itens (perguntas), com as classes do menu lateral do app. */
+export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, atual, blocoAtual, abertos, onToggle, onIr, idPrefixo = '' }) => (
+  <nav aria-label="Perguntas da ficha" className="space-y-2">
     {blocos.map((b) => {
-      const ativo = b.numero === atual;
+      const aberto = abertos.includes(b.numero);
+      const ativo = b.numero === blocoAtual;
       return (
-        <button
-          key={b.numero}
-          type="button"
-          onClick={() => onIr(b.numero)}
-          aria-current={ativo ? 'step' : undefined}
-          aria-label={`Bloco ${b.numero}: ${b.nome}, ${b.decididos} de ${b.total} decididos`}
-          title={`${b.numero}. ${b.nome}`}
-          data-testid={`bloco-pill-${b.numero}`}
-          className={`min-h-[44px] rounded-lg border flex flex-col items-center justify-center gap-0.5 px-1 transition ${
-            ativo
-              ? 'bg-prosperus-gold-dark/15 border-prosperus-gold-dark text-white'
-              : b.fechado
-              ? 'bg-green-500/5 border-green-500/30 text-white/80 hover:border-green-500/60'
-              : 'bg-white/[0.03] border-white/15 text-white/70 hover:border-prosperus-gold-dark/60'
-          }`}
-        >
-          <GlifoBloco numero={b.numero} fechado={b.fechado} className={b.fechado ? 'text-green-400' : 'text-base text-prosperus-gold-light'} />
-          <span className="text-[10px] font-sans leading-none">{b.decididos}/{b.total}</span>
-        </button>
+        <section key={b.numero} aria-label={`Bloco ${b.numero}: ${b.nome}`}>
+          <button
+            type="button"
+            onClick={() => onToggle(b.numero)}
+            aria-expanded={aberto}
+            aria-current={ativo ? 'true' : undefined}
+            data-testid={`${idPrefixo}nav-bloco-${b.numero}`}
+            className={`min-h-[44px] w-full flex items-center justify-between gap-2 px-2 rounded text-[10px] sm:text-xs font-bold uppercase tracking-wide transition ${
+              ativo ? 'text-white' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              {b.fechado
+                ? <IconeCheck className="text-green-400 shrink-0" title="Bloco fechado" />
+                : <span className="font-serif text-sm normal-case text-prosperus-gold-light shrink-0 w-4 text-center" aria-hidden="true">{b.numero}</span>}
+              <span className="truncate">{b.nome}</span>
+            </span>
+            <span className="flex items-center gap-2 shrink-0">
+              <span className="font-sans normal-case tracking-normal text-[11px] text-white/50" data-testid={`${idPrefixo}nav-bloco-${b.numero}-contagem`}>{b.decididos}/{b.total}</span>
+              <IconeSeta direcao={aberto ? 'baixo' : 'dir'} className="text-white/40" />
+            </span>
+          </button>
+          {aberto && (
+            <ul className="mt-1 ml-3 pl-2 border-l border-white/10 space-y-1">
+              {passos.map((p, j) => {
+                if (p.bloco !== b.numero) return null;
+                const atualItem = j === atual;
+                return (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => onIr(j)}
+                      aria-current={atualItem ? 'step' : undefined}
+                      data-testid={`${idPrefixo}nav-passo-${p.id}`}
+                      className={`min-h-[44px] flex items-center gap-2 w-full text-left px-3 py-1.5 rounded transition text-xs sm:text-sm ${
+                        atualItem ? 'bg-prosperus-gold-dark text-black font-semibold' : 'text-gray-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <span className={`text-[11px] font-bold font-sans shrink-0 ${atualItem ? 'text-black/70' : 'text-prosperus-gold-dark'}`}>{p.campos.map((c) => c.key).join(' e ')}</span>
+                      <span className="truncate flex-1">{tituloDoPasso(p)}</span>
+                      <span className={`inline-flex items-center gap-1 shrink-0 ${atualItem ? 'rounded-full bg-black/25 px-1 py-0.5' : ''}`}>
+                        {p.campos.map((c) => <PontoStatus key={c.key} status={statusNav(c)} />)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       );
     })}
   </nav>
 );
 
-function tituloDoPasso(p: PassoNav): string {
-  return p.campos.length > 1 ? 'Daqui a 1 ano' : p.campos[0].nome;
+interface NavegadorLateralProps extends NavegadorFichaProps {
+  onProximaPendente: () => void;
 }
 
-/** Lista de perguntas (de um bloco ou de todos) com ponto de estado, toque para pular. */
-export const ListaPerguntas: React.FC<{
-  passos: PassoNav[];
-  atual: number;
-  onIr: (indice: number) => void;
-  bloco?: number;
-  idPrefixo?: string;
-}> = ({ passos, atual, onIr, bloco, idPrefixo = '' }) => (
-  <ul className="space-y-0.5">
-    {passos.map((p, j) => {
-      if (bloco != null && p.bloco !== bloco) return null;
-      const ativo = j === atual;
-      return (
-        <li key={p.id}>
-          <button
-            type="button"
-            onClick={() => onIr(j)}
-            aria-current={ativo ? 'step' : undefined}
-            data-testid={`${idPrefixo}nav-passo-${p.id}`}
-            className={`w-full min-h-[44px] flex items-center gap-2 px-2 rounded-lg text-left transition ${
-              ativo ? 'bg-prosperus-gold-dark/15 text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'
-            }`}
-          >
-            <span className="inline-flex items-center gap-1 shrink-0">
-              {p.campos.map((c) => <PontoStatus key={c.key} status={statusNav(c)} />)}
-            </span>
-            <span className="text-[11px] text-prosperus-gold-dark font-bold font-sans shrink-0">{p.campos.map((c) => c.key).join(' e ')}</span>
-            <span className="text-sm font-sans truncate">{tituloDoPasso(p)}</span>
-          </button>
-        </li>
-      );
-    })}
-  </ul>
-);
+/** Coluna esquerda (desktop, a partir de 1024 px): painel navy fixo com a hierarquia blocos > perguntas. */
+export const NavegadorLateral: React.FC<NavegadorLateralProps> = ({ onProximaPendente, ...nav }) => {
+  const temPendente = nav.passos.some(pendenteNav);
+  return (
+    <aside className="hidden lg:block" aria-label="Navegação da ficha" data-testid="navegador-lateral">
+      <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto ficha-scroll rounded-lg bg-prosperus-navy-panel border border-white/5 p-3 space-y-3">
+        <Button variant="secondary" size="md" className="w-full min-h-[44px]" onClick={onProximaPendente} disabled={!temPendente}>Próxima pendente</Button>
+        <NavegadorFicha {...nav} idPrefixo="lateral-" />
+        <Legenda />
+      </div>
+    </aside>
+  );
+};
 
-/** Folha de baixo (celular): perguntas do bloco atual. */
-export const NavegadorSheet: React.FC<{
+interface NavegadorSheetProps extends NavegadorFichaProps {
   aberto: boolean;
   onFechar: () => void;
-  bloco: ScriptBlockView;
-  totalBlocos: number;
-  passos: PassoNav[];
-  atual: number;
-  onIr: (indice: number) => void;
-}> = ({ aberto, onFechar, bloco, totalBlocos, passos, atual, onIr }) => {
+}
+
+/** Folha de baixo (celular): a mesma hierarquia, rolando por dentro com a barra discreta. */
+export const NavegadorSheet: React.FC<NavegadorSheetProps> = ({ aberto, onFechar, ...nav }) => {
   useEffect(() => {
     if (!aberto) return;
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar(); };
@@ -168,97 +196,31 @@ export const NavegadorSheet: React.FC<{
   }, [aberto, onFechar]);
 
   if (!aberto) return null;
+  const total = nav.blocos.reduce((s, b) => s + b.total, 0);
+  const decididos = nav.blocos.reduce((s, b) => s + b.decididos, 0);
   return (
     <div className="fixed inset-0 z-[110] lg:hidden" data-testid="navegador-sheet">
       <div className="absolute inset-0 bg-prosperus-navy-dark/80" onClick={onFechar} aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Perguntas do bloco ${bloco.numero}`}
-        className="absolute inset-x-0 bottom-0 max-h-[75vh] rounded-t-2xl bg-prosperus-navy-panel border-t border-prosperus-gold-dark/40 shadow-2xl flex flex-col"
+        aria-label="Perguntas da ficha"
+        className="absolute inset-x-0 bottom-0 max-h-[80vh] rounded-t-2xl bg-prosperus-navy-panel border-t border-prosperus-gold-dark/40 shadow-2xl flex flex-col"
       >
-        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-white/10">
+        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-white/10 shrink-0">
           <div>
-            <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Bloco {bloco.numero} de {totalBlocos}</p>
-            <p className="font-serif text-lg text-white">{bloco.nome}</p>
+            <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Perguntas</p>
+            <p className="text-sm text-white/70 font-sans">{decididos} de {total} decididos</p>
           </div>
           <button type="button" onClick={onFechar} aria-label="Fechar perguntas" className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/60 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            <IconeX />
           </button>
         </div>
-        <div className="overflow-y-auto px-2 py-2">
-          <ListaPerguntas passos={passos} atual={atual} onIr={(j) => { onIr(j); onFechar(); }} bloco={bloco.numero} idPrefixo="sheet-" />
+        <div className="overflow-y-auto ficha-scroll min-h-0 px-2 py-2" data-testid="navegador-sheet-lista">
+          <NavegadorFicha {...nav} onIr={(j) => { nav.onIr(j); onFechar(); }} idPrefixo="sheet-" />
         </div>
-        <div className="px-4 py-2 border-t border-white/10"><Legenda /></div>
+        <div className="px-4 py-2 border-t border-white/10 shrink-0"><Legenda /></div>
       </div>
     </div>
   );
 };
-
-/** Barra lateral (desktop, a partir de 1024 px): blocos como seções, perguntas como itens. */
-export const NavegadorLateral: React.FC<{
-  blocos: ScriptBlockView[];
-  passos: PassoNav[];
-  atual: number;
-  blocoAtual: number | null;
-  onIr: (indice: number) => void;
-  onIrBloco: (numero: number) => void;
-  onProximaPendente: () => void;
-}> = ({ blocos, passos, atual, blocoAtual, onIr, onIrBloco, onProximaPendente }) => {
-  const temPendente = passos.some(pendenteNav);
-  return (
-    <aside className="hidden lg:block" aria-label="Navegação da ficha" data-testid="navegador-lateral">
-      <div className="sticky top-4 space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1">
-        <Button variant="secondary" size="md" className="w-full min-h-[44px]" onClick={onProximaPendente} disabled={!temPendente}>Próxima pendente</Button>
-        {blocos.map((b) => (
-          <section key={b.numero} aria-label={`Bloco ${b.numero}: ${b.nome}`} className="space-y-0.5">
-            <button
-              type="button"
-              onClick={() => onIrBloco(b.numero)}
-              aria-current={b.numero === blocoAtual ? 'true' : undefined}
-              className={`w-full min-h-[44px] flex items-center gap-2 px-2 rounded-lg text-left transition ${b.numero === blocoAtual ? 'bg-white/5' : 'hover:bg-white/5'}`}
-            >
-              <span className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 ${b.fechado ? 'border-green-500/50 text-green-400' : 'border-prosperus-gold-dark/50 text-prosperus-gold-light'}`}>
-                <GlifoBloco numero={b.numero} fechado={b.fechado} className="text-sm" />
-              </span>
-              <span className="flex-1 font-serif text-base text-white truncate">{b.nome}</span>
-              <span className="text-[11px] text-white/40 font-sans">{b.decididos}/{b.total}</span>
-            </button>
-            <ListaPerguntas passos={passos} atual={atual} onIr={onIr} bloco={b.numero} idPrefixo="lateral-" />
-          </section>
-        ))}
-        <Legenda />
-      </div>
-    </aside>
-  );
-};
-
-/** Mapa dos blocos no fim da ficha: decididos, obrigatórios em aberto, toque para ir ao bloco. */
-export const MapaBlocos: React.FC<{ blocos: ScriptBlockView[]; onIr: (numero: number) => void }> = ({ blocos, onIr }) => (
-  <ul className="space-y-1.5 text-left" aria-label="Mapa dos blocos" data-testid="mapa-blocos">
-    {blocos.map((b) => {
-      const pend = b.total - b.decididos;
-      const pendObrig = b.obrigatorios - b.obrigatorios_decididos;
-      return (
-        <li key={b.numero}>
-          <button
-            type="button"
-            onClick={() => onIr(b.numero)}
-            className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-lg border border-white/10 hover:border-prosperus-gold-dark/50 text-left transition"
-          >
-            <span className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 ${b.fechado ? 'border-green-500/50 text-green-400' : 'border-prosperus-gold-dark/50 text-prosperus-gold-light'}`}>
-              <GlifoBloco numero={b.numero} fechado={b.fechado} className="text-base" />
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="block font-serif text-base text-white">{b.numero}. {b.nome}</span>
-              <span className="block text-[11px] text-white/45 font-sans">
-                {b.decididos} de {b.total} decididos{pendObrig > 0 ? ` · ${pendObrig} obrigatórios em aberto` : ''}
-              </span>
-            </span>
-            <span className="text-xs text-white/60 font-sans shrink-0">{pend === 0 ? <IconeCheck className="text-green-400" title="Tudo decidido" /> : `${pend} em aberto`}</span>
-          </button>
-        </li>
-      );
-    })}
-  </ul>
-);

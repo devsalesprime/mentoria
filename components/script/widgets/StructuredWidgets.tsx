@@ -1,6 +1,7 @@
 import React from 'react';
 import { NIVEL_LABEL } from './estrutura';
-import { Area, BotaoAdd, BotaoIcone, Campo, CartaoOpcao, Contador, Entrada, Numero, Observacao, Painel, Rotulo, TAP, lista, move, type WidgetProps } from './ui';
+import { Area, BotaoAdd, BotaoIcone, Campo, Carrossel, CartaoOpcao, Contador, Entrada, Numero, Observacao, Painel, Rotulo, TAP, lista, move, type WidgetProps } from './ui';
+import { IconeSeta, IconeX } from '../contexto/icones';
 
 /** historia_podio: textarea "história" + 3 cartoes ouro / prata / bronze (estilo do pódio do MentorModule). */
 // Pódio sem emoji: numeral em serifa dentro de um círculo na cor da medalha
@@ -72,9 +73,9 @@ export const PilaresWidget: React.FC<WidgetProps> = ({ campo, template, value, o
             <Entrada value={p.resolve || ''} onChange={(e) => set(i, 'resolve', e.target.value)} aria-label={`${campo.nome}: o que a etapa ${i + 1} resolve`} placeholder="O que ela resolve" />
           </div>
           <div className="flex flex-col sm:flex-row gap-0.5">
-            <BotaoIcone onClick={() => update(move(rows, i, i - 1))} label={`Subir etapa ${i + 1}`} disabled={i === 0}>↑</BotaoIcone>
-            <BotaoIcone onClick={() => update(move(rows, i, i + 1))} label={`Descer etapa ${i + 1}`} disabled={i === rows.length - 1}>↓</BotaoIcone>
-            <BotaoIcone onClick={() => update(rows.filter((_, k) => k !== i))} label={`Remover etapa ${i + 1}`} disabled={rows.length <= 1}>×</BotaoIcone>
+            <BotaoIcone onClick={() => update(move(rows, i, i - 1))} label={`Subir etapa ${i + 1}`} disabled={i === 0}><IconeSeta direcao="cima" /></BotaoIcone>
+            <BotaoIcone onClick={() => update(move(rows, i, i + 1))} label={`Descer etapa ${i + 1}`} disabled={i === rows.length - 1}><IconeSeta direcao="baixo" /></BotaoIcone>
+            <BotaoIcone onClick={() => update(rows.filter((_, k) => k !== i))} label={`Remover etapa ${i + 1}`} disabled={rows.length <= 1}><IconeX /></BotaoIcone>
           </div>
         </div>
       ))}
@@ -86,30 +87,38 @@ export const PilaresWidget: React.FC<WidgetProps> = ({ campo, template, value, o
   );
 };
 
-/** escada: 3 colunas (mais alta / intermediária / entrada) com nome + R$ + "o que muda", e a condição de entrada. */
-const NIVEIS: { key: 'alta' | 'media' | 'entrada'; sub: string; gold: boolean }[] = [
-  { key: 'alta', sub: 'ancore por aqui', gold: true },
-  { key: 'media', sub: '', gold: false },
-  { key: 'entrada', sub: 'a porta', gold: false },
+/**
+ * escada: 3 degraus (mais alta no topo, intermediária, entrada embaixo), cada um com nome + R$ + "o que muda";
+ * o degrau de cima é maior e dourado: é por ele que se ancora. Embaixo, a condição de entrada.
+ */
+export const DEGRAUS: { key: 'alta' | 'media' | 'entrada'; n: number; sub: string; gold: boolean; alt: string }[] = [
+  { key: 'alta', n: 3, sub: 'ancore por aqui', gold: true, alt: 'md:mt-0 md:pb-6' },
+  { key: 'media', n: 2, sub: 'o meio do caminho', gold: false, alt: 'md:mt-8' },
+  { key: 'entrada', n: 1, sub: 'a porta', gold: false, alt: 'md:mt-16' },
 ];
 export const EscadaWidget: React.FC<WidgetProps> = ({ value, onChange }) => {
   const setNivel = (n: string, k: string, v: string) => onChange({ ...value, [n]: { ...(value[n] || {}), [k]: v } });
   const set = (k: string, v: string) => onChange({ ...value, [k]: v });
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {NIVEIS.map((n) => {
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-start">
+        {DEGRAUS.map((n) => {
           const nv = value[n.key] || {};
           return (
-            <Painel key={n.key} accent={n.gold ? 'gold' : 'muted'}>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className={`font-serif text-base ${n.gold ? 'text-prosperus-gold-light' : 'text-white'}`}>{NIVEL_LABEL[n.key]}</span>
-                {n.sub && <span className="text-[10px] text-white/40 font-sans">{n.sub}</span>}
-              </div>
-              <Entrada value={nv.nome || ''} onChange={(e) => setNivel(n.key, 'nome', e.target.value)} aria-label={`${NIVEL_LABEL[n.key]}: nome`} placeholder="Nome da opção" />
-              <Entrada value={nv.valor || ''} onChange={(e) => setNivel(n.key, 'valor', e.target.value)} aria-label={`${NIVEL_LABEL[n.key]}: valor`} prefixo="R$" inputMode="decimal" placeholder="0" />
-              <Area value={nv.muda || ''} onChange={(e) => setNivel(n.key, 'muda', e.target.value)} rows={2} aria-label={`${NIVEL_LABEL[n.key]}: o que muda`} placeholder="O que muda nesta opção" />
-            </Painel>
+            <div key={n.key} className={n.alt} data-testid={`escada-degrau-${n.key}`}>
+              <Painel accent={n.gold ? 'gold' : 'muted'} className={n.gold ? 'md:shadow-lg md:shadow-prosperus-gold-dark/10' : ''}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2">
+                    <Numero n={n.n} gold={n.gold} />
+                    <span className={`font-serif text-base ${n.gold ? 'text-prosperus-gold-light' : 'text-white'}`}>{NIVEL_LABEL[n.key]}</span>
+                  </span>
+                  {n.sub && <span className="text-[10px] text-white/40 font-sans">{n.sub}</span>}
+                </div>
+                <Entrada value={nv.nome || ''} onChange={(e) => setNivel(n.key, 'nome', e.target.value)} aria-label={`${NIVEL_LABEL[n.key]}: nome`} placeholder="Nome da opção" />
+                <Entrada value={nv.valor || ''} onChange={(e) => setNivel(n.key, 'valor', e.target.value)} aria-label={`${NIVEL_LABEL[n.key]}: valor`} prefixo="R$" inputMode="decimal" placeholder="0" className={n.gold ? 'font-serif !text-lg' : ''} />
+                <Area value={nv.muda || ''} onChange={(e) => setNivel(n.key, 'muda', e.target.value)} rows={2} aria-label={`${NIVEL_LABEL[n.key]}: o que muda`} placeholder="O que muda nesta opção" />
+              </Painel>
+            </div>
           );
         })}
       </div>
@@ -168,35 +177,38 @@ export const ChecklistCondicoesWidget: React.FC<WidgetProps> = ({ value, onChang
   );
 };
 
-/** casos: cartoes (nome ou perfil · antes · depois · pode citar? sim/não). */
+type Caso = { nome: string; antes: string; depois: string; citar: string };
+
+/** casos: cartões de prova num carrossel (desliza no celular): nome ou perfil · antes · depois · pode citar? */
 export const CasosWidget: React.FC<WidgetProps> = ({ campo, template, value, onChange }) => {
   const max: number = template.max || 6;
-  const cs = lista<{ nome: string; antes: string; depois: string; citar: string }>(value.casos);
-  const rows = cs.length ? cs : [{ nome: '', antes: '', depois: '', citar: '' }];
-  const update = (next: typeof rows) => onChange({ casos: next });
-  const set = (i: number, k: string, v: string) => { const next = rows.map((c) => ({ ...c })); (next[i] as any)[k] = v; update(next); };
+  const cs = lista<Caso>(value.casos);
+  const rows: Caso[] = cs.length ? cs : [{ nome: '', antes: '', depois: '', citar: '' }];
+  const update = (next: Caso[]) => onChange({ casos: next });
+  const set = (i: number, k: keyof Caso, v: string) => { const next = rows.map((c) => ({ ...c })); next[i][k] = v; update(next); };
+  const cartas = rows.map((c, i) => (
+    <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2 h-full" data-testid={`caso-editor-${i}`}>
+      <div className="flex items-center justify-between gap-2">
+        <Rotulo>Caso {i + 1}</Rotulo>
+        <BotaoIcone onClick={() => update(rows.filter((_, k) => k !== i))} label={`Remover caso ${i + 1}`} disabled={rows.length <= 1} className="!min-h-[36px] !min-w-[36px] -mr-1"><IconeX /></BotaoIcone>
+      </div>
+      <Entrada value={c.nome || ''} onChange={(e) => set(i, 'nome', e.target.value)} aria-label={`${campo.nome}: nome ou perfil do caso ${i + 1}`} placeholder="Nome ou perfil (ex.: dono de clínica em Curitiba)" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <Campo label="Antes"><Area value={c.antes || ''} onChange={(e) => set(i, 'antes', e.target.value)} rows={2} aria-label={`Caso ${i + 1}: antes`} placeholder="Como estava" /></Campo>
+        <Campo label="Depois"><Area value={c.depois || ''} onChange={(e) => set(i, 'depois', e.target.value)} rows={2} aria-label={`Caso ${i + 1}: depois`} placeholder="Como ficou" /></Campo>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Rotulo className="mr-1">Pode citar?</Rotulo>
+        <div role="radiogroup" aria-label={`Caso ${i + 1}: pode citar`} className="grid grid-cols-2 gap-2 w-full sm:w-56">
+          <CartaoOpcao selected={c.citar === 'sim'} onClick={() => set(i, 'citar', 'sim')} title="Sim" />
+          <CartaoOpcao selected={c.citar === 'nao'} onClick={() => set(i, 'citar', 'nao')} title="Não" />
+        </div>
+      </div>
+    </div>
+  ));
   return (
     <div className="space-y-3">
-      {rows.map((c, i) => (
-        <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2 relative">
-          <div className="flex items-center justify-between gap-2">
-            <Rotulo>Caso {i + 1}</Rotulo>
-            <BotaoIcone onClick={() => update(rows.filter((_, k) => k !== i))} label={`Remover caso ${i + 1}`} disabled={rows.length <= 1}>×</BotaoIcone>
-          </div>
-          <Entrada value={c.nome || ''} onChange={(e) => set(i, 'nome', e.target.value)} aria-label={`${campo.nome}: nome ou perfil do caso ${i + 1}`} placeholder="Nome ou perfil (ex.: dono de clínica em Curitiba)" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Campo label="Antes"><Area value={c.antes || ''} onChange={(e) => set(i, 'antes', e.target.value)} rows={2} aria-label={`Caso ${i + 1}: antes`} placeholder="Como estava" /></Campo>
-            <Campo label="Depois"><Area value={c.depois || ''} onChange={(e) => set(i, 'depois', e.target.value)} rows={2} aria-label={`Caso ${i + 1}: depois`} placeholder="Como ficou" /></Campo>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Rotulo className="mr-1">Pode citar?</Rotulo>
-            <div role="radiogroup" aria-label={`Caso ${i + 1}: pode citar`} className="grid grid-cols-2 gap-2 w-full sm:w-56">
-              <CartaoOpcao selected={c.citar === 'sim'} onClick={() => set(i, 'citar', 'sim')} title="Sim" />
-              <CartaoOpcao selected={c.citar === 'nao'} onClick={() => set(i, 'citar', 'nao')} title="Não" />
-            </div>
-          </div>
-        </div>
-      ))}
+      <Carrossel itens={cartas} label={`${campo.nome}: casos`} nomeItem="caso" testId="carrossel-casos" />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Contador n={rows.filter((c) => (c.nome || '').trim()).length} max={max} unidade="casos" />
         {rows.length < max && <BotaoAdd onClick={() => update([...rows, { nome: '', antes: '', depois: '', citar: '' }])}>+ Caso</BotaoAdd>}

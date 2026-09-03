@@ -11,18 +11,20 @@ import {
 } from './estrutura';
 import type { WidgetProps } from './ui';
 import { textoVazio } from './vazio';
-import { CamposRotuladosWidget, CanalWidget, DoisNumerosWidget, EscolhaWidget, FraseWidget, IcpWidget, MetaWidget, TextoWidget } from './SimpleWidgets';
+import { CamposRotuladosWidget, CanalWidget, DoisNumerosWidget, EscolhaWidget, FraseWidget, IcpWidget, LacunasWidget, MetaWidget, QuemVendeWidget, TextoWidget } from './SimpleWidgets';
 import { ChipsTextoWidget, CitacoesWidget, EscolhaDeListaWidget, ListaNumeradaWidget, TabelaWidget } from './ListWidgets';
 import { CasosWidget, ChecklistCondicoesWidget, EscadaWidget, HistoriaPodioWidget, PilaresWidget, VsWidget } from './StructuredWidgets';
+import { BaralhoWidget } from './BaralhoWidget';
 
 export type { Estrutura, ParseContext, ParseResult, WidgetTemplate, WidgetType, WidgetProps };
-export { ESTRUTURA, isWidgetType, parseEstrutura, renderEstrutura, vaziaEstrutura } from './estrutura';
+export { ESTRUTURA, isWidgetType, parseEstrutura, renderEstrutura, vaziaEstrutura, lacunaKeys } from './estrutura';
 export { DISPLAYS, TextoBruto, type DisplayProps } from './display';
 
 export const WIDGETS: Record<WidgetType, React.FC<WidgetProps>> = {
   escolha: EscolhaWidget,
   meta: MetaWidget,
   frase: FraseWidget,
+  lacunas: LacunasWidget,
   texto: TextoWidget,
   antes_depois: TextoWidget,
   historia_podio: HistoriaPodioWidget,
@@ -32,6 +34,7 @@ export const WIDGETS: Record<WidgetType, React.FC<WidgetProps>> = {
   citacoes: CitacoesWidget,
   lista_numerada: ListaNumeradaWidget,
   tabela: TabelaWidget,
+  baralho: BaralhoWidget,
   pilares: PilaresWidget,
   escolha_de_lista: EscolhaDeListaWidget,
   escada: EscadaWidget,
@@ -41,6 +44,7 @@ export const WIDGETS: Record<WidgetType, React.FC<WidgetProps>> = {
   dois_textos: CamposRotuladosWidget,
   canal: CanalWidget,
   casos: CasosWidget,
+  quem_vende: QuemVendeWidget,
 };
 
 export interface ResolvedWidget {
@@ -50,6 +54,8 @@ export interface ResolvedWidget {
   parse: (text: string, ctx: ParseContext) => ParseResult;
   render: (e: Estrutura) => string;
   vazio: (ctx: ParseContext) => Estrutura;
+  /** Pode salvar? Padrão: render não vazio. Lacunas exigem todas preenchidas (ou texto livre). */
+  valido: (e: Estrutura) => boolean;
 }
 
 /** Widget do campo (ou null: usa o textarea simples). */
@@ -65,6 +71,11 @@ export function resolveWidget(campo: Pick<ScriptFieldView, 'widget' | 'template'
     parse: (text, ctx) => spec.parse(text || '', template, ctx || {}),
     render: (e) => spec.render(e || {}, template).trim(),
     vazio: (ctx) => spec.vazio(template, ctx || {}),
+    valido: (e) => {
+      const rendered = spec.render(e || {}, template).trim();
+      if (!rendered) return false;
+      return spec.valido ? spec.valido(e || {}, template) : true;
+    },
   };
 }
 
@@ -85,7 +96,8 @@ export function buildContext(campo: ScriptFieldView, todos?: Record<string, Scri
   const add = (o?: string | null) => { const v = (o || '').trim(); if (v && !textoVazio(v) && !opcoes.includes(v)) opcoes.push(v); };
   if (Array.isArray(campo.opcoes)) campo.opcoes.forEach(add);
   if (Array.isArray(template.opcoes)) template.opcoes.forEach(add);
-  if (campo.widget === 'escolha' && template.estilo !== 'radio') {
+  // Sem lista fixa de opcoes (1.1), a sugestao e as alternativas viram as cartas
+  if (campo.widget === 'escolha' && !(Array.isArray(campo.opcoes) && campo.opcoes.length)) {
     add(campo.sugerido);
     (campo.alternativas || []).forEach((a) => add(a.sugerido));
   }

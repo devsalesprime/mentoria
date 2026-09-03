@@ -31,12 +31,15 @@ export interface EstruturaSpec {
   vazio: (t: WidgetTemplate, ctx: ParseContext) => Estrutura;
   parse: (text: string, t: WidgetTemplate, ctx: ParseContext) => ParseResult;
   render: (e: Estrutura, t: WidgetTemplate) => string;
+  /** Pode salvar? Sem esta funcao vale "render nao vazio". Lacunas: todas preenchidas ou texto livre. */
+  valido?: (e: Estrutura, t: WidgetTemplate) => boolean;
 }
 
 export type WidgetType =
   | 'escolha' | 'meta' | 'frase' | 'texto' | 'antes_depois' | 'historia_podio' | 'vs' | 'icp'
   | 'chips_texto' | 'citacoes' | 'lista_numerada' | 'tabela' | 'pilares' | 'escolha_de_lista'
-  | 'escada' | 'checklist_condicoes' | 'dois_numeros' | 'dois_campos' | 'dois_textos' | 'canal' | 'casos';
+  | 'escada' | 'checklist_condicoes' | 'dois_numeros' | 'dois_campos' | 'dois_textos' | 'canal' | 'casos'
+  | 'lacunas' | 'baralho' | 'quem_vende';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -194,6 +197,57 @@ const frase: EstruturaSpec = {
   vazio: () => ({ frase: '' }),
   parse: (text) => ({ estrutura: { frase: clean(text).replace(/\s*\n\s*/g, ' ') }, bruto: false }),
   render: (e) => clean(e.frase),
+};
+
+
+/**
+ * lacunas: frase-modelo com lacunas. template.modelo = "Eu sou [sou] e ajudo [ajudo] a [a]."; template.lacunas =
+ * [{ key, rotulo, placeholder, chips? }]; template.padrao = regex opcional (grupos nomeados) para ler a sugestao.
+ * estrutura `{ lacunas: { [key]: texto }, livre }`. valor = a frase composta (lacuna vazia vira "…") ou o texto livre.
+ * Sugestao que nao casa com o modelo vai inteira para `livre` (nao e "bruto": escrever livre e um modo legitimo).
+ */
+export function lacunaKeys(modelo: string): string[] {
+  return Array.from(str(modelo).matchAll(/\[(\w+)\]/g)).map((m) => m[1]);
+}
+function lacunasRe(t: WidgetTemplate): RegExp | null {
+  if (typeof t.padrao === 'string' && t.padrao) {
+    try { return new RegExp(t.padrao, 'i'); } catch { /* padrao invalido: cai no modelo */ }
+  }
+  const modelo = str(t.modelo);
+  if (!modelo) return null;
+  const src = modelo.split(/(\[\w+\])/).map((part) => {
+    const m = part.match(/^\[(\w+)\]$/);
+    if (m) return `(?<${m[1]}>.+?)`;
+    return escapeRe(part.trim()).replace(/\\\.$/, '').replace(/,/g, ',?').replace(/\s+/g, '\\s+');
+  }).filter(Boolean).join('\\s*');
+  return new RegExp(`^${src}\\s*\\.?$`, 'i');
+}
+const lacunas: EstruturaSpec = {
+  vazio: (t) => ({ lacunas: Object.fromEntries(lacunaKeys(str(t.modelo)).map((k) => [k, ''])), livre: '' }),
+  parse: (text, t) => {
+    const e: Estrutura = lacunas.vazio(t, {});
+    const s = clean(text).replace(/\s*\n\s*/g, ' ');
+    if (!s) return { estrutura: e, bruto: false };
+    const re = lacunasRe(t);
+    const m = re ? s.match(re) : null;
+    if (m && m.groups) {
+      for (const k of Object.keys(e.lacunas)) {
+        const v = clean(m.groups[k]);
+        e.lacunas[k] = v === '…' || v === '...' ? '' : v;
+      }
+      return { estrutura: e, bruto: false };
+    }
+    return { estrutura: { ...e, livre: s }, bruto: false };
+  },
+  render: (e, t) => {
+    const livre = clean(e.livre);
+    if (livre) return livre;
+    const l: Record<string, any> = e.lacunas && typeof e.lacunas === 'object' ? e.lacunas : {};
+    const modelo = str(t.modelo);
+    if (!lacunaKeys(modelo).some((k) => clean(l[k]))) return '';
+    return modelo.replace(/\[(\w+)\]/g, (_, k) => cell(l[k]) || '…');
+  },
+  valido: (e, t) => !!clean(e.livre) || lacunaKeys(str(t.modelo)).every((k) => !!clean(e?.lacunas?.[k])),
 };
 
 /** texto / antes_depois: `{ texto }`. valor = o proprio texto. */
@@ -664,6 +718,119 @@ const casos: EstruturaSpec = {
     .filter(Boolean).join('\n\n'),
 };
 
+/**
+ * quem_vende: quem conduz a reunião de venda (define a VOZ do script: o mentor vende = 1ª pessoa;
+ * closer, consultor ou sócio vende = a história do mentor em 3ª pessoa) + de onde vem o lead.
+ * estrutura `{ quem: 'mentor'|'closer'|'socio'|'outro'|'', nome, origem_lead }`.
+ * valor = "Quem conduz: <opção>[ (<nome>)] / Lead: <texto>".
+ */
+export const QUEM_VENDE: { id: string; label: string }[] = [
+  { id: 'mentor', label: 'Eu mesmo(a)' },
+  { id: 'closer', label: 'Um closer ou consultor do meu time' },
+  { id: 'socio', label: 'Meu sócio ou sócia' },
+  { id: 'outro', label: 'Outro' },
+];
+const LEAD_RE = /\b(leads?|indica\w*|instagram|anunci\w*|trafego|eventos?|palestras?|site|whatsapp|linkedin|youtube|parceir\w*|prospec\w*|networking|conteudo|lista|indicacoes)\b|\bvem de\b|\bvem por\b|\bchega por\b|\bchegam por\b|\bvia\b/;
+const NOME_RE = /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}'-]+(?:\s+[\p{L}'-]+){0,3}$/u;
+const STOP_NOME = new Set(['eu', 'mesma', 'mesmo', 'propria', 'proprio', 'mentor', 'mentora', 'closer', 'sdr', 'consultor', 'consultora', 'vendedor', 'vendedora', 'socio', 'socia', 'time', 'equipe', 'um', 'uma', 'meu', 'minha', 'nosso', 'nossa', 'quem', 'conduz', 'vende', 'reuniao', 'conversa', 'venda', 'com', 'apoio', 'do', 'da', 'de', 'o', 'a', 'os', 'as', 'e', 'ou', 'voce', 'comercial', 'fundador', 'fundadora', 'sim', 'nao', 'depende']);
+
+/** Quem conduz, pelo texto normalizado: eu / próprio / mentor -> mentor; closer, SDR, consultor, time -> closer; sócio -> socio. */
+function detectQuem(n: string): string {
+  if (!n) return '';
+  if (/^eu\b|\beu mesm[oa]\b|\bpropri[oa]\b|\bmentor[a]?\b|\bfundador[a]?\b|\bvoce\b/.test(n)) return 'mentor';
+  if (/\b(closers?|sdrs?|consultor(?:a|es|as)?|vendedor(?:a|es|as)?|comercial|time|equipe)\b/.test(n)) return 'closer';
+  if (/\bsoci[oa]s?\b/.test(n)) return 'socio';
+  return '';
+}
+
+/** Primeiro nome próprio no texto ("Eu mesma, Paloma" -> "Paloma"; "closer Pedro" -> "Pedro"). */
+function nomeNoTexto(t: string): string {
+  const tokens = t.split(/[\s,:;()]+/).filter(Boolean);
+  const out: string[] = [];
+  for (const w of tokens) {
+    const ok = /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}'-]{1,}$/u.test(w) && !STOP_NOME.has(norm(w));
+    if (ok) out.push(w);
+    else if (out.length) break;
+    if (out.length >= 3) break;
+  }
+  return out.join(' ');
+}
+
+/** "Eu mesmo(a) (Paloma)" -> { quem: 'mentor', nome: 'Paloma' }; texto livre -> heurística por palavras; só um nome próprio -> o mentor. */
+function lerQuem(texto: string): { quem: string; nome: string } {
+  const t = clean(texto);
+  if (!t) return { quem: '', nome: '' };
+  const n = norm(t);
+  for (const q of QUEM_VENDE) {
+    const ln = norm(q.label);
+    if (n === ln || n.startsWith(`${ln} `) || n.startsWith(`${ln}(`) || n.startsWith(`${ln},`)) {
+      const resto = t.slice(q.label.length).trim().replace(/^[,:-]\s*/, '');
+      const m = resto.match(/^\((.+)\)$/);
+      return { quem: q.id, nome: m ? m[1].trim() : resto };
+    }
+  }
+  const par = t.match(/\(([^)]+)\)\s*$/);
+  const nomeDoParentese = par ? par[1].trim() : '';
+  const semPar = par ? t.replace(par[0], '').trim() : t;
+  const quem = detectQuem(norm(semPar));
+  if (quem) return { quem, nome: nomeDoParentese || nomeNoTexto(semPar) };
+  if (NOME_RE.test(semPar) && !STOP_NOME.has(norm(semPar.split(/\s+/)[0]))) return { quem: 'mentor', nome: semPar };
+  return { quem: '', nome: nomeDoParentese };
+}
+
+/** "os leads vêm de indicação." -> "indicação". */
+function limparLead(t: string): string {
+  return clean(t)
+    .replace(/^(?:o|os|a|as)?\s*leads?\s+(?:vem|vêm|chega|chegam|surge|surgem|entra|entram|aparece|aparecem)\s+(?:principalmente\s+)?(?:de|por|via|do|da|dos|das|pelo|pela|pelos|pelas)\s+/i, '')
+    .replace(/^(?:o|os)?\s*leads?\s*:\s*/i, '')
+    .replace(/^(?:por|via|de)\s+/i, '')
+    .replace(/[.]+$/, '')
+    .trim();
+}
+
+const quem_vende: EstruturaSpec = {
+  vazio: () => ({ quem: '', nome: '', origem_lead: '' }),
+  parse: (text) => {
+    const e = { quem: '', nome: '', origem_lead: '' };
+    const s = clean(text);
+    if (!s) return { estrutura: e, bruto: false };
+    const parts = s.split(/\n|\s+\/\s+|\s+[·|]\s+|\s*;\s*/).map((p) => p.trim()).filter(Boolean);
+    const { found, rest, any } = findLabeled(parts, {
+      quem: ['quem conduz', 'conduz', 'quem vende', 'quem', 'vendedor', 'quem fala', 'quem conduz a reuniao', 'quem conduz a reunião'],
+      nome: ['nome', 'nome de quem vende'],
+      origem_lead: ['lead', 'leads', 'de onde vem o lead', 'origem do lead', 'origem', 'de onde vem', 'como o lead chega', 'canal do lead'],
+    });
+    if (any) {
+      const q = lerQuem(found.quem || '');
+      e.quem = q.quem;
+      e.nome = clean(found.nome) || q.nome;
+      e.origem_lead = limparLead(found.origem_lead || rest.find((r) => LEAD_RE.test(norm(r))) || '');
+      return { estrutura: e, bruto: false };
+    }
+    // Texto corrido: a parte que fala do lead vira a origem; o resto diz quem conduz
+    const frases = s
+      .split(/(?<=[.!?])\s+|\s+[·|]\s+|\s*;\s*|\n/)
+      .flatMap((f) => f.split(/\s+e\s+(?=(?:o|os)?\s*leads?\b)|,\s*(?=(?:o|os)?\s*leads?\b)/i))
+      .map((f) => f.trim()).filter(Boolean);
+    const deLead = frases.filter((f) => LEAD_RE.test(norm(f)));
+    const deQuem = frases.filter((f) => !deLead.includes(f));
+    const q = lerQuem(deQuem.join(' '));
+    e.quem = q.quem;
+    e.nome = q.nome;
+    e.origem_lead = limparLead(deLead.join(' '));
+    if (!e.quem && !e.origem_lead) { e.origem_lead = s; return { estrutura: e, bruto: true }; }
+    return { estrutura: e, bruto: !e.quem };
+  },
+  render: (e) => {
+    const q = QUEM_VENDE.find((x) => x.id === e.quem);
+    const nome = cell(e.nome).replace(/\s+\/\s+/g, ', ').replace(/[()]/g, '').trim();
+    const lead = cell(e.origem_lead).replace(/\s+\/\s+/g, ', ').trim();
+    const conduz = q ? `${q.label}${nome ? ` (${nome})` : ''}` : nome;
+    return [conduz && `Quem conduz: ${conduz}`, lead && `Lead: ${lead}`].filter(Boolean).join(' / ');
+  },
+  valido: (e) => !!QUEM_VENDE.find((x) => x.id === e.quem),
+};
+
 // ── registro ─────────────────────────────────────────────────────────────────
 
 export const ESTRUTURA: Record<WidgetType, EstruturaSpec> = {
@@ -688,6 +855,10 @@ export const ESTRUTURA: Record<WidgetType, EstruturaSpec> = {
   dois_textos: campos_rotulados,
   canal,
   casos,
+  lacunas,
+  // baralho de objecoes: mesma estrutura e mesmo valor da tabela (linhas objecao · resposta)
+  baralho: tabela,
+  quem_vende,
 };
 
 export function isWidgetType(w: any): w is WidgetType {

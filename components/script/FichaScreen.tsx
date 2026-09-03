@@ -62,6 +62,21 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   const prevClosedRef = useRef<Record<number, boolean>>({});
   const prevRefinandoRef = useRef<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Barra de rolagem discreta enquanto a ficha está montada: html, body e o contêiner que rola (o <main> do app)
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const alvos: Element[] = [document.documentElement, document.body];
+    let el: HTMLElement | null = rootRef.current?.parentElement || null;
+    while (el && el !== document.body) {
+      const ov = window.getComputedStyle(el).overflowY;
+      if (ov === 'auto' || ov === 'scroll') { alvos.push(el); break; }
+      el = el.parentElement;
+    }
+    alvos.forEach((a) => a.classList.add('ficha-scroll'));
+    return () => alvos.forEach((a) => a.classList.remove('ficha-scroll'));
+  }, [data]);
 
   // Mapa chave -> campo: widgets que leem outro campo (4.3 e 4.4 leem os pilares do 4.2)
   const contexto = useMemo<Record<string, ScriptFieldView>>(
@@ -231,7 +246,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   );
 
   return (
-    <div className={`space-y-4 sm:space-y-6 mx-auto ${modo === 'passo' ? 'max-w-3xl lg:max-w-5xl' : 'max-w-3xl'}`}>
+    <div ref={rootRef} className={`ficha-scroll space-y-4 sm:space-y-6 mx-auto ${modo === 'passo' ? 'max-w-3xl lg:max-w-[1040px]' : 'max-w-3xl'}`}>
       {/* Cabecalho */}
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">

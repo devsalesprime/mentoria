@@ -22,6 +22,10 @@ export interface ScriptFieldDef {
   /** Widget de preenchimento (components/script/widgets) e o template dele. */
   widget?: string;
   template?: Record<string, any>;
+  /** Frase-modelo "No seu script" (components/script/widgets/previa.ts). Objeto = uma por opção. */
+  previa?: string | Record<string, string>;
+  /** Ajuda curta embaixo da pergunta. */
+  ajuda?: string;
 }
 
 export interface ScriptBlockDef {
@@ -60,6 +64,9 @@ export interface ScriptFieldView {
   opcoes: string[] | null;
   widget?: string | null;
   template?: Record<string, any> | null;
+  /** Só no front (o GET não manda): cai no JSON local pela chave. */
+  previa?: string | Record<string, string> | null;
+  ajuda?: string | null;
   sugerido: string;
   classe: ScriptFieldClass;
   fonte: string;

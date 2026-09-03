@@ -14,7 +14,7 @@ vi.mock('framer-motion', () => ({
 
 vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { items: [] } }), post: vi.fn(), delete: vi.fn() } }));
 
-import { FichaField } from '../../components/script/FichaField';
+import { COPY_VAZIO, FichaField } from '../../components/script/FichaField';
 import { SCRIPT_FIELD_BY_KEY, type ScriptFieldView } from '../../data/script-ficha-fields';
 
 const base: ScriptFieldView = {
@@ -76,11 +76,14 @@ function abrirEditor(campo: ScriptFieldView, contexto?: Record<string, ScriptFie
 }
 
 describe('FichaField', () => {
-  it('mostra pergunta, sugestão, fonte e alternativa', () => {
+  it('mostra pergunta, por que importa, "Sugestão encontrada" com a fonte discreta, a sugestão, a linha "no seu script" e a alternativa', () => {
     render(<FichaField campo={base} onDecide={vi.fn()} />);
     expect(screen.getByText(base.pergunta)).toBeInTheDocument();
-    expect(screen.getByText(base.sugerido)).toBeInTheDocument();
-    expect(screen.getByText(/Fonte: Exclusive Book/)).toBeInTheDocument();
+    expect(screen.getByTestId('ajuda-2.1')).toHaveTextContent('Por que isso importa no script: Abre o Passo 1');
+    expect(screen.getByText('Sugestão encontrada')).toBeInTheDocument();
+    expect(screen.getAllByText(base.sugerido)[0]).toBeInTheDocument();
+    expect(screen.getByTestId('fonte-2.1')).toHaveTextContent('Fonte: Exclusive Book · P1 · Mentor');
+    expect(screen.getByTestId('previa-2.1')).toHaveTextContent('No seu script');
     expect(screen.getByText('Também encontramos:')).toBeInTheDocument();
     expect(screen.getByText('Ajudo donos de clínica.')).toBeInTheDocument();
   });
@@ -115,7 +118,7 @@ describe('FichaField', () => {
   it('campo vazio obrigatório abre o editor direto com o convite e "Deixar em branco por enquanto"; nunca "Confirmar"', () => {
     const onDecide = vi.fn();
     render(<FichaField campo={{ ...base, sugerido: '', classe: 'VZ', fonte: '', alternativas: [], status: 'vazio' }} onDecide={onDecide} />);
-    expect(screen.getByText('Não encontramos nos seus materiais. Conte com as suas palavras ou grave um áudio.')).toBeInTheDocument();
+    expect(screen.getByText(COPY_VAZIO)).toBeInTheDocument();
     expect(screen.getByTestId('editor-2.1')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Salvar' })).toBeDisabled();
@@ -153,6 +156,16 @@ describe('FichaField', () => {
     expect(onDecide).toHaveBeenCalledWith('2.1', { status: 'sugerido' });
   });
 
+  it('vocabulário de estado: "Editado" e "Aceito em branco" (nunca "Editado por você" nem "Deixado em branco")', () => {
+    const a = render(<FichaField campo={{ ...base, status: 'editado', valor: 'Sou eu.', valor_efetivo: 'Sou eu.', decidido: true }} onDecide={vi.fn()} />);
+    expect(screen.getByText('Editado')).toBeInTheDocument();
+    expect(a.container.textContent).not.toContain('Editado por você');
+    a.unmount();
+    const b = render(<FichaField campo={{ ...base, status: 'aceito_vazio', decidido: true }} onDecide={vi.fn()} />);
+    expect(screen.getByText('Aceito em branco')).toBeInTheDocument();
+    expect(b.container.textContent).not.toContain('Deixado em branco');
+  });
+
   it('campo editado reabre com a estrutura salva (não reparseia o texto)', () => {
     const campo = campoDe('4.2', '', {
       status: 'editado', decidido: true,
@@ -186,9 +199,9 @@ describe('FichaField', () => {
 describe('FichaField widgets (sugestão dentro do widget)', () => {
   it('1.1 escolha: chips com a sugestão e "Outra"', () => {
     const { editor, onDecide } = abrirEditor(campoDe('1.1', 'Mentoria Exemplo em Grupo', { alternativas: [{ sugerido: 'Programa Anual', fonte: 'x' }] }));
-    expect(within(editor).getByRole('button', { name: 'Mentoria Exemplo em Grupo' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(editor).getByRole('button', { name: 'Programa Anual' })).toBeInTheDocument();
-    fireEvent.click(within(editor).getByRole('button', { name: 'Outra' }));
+    expect(within(editor).getByRole('radio', { name: 'Mentoria Exemplo em Grupo' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(editor).getByRole('radio', { name: 'Programa Anual' })).toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole('radio', { name: 'Outra' }));
     fireEvent.change(within(editor).getByLabelText('Editar Oferta que o script vende'), { target: { value: 'Imersão' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     expect(onDecide).toHaveBeenCalledWith('1.1', { status: 'editado', valor: 'Imersão', estrutura: { opcao: 'Outra', texto: 'Imersão' } });
@@ -335,6 +348,29 @@ describe('FichaField widgets (sugestão dentro do widget)', () => {
     expect((within(editor).getByLabelText('Número de reuniões') as HTMLInputElement).value).toBe('2');
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     expect(onDecide.mock.calls[0][1].valor).toBe('Canal: Vídeo · Duração: 60 min · Reuniões: 2');
+  });
+
+  it('6.2 quem_vende: quem conduz (voz do script), o nome e a origem do lead; salva o valor determinístico', () => {
+    const { editor, onDecide } = abrirEditor(campoDe('6.2', 'Quem conduz: a própria Paloma\nDe onde vem o lead: indicação e Instagram'));
+    expect(within(editor).getByRole('radio', { name: 'Eu mesmo(a)' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(editor).getByRole('radio', { name: 'Um closer ou consultor do meu time' })).toHaveAttribute('aria-checked', 'false');
+    expect((within(editor).getByLabelText('Nome de quem vende') as HTMLInputElement).value).toBe('Paloma');
+    expect((within(editor).getByLabelText('De onde vem o lead') as HTMLInputElement).value).toBe('indicação e Instagram');
+    expect(within(editor).getByText('O script fala na sua voz, em primeira pessoa')).toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole('radio', { name: 'Um closer ou consultor do meu time' }));
+    fireEvent.change(within(editor).getByLabelText('Nome de quem vende'), { target: { value: 'Pedro' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(onDecide).toHaveBeenCalledWith('6.2', {
+      status: 'editado',
+      valor: 'Quem conduz: Um closer ou consultor do meu time (Pedro) / Lead: indicação e Instagram',
+      estrutura: { quem: 'closer', nome: 'Pedro', origem_lead: 'indicação e Instagram' },
+    });
+  });
+
+  it('6.2 quem_vende: a ajuda diz que a resposta define a voz do script', () => {
+    render(<FichaField campo={campoDe('6.2', 'Eu mesma; leads por indicação.')} onDecide={vi.fn()} />);
+    expect(screen.getByTestId('ajuda-6.2')).toHaveTextContent('Isso define em que voz o seu script será escrito.');
+    expect(screen.getByText('Eu mesmo(a)').closest('[data-selected]')).toHaveAttribute('data-selected', 'true');
   });
 
   it('6.3 tabela: objeções pré-preenchidas das linhas sugeridas', () => {

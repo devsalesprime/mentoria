@@ -1,13 +1,14 @@
 /**
  * Modo de exibição dos widgets da Ficha do Script: a estrutura (sugerida ou salva) vista como
- * pódio, colunas VS, cartões, escada de preço, linha do tempo etc. Só leitura; o editor
- * fica em SimpleWidgets / ListWidgets / StructuredWidgets.
+ * pódio, colunas VS, cartas, escada de preço, baralho, linha do tempo etc. Só leitura; o editor
+ * fica em SimpleWidgets / ListWidgets / StructuredWidgets / BaralhoWidget.
  */
 import React from 'react';
 import type { ScriptFieldView } from '../../../data/script-ficha-fields';
-import { CANAIS, NIVEL_LABEL, type Estrutura, type ParseContext, type WidgetTemplate, type WidgetType } from './estrutura';
-import { Numero, Painel, Rotulo, lista } from './ui';
+import { CANAIS, NIVEL_LABEL, QUEM_VENDE, lacunaKeys, type Estrutura, type ParseContext, type WidgetTemplate, type WidgetType } from './estrutura';
+import { Carrossel, Numero, Painel, Rotulo, lista } from './ui';
 import { textoLimpo } from './vazio';
+import { IconeCheck, IconeDegraus } from '../contexto/icones';
 
 export interface DisplayProps {
   campo: ScriptFieldView;
@@ -48,18 +49,22 @@ const ChipLido: React.FC<{ selected: boolean; children: React.ReactNode }> = ({ 
   </span>
 );
 
-/** Cartão de opção só de leitura (estado de rádio). */
-const CartaoLido: React.FC<{ selected: boolean; title: string }> = ({ selected, title }) => (
+/** Carta de opção só de leitura (estado de rádio), com descrição curta e glifo opcionais. */
+const CartaoLido: React.FC<{ selected: boolean; title: string; sub?: string; icone?: React.ReactNode }> = ({ selected, title, sub, icone }) => (
   <div
     data-selected={selected ? 'true' : 'false'}
-    className={`rounded-lg border p-3 flex items-center gap-2 ${
+    className={`rounded-lg border p-3 ${
       selected ? 'bg-prosperus-gold-dark/10 border-prosperus-gold-dark/60 text-white' : 'bg-white/[0.02] border-white/10 text-white/35'
     }`}
   >
-    <span className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${selected ? 'border-prosperus-gold-dark' : 'border-white/20'}`}>
-      {selected && <span className="w-2 h-2 rounded-full bg-prosperus-gold-dark" />}
+    <span className="flex items-center gap-2">
+      <span className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${selected ? 'border-prosperus-gold-dark' : 'border-white/20'}`}>
+        {selected && <span className="w-2 h-2 rounded-full bg-prosperus-gold-dark" />}
+      </span>
+      {icone && <span className={`shrink-0 ${selected ? 'text-prosperus-gold-light' : 'text-white/30'}`} aria-hidden="true">{icone}</span>}
+      <span className="text-sm font-sans font-semibold">{title}</span>
     </span>
-    <span className="text-sm font-sans font-semibold">{title}</span>
+    {sub && <span className={`block text-[11px] font-sans mt-1 pl-6 ${selected ? 'text-white/60' : 'text-white/25'}`}>{sub}</span>}
   </div>
 );
 
@@ -71,16 +76,25 @@ const moeda = (v: any) => {
 
 // ── por widget ───────────────────────────────────────────────────────────────
 
-const EscolhaDisplay: React.FC<DisplayProps> = ({ template, value, ctx }) => {
+const EscolhaDisplay: React.FC<DisplayProps> = ({ campo, template, value, ctx }) => {
   const opcoes = (ctx.opcoes || []).filter(Boolean);
   const isOutra = value.opcao === 'Outra';
   const escolhido = isOutra ? (value.texto || '').trim() : (value.opcao || value.texto || '').trim();
-  const radio = template.estilo === 'radio';
+  const cartas = template.estilo === 'cartas' || template.estilo === 'radio';
   const todas = opcoes.includes(escolhido) || !escolhido ? opcoes : [...opcoes, escolhido];
+  const descricoes: Record<string, string> = template.descricoes && typeof template.descricoes === 'object' ? template.descricoes : {};
+  const sub = (o: string) => {
+    if (descricoes[o]) return descricoes[o];
+    if (o === (campo.sugerido || '').trim() && campo.fonte) return `Fonte: ${campo.fonte}`;
+    const alt = (campo.alternativas || []).find((a) => a.sugerido.trim() === o);
+    return alt?.fonte ? `Fonte: ${alt.fonte}` : undefined;
+  };
   if (!todas.length) return <Texto v={escolhido} className="font-semibold" />;
-  return radio ? (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-      {todas.map((o) => <CartaoLido key={o} selected={o === escolhido} title={o} />)}
+  return cartas ? (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      {todas.map((o, i) => (
+        <CartaoLido key={o} selected={o === escolhido} title={o} sub={sub(o)} icone={template.icones === 'degraus' ? <IconeDegraus n={(Math.min(3, i + 1)) as 1 | 2 | 3} className="w-6 h-6" /> : undefined} />
+      ))}
     </div>
   ) : (
     <div className="flex flex-wrap gap-2">
@@ -112,6 +126,28 @@ const MetaDisplay: React.FC<DisplayProps> = ({ value }) => {
 const FraseDisplay: React.FC<DisplayProps> = ({ value }) => {
   const f = textoLimpo(value.frase);
   return f ? <p className="font-serif text-lg sm:text-xl text-white leading-snug">{f}</p> : <Vazio />;
+};
+
+/** lacunas: a frase-modelo com as lacunas preenchidas em dourado (ou o texto livre). */
+const LacunasDisplay: React.FC<DisplayProps> = ({ template, value }) => {
+  const livre = textoLimpo(value.livre);
+  if (livre) return <p className="font-serif text-lg sm:text-xl text-white leading-snug">{livre}</p>;
+  const modelo: string = typeof template.modelo === 'string' ? template.modelo : '';
+  const lac: Record<string, string> = value.lacunas && typeof value.lacunas === 'object' ? value.lacunas : {};
+  if (!lacunaKeys(modelo).some((k) => textoLimpo(lac[k]))) return <Vazio />;
+  const partes = modelo.split(/(\[\w+\])/);
+  return (
+    <p className="font-serif text-lg sm:text-xl text-white leading-relaxed" data-testid="lacunas-lida">
+      {partes.map((p, i) => {
+        const m = p.match(/^\[(\w+)\]$/);
+        if (!m) return <span key={i}>{p}</span>;
+        const v = textoLimpo(lac[m[1]]);
+        return v
+          ? <span key={m[1]} className="text-prosperus-gold-light border-b border-prosperus-gold-dark/60 px-0.5" data-lacuna={m[1]}>{v}</span>
+          : <span key={m[1]} className="text-white/30 border-b border-white/20 px-2" data-lacuna={m[1]}>…</span>;
+      })}
+    </p>
+  );
 };
 
 const TextoDisplay: React.FC<DisplayProps> = ({ value }) => <Texto v={value.texto} />;
@@ -187,15 +223,17 @@ const ChipsTextoDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   );
 };
 
-const CitacoesDisplay: React.FC<DisplayProps> = ({ value }) => {
+/** Cartões de citação com aspas grandes; filete dourado quando template.filete = 'ouro' (o desejo, 3.4). */
+const CitacoesDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   const itens = lista<string>(value.citacoes).filter((c) => (c || '').trim());
   if (!itens.length) return <Vazio />;
+  const filete = template.filete === 'ouro';
   return (
     <div className="space-y-2">
       {itens.map((c, i) => (
-        <blockquote key={i} className="flex items-start gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3">
-          <span className="font-serif text-2xl text-prosperus-gold-dark/70 leading-none select-none" aria-hidden="true">“</span>
-          <p className="font-serif text-base text-white/90 italic leading-snug">{c}</p>
+        <blockquote key={i} className={`flex items-start gap-2 bg-white/[0.03] border rounded-lg p-3 ${filete ? 'border-white/10 border-l-2 border-l-prosperus-gold-dark' : 'border-white/10'}`}>
+          <span className="font-serif text-3xl text-prosperus-gold-dark/70 leading-none select-none -mt-1" aria-hidden="true">“</span>
+          <p className="font-serif text-base sm:text-lg text-white/90 italic leading-snug">{c}<span className="text-prosperus-gold-dark/70 not-italic" aria-hidden="true">”</span></p>
         </blockquote>
       ))}
     </div>
@@ -241,6 +279,31 @@ const TabelaDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   );
 };
 
+/** Baralho de objeções (só leitura): a objeção em aspas e, embaixo, o que você responde. */
+const BaralhoDisplay: React.FC<DisplayProps> = ({ template, value }) => {
+  const cols: { key: string; label: string }[] = Array.isArray(template.colunas) ? template.colunas : [];
+  const kO = cols[0]?.key || 'objecao';
+  const kR = cols[1]?.key || 'resposta';
+  const linhas = lista<Record<string, string>>(value.linhas).filter((r) => (r?.[kO] || '').trim() || (r?.[kR] || '').trim());
+  if (!linhas.length) return <Vazio />;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {linhas.map((r, i) => (
+        <div key={i} data-testid="carta-objecao" className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <span className="font-serif text-3xl text-prosperus-gold-dark/70 leading-none select-none -mt-1" aria-hidden="true">“</span>
+            <p className="font-serif text-base text-white/90 italic leading-snug">{textoLimpo(r[kO]) || <Vazio />}</p>
+          </div>
+          <div className="border-t border-prosperus-gold-dark/30 pt-2 space-y-0.5">
+            <Rotulo className="!text-prosperus-gold-dark">{cols[1]?.label || 'O que você responde hoje'}</Rotulo>
+            <Texto v={r[kR]} className="!text-sm" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const PilaresDisplay: React.FC<DisplayProps> = ({ value }) => {
   const ps = lista<{ nome: string; resolve: string }>(value.pilares).filter((p) => (p?.nome || '').trim() || (p?.resolve || '').trim());
   if (!ps.length) return <Vazio />;
@@ -271,26 +334,32 @@ const EscolhaDeListaDisplay: React.FC<DisplayProps> = ({ value, ctx }) => {
   return <Texto v={value.texto} className="font-semibold" />;
 };
 
-const NIVEIS: { key: 'alta' | 'media' | 'entrada'; sub: string; gold: boolean }[] = [
-  { key: 'alta', sub: 'ancore por aqui', gold: true },
-  { key: 'media', sub: '', gold: false },
-  { key: 'entrada', sub: 'a porta', gold: false },
+/** Escada de preço: 3 degraus, o de cima maior e dourado (é por ele que se ancora). */
+const DEGRAUS_VIS: { key: 'alta' | 'media' | 'entrada'; n: number; sub: string; gold: boolean; alt: string }[] = [
+  { key: 'alta', n: 3, sub: 'ancore por aqui', gold: true, alt: 'md:mt-0 md:pb-6' },
+  { key: 'media', n: 2, sub: '', gold: false, alt: 'md:mt-8' },
+  { key: 'entrada', n: 1, sub: 'a porta', gold: false, alt: 'md:mt-16' },
 ];
 const EscadaDisplay: React.FC<DisplayProps> = ({ value }) => (
   <div className="space-y-3">
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      {NIVEIS.map((n) => {
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-start">
+      {DEGRAUS_VIS.map((n) => {
         const nv = value[n.key] || {};
         return (
-          <Painel key={n.key} accent={n.gold ? 'gold' : 'muted'} className="space-y-1">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className={`text-[11px] uppercase tracking-wide font-sans ${n.gold ? 'text-prosperus-gold-dark' : 'text-white/50'}`}>{NIVEL_LABEL[n.key]}</span>
-              {n.sub && <span className="text-[10px] text-white/40 font-sans">{n.sub}</span>}
-            </div>
-            <p className={`font-serif text-base ${n.gold ? 'text-prosperus-gold-light' : 'text-white'}`}>{(nv.nome || '').trim() || <Vazio />}</p>
-            <p data-testid={`escada-${n.key}-valor`} className="font-serif text-xl sm:text-2xl text-white">{moeda(nv.valor) || <Vazio />}</p>
-            {nv.muda && <p className="text-sm text-white/70 font-sans leading-relaxed">{nv.muda}</p>}
-          </Painel>
+          <div key={n.key} className={n.alt} data-testid={`escada-degrau-${n.key}`} data-degrau={n.n}>
+            <Painel accent={n.gold ? 'gold' : 'muted'} className={`space-y-1 ${n.gold ? 'md:shadow-lg md:shadow-prosperus-gold-dark/10' : ''}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2">
+                  <Numero n={n.n} gold={n.gold} />
+                  <span className={`text-[11px] uppercase tracking-wide font-sans ${n.gold ? 'text-prosperus-gold-dark' : 'text-white/50'}`}>{NIVEL_LABEL[n.key]}</span>
+                </span>
+                {n.sub && <span className="text-[10px] text-white/40 font-sans">{n.sub}</span>}
+              </div>
+              <p className={`font-serif text-base ${n.gold ? 'text-prosperus-gold-light' : 'text-white'}`}>{(nv.nome || '').trim() || <Vazio />}</p>
+              <p data-testid={`escada-${n.key}-valor`} className={`font-serif text-white ${n.gold ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'}`}>{moeda(nv.valor) || <Vazio />}</p>
+              {nv.muda && <p className="text-sm text-white/70 font-sans leading-relaxed">{nv.muda}</p>}
+            </Painel>
+          </div>
         );
       })}
     </div>
@@ -314,7 +383,7 @@ const ChecklistCondicoesDisplay: React.FC<DisplayProps> = ({ value }) => (
       const detalhe = (item[c.detail] || '').toString().trim();
       return (
         <div key={c.key} data-selected={on ? 'true' : 'false'} className={`rounded-lg border p-3 flex items-center gap-3 ${on ? 'border-prosperus-gold-dark/40 bg-prosperus-gold-dark/5' : 'border-white/10 bg-white/[0.02]'}`}>
-          <span aria-hidden="true" className={`w-6 h-6 rounded-md border flex items-center justify-center text-sm font-bold flex-shrink-0 ${on ? 'bg-prosperus-gold-dark border-prosperus-gold-dark text-black' : 'border-white/20 text-transparent'}`}>✓</span>
+          <span aria-hidden="true" className={`w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${on ? 'bg-prosperus-gold-dark border-prosperus-gold-dark text-black' : 'border-white/20 text-transparent'}`}><IconeCheck /></span>
           <span className={`text-sm font-sans ${on ? 'text-white font-semibold' : 'text-white/40'}`}>{c.label}</span>
           {on && detalhe && <span className="text-sm text-white/80 font-sans ml-auto text-right">{detalhe}{c.sufixo || ''}</span>}
         </div>
@@ -326,9 +395,10 @@ const ChecklistCondicoesDisplay: React.FC<DisplayProps> = ({ value }) => (
 
 const DoisNumerosDisplay: React.FC<DisplayProps> = ({ template, value }) => {
   const campos: { key: string; label: string; tipo?: string }[] = Array.isArray(template.campos) ? template.campos : [];
+  const cols = campos.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3';
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className={`grid grid-cols-1 ${cols} gap-3`}>
         {campos.map((c) => {
           const v = (value[c.key] || '').toString().trim();
           return (
@@ -355,51 +425,70 @@ const CamposRotuladosDisplay: React.FC<DisplayProps> = ({ template, value }) => 
   );
 };
 
-const CanalDisplay: React.FC<DisplayProps> = ({ value }) => (
-  <div className="space-y-3">
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-      {CANAIS.map((c) => <CartaoLido key={c.id} selected={value.canal === c.id} title={c.label} />)}
+const CanalDisplay: React.FC<DisplayProps> = ({ template, value }) => {
+  const descricoes: Record<string, string> = template.descricoes && typeof template.descricoes === 'object' ? template.descricoes : {};
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {CANAIS.map((c) => <CartaoLido key={c.id} selected={value.canal === c.id} title={c.label} sub={descricoes[c.id]} />)}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Painel accent="muted" className="space-y-0.5">
+          <Rotulo>Duração</Rotulo>
+          <p className="font-serif text-xl text-prosperus-gold-light">{value.duracao ? `${value.duracao} min` : <Vazio />}</p>
+        </Painel>
+        <Painel accent="muted" className="space-y-0.5">
+          <Rotulo>Reuniões</Rotulo>
+          <p className="font-serif text-xl text-prosperus-gold-light">{value.reunioes || <Vazio />}</p>
+        </Painel>
+      </div>
+      {value.obs && <Texto v={value.obs} className="!text-sm text-white/70" />}
     </div>
-    <div className="grid grid-cols-2 gap-3">
-      <Painel accent="muted" className="space-y-0.5">
-        <Rotulo>Duração</Rotulo>
-        <p className="font-serif text-xl text-prosperus-gold-light">{value.duracao ? `${value.duracao} min` : <Vazio />}</p>
-      </Painel>
-      <Painel accent="muted" className="space-y-0.5">
-        <Rotulo>Reuniões</Rotulo>
-        <p className="font-serif text-xl text-prosperus-gold-light">{value.reunioes || <Vazio />}</p>
-      </Painel>
-    </div>
-    {value.obs && <Texto v={value.obs} className="!text-sm text-white/70" />}
-  </div>
-);
+  );
+};
 
+/** Quem conduz a venda (carta marcada), o nome e a origem do lead. */
+const QuemVendeDisplay: React.FC<DisplayProps> = ({ template, value }) => {
+  const descricoes: Record<string, string> = template.descricoes && typeof template.descricoes === 'object' ? template.descricoes : {};
+  return (
+    <div className="space-y-3" data-testid="quem-vende-lido">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {QUEM_VENDE.map((q) => <CartaoLido key={q.id} selected={value.quem === q.id} title={q.label} sub={descricoes[q.id]} />)}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Celula label="Nome de quem vende" v={value.nome} />
+        <Celula label="De onde vem o lead" v={value.origem_lead} />
+      </div>
+    </div>
+  );
+};
+
+/** Cartões de prova num carrossel: perfil, antes → depois, "pode citar". */
 const CasosDisplay: React.FC<DisplayProps> = ({ value }) => {
   const cs = lista<{ nome: string; antes: string; depois: string; citar: string }>(value.casos).filter((c) => (c?.nome || '').trim() || (c?.antes || '').trim() || (c?.depois || '').trim());
   if (!cs.length) return <Vazio />;
-  return (
-    <div className="space-y-3">
-      {cs.map((c, i) => (
-        <div key={i} data-testid="caso" className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm sm:text-base font-sans font-semibold text-white">{c.nome || `Caso ${i + 1}`}</p>
-            {c.citar === 'sim' && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-sans">pode citar</span>}
-            {c.citar === 'nao' && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-white/10 text-white/50 font-sans">sem citar o nome</span>}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Celula label="Antes" v={c.antes} />
-            <Celula label="Depois" v={c.depois} />
-          </div>
-        </div>
-      ))}
+  const cartas = cs.map((c, i) => (
+    <div key={i} data-testid="caso" className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2 h-full">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm sm:text-base font-sans font-semibold text-white">{c.nome || `Caso ${i + 1}`}</p>
+        {c.citar === 'sim' && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 font-sans">pode citar</span>}
+        {c.citar === 'nao' && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-white/10 text-white/50 font-sans">sem citar o nome</span>}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 sm:items-start">
+        <Celula label="Antes" v={c.antes} />
+        <span className="hidden sm:block self-center text-prosperus-gold-dark font-serif text-xl" aria-hidden="true">→</span>
+        <Celula label="Depois" v={c.depois} />
+      </div>
     </div>
-  );
+  ));
+  return <Carrossel itens={cartas} label="Casos reais" nomeItem="caso" testId="carrossel-casos-lido" />;
 };
 
 export const DISPLAYS: Record<WidgetType, React.FC<DisplayProps>> = {
   escolha: EscolhaDisplay,
   meta: MetaDisplay,
   frase: FraseDisplay,
+  lacunas: LacunasDisplay,
   texto: TextoDisplay,
   antes_depois: TextoDisplay,
   historia_podio: HistoriaPodioDisplay,
@@ -409,6 +498,7 @@ export const DISPLAYS: Record<WidgetType, React.FC<DisplayProps>> = {
   citacoes: CitacoesDisplay,
   lista_numerada: ListaNumeradaDisplay,
   tabela: TabelaDisplay,
+  baralho: BaralhoDisplay,
   pilares: PilaresDisplay,
   escolha_de_lista: EscolhaDeListaDisplay,
   escada: EscadaDisplay,
@@ -418,6 +508,7 @@ export const DISPLAYS: Record<WidgetType, React.FC<DisplayProps>> = {
   dois_textos: CamposRotuladosDisplay,
   canal: CanalDisplay,
   casos: CasosDisplay,
+  quem_vende: QuemVendeDisplay,
 };
 
 /** Texto corrido (sem widget ou parse que não estruturou): bloco de citação com nota opcional. */

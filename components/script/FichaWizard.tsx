@@ -1,8 +1,12 @@
 /**
- * FichaWizard: a Ficha do Script passo a passo, no jeito dos módulos antigos: uma pergunta por tela,
- * título grande, a sugestão no visual do widget (pódio, VS, cartões, escada...), botão grande
- * "Confirmar e avançar", barra de progresso, pílulas dos 6 blocos, lista de perguntas (folha de
- * baixo no celular, barra lateral no desktop) e contexto por pergunta (áudio, foto, vídeo, link, nota).
+ * FichaWizard: a Ficha do Script passo a passo. Cada pergunta é UMA tela, lida de cima para baixo:
+ * (a) chip do bloco + número da pergunta · (b) a PERGUNTA em serifa grande · (c) por que isso importa
+ * no script · (d) a resposta: o visual do widget com a sugestão dentro ("Sugestão encontrada" e a
+ * fonte discreta) ou o editor com o convite · (e) a linha "no seu script" em itálico · (f) o contexto ·
+ * (g) a barra de ações fixa com UM botão dourado, "Confirmar e avançar" (ou "Salvar e avançar" ao
+ * editar). Ao confirmar, o valor recolhe numa linha verde-dourada por 400 ms e a próxima pergunta
+ * desliza (200 ms). Um cartão, largura máxima de 720 px, sem caixa dentro de caixa. Um navegador só,
+ * hierárquico (blocos > perguntas): coluna esquerda no desktop, folha "Perguntas" no celular.
  * Salva pelo mesmo `decide` do hook (fila com debounce).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,11 +16,17 @@ import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-f
 import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
 import { Button } from '../ui/Button';
 import { FieldEditor, useFieldEditor } from './widgets/editor';
-import { FichaDisplay, Fonte, TextoOriginal } from './widgets/FichaDisplay';
-import { Alternativas, COPY_EM_BRANCO, COPY_VAZIO, StatusChip, statusDaTela } from './FichaField';
-import { BadgeRefinando, ContextoCampo } from './contexto/ContextoCampo';
+import { FichaDisplay, Fonte, TextoOriginal, textoDoModo } from './widgets/FichaDisplay';
+import { NumberTicker } from './widgets/NumberTicker';
+import { COPY_SCRIPT_PRONTO, COPY_TUDO_DECIDIDO, META_SCRIPT, faltamParaScript, fraseDosPassos, passosDoBloco } from './widgets/previa';
+import { PreviaCampo, PreviaMeta, PreviaPasso } from './widgets/PreviaScript';
 import {
-  BLOCK_INTRO, MapaBlocos, NavegadorLateral, NavegadorSheet, PREVIA_SCRIPT, PilulasBlocos, pendenteNav, type PassoNav,
+  Alternativas, BadgeObrigatorio, COPY_EM_BRANCO, COPY_VAZIO, PorQueImporta, StatusChip, SugestaoEncontrada, statusDaTela,
+} from './FichaField';
+import { BadgeRefinando, ContextoCampo } from './contexto/ContextoCampo';
+import { IconeCheck } from './contexto/icones';
+import {
+  BLOCK_INTRO, NavegadorLateral, NavegadorSheet, PREVIA_SCRIPT, pendenteNav, useBlocosAbertos, type PassoNav,
 } from './FichaNavegador';
 
 export { BLOCK_INTRO, PREVIA_SCRIPT } from './FichaNavegador';
@@ -29,7 +39,13 @@ type Tela =
   | { tipo: 'bloco'; de: number; para: number }
   | { tipo: 'fim' };
 
-const TAP = 'min-h-[44px] w-full sm:w-auto';
+/** Tempo do estado "Confirmado" (o valor recolhido numa linha) antes da próxima pergunta entrar. */
+export const CONFIRMADO_MS = 400;
+/** Duração do deslize entre perguntas. */
+export const SLIDE_S = 0.2;
+
+const PRIMARIO = 'w-full min-h-[48px] text-base';
+const SECUNDARIO = 'min-h-[44px] px-3';
 
 export function montarPassos(blocos: ScriptBlockView[]): Passo[] {
   const out: Passo[] = [];
@@ -58,17 +74,92 @@ export function passoInicial(passos: Passo[]): number {
 }
 
 const slide = {
-  enter: (d: number) => ({ x: d > 0 ? 60 : -60, opacity: 0 }),
+  enter: (d: number) => ({ x: d > 0 ? 48 : -48, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit: (d: number) => ({ x: d > 0 ? -60 : 60, opacity: 0 }),
+  exit: (d: number) => ({ x: d > 0 ? -48 : 48, opacity: 0 }),
 };
 
-// Interstício e fim: só um fade de 300 ms
+// Interstício e fim: só um fade
 const fade = {
   enter: { opacity: 0 },
   center: { opacity: 1 },
   exit: { opacity: 0 },
 };
+
+/** "faltam 12 para o seu script" com o contador que roda; em 0, "tudo decidido para o seu script". */
+export const ContadorFaltam: React.FC<{ n: number; className?: string; testId?: string }> = ({ n, className = '', testId = 'contador-faltam' }) => (
+  <p className={`font-sans ${className}`} data-testid={testId} aria-live="polite">
+    {n <= 0 ? (
+      <span className="text-prosperus-gold-light">{COPY_TUDO_DECIDIDO}</span>
+    ) : (
+      <>
+        {n === 1 ? 'falta ' : 'faltam '}
+        <NumberTicker value={n} className="font-serif text-lg text-prosperus-gold-light" testId={`${testId}-n`} />
+        {' para o seu script'}
+      </>
+    )}
+  </p>
+);
+
+// ── confirmação: o valor recolhido numa linha ────────────────────────────────
+
+interface Feito {
+  status: 'confirmado' | 'editado';
+  texto: string;
+}
+
+function resumo(texto: string, max = 100): string {
+  const t = (texto || '').split('\n').map((l) => l.trim()).filter(Boolean).join(' · ');
+  return t.length > max ? `${t.slice(0, max).trimEnd()}...` : t;
+}
+
+/** Linha compacta verde-dourada: "Confirmado · valor" (ou "Salvo"), 400 ms antes da próxima pergunta. */
+export const ResumoConfirmado: React.FC<{ feito: Feito }> = ({ feito }) => (
+  <motion.div
+    initial={{ opacity: 0.4, y: 6 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.2 }}
+    role="status"
+    data-testid="resumo-confirmado"
+    className="flex items-center gap-3 rounded-lg border border-green-400/40 bg-gradient-to-r from-green-500/10 to-prosperus-gold-dark/10 px-4 py-3 min-h-[48px]"
+  >
+    <span className="text-green-400 shrink-0" aria-hidden="true"><IconeCheck /></span>
+    <span className="text-sm font-sans font-semibold text-green-400 shrink-0">{feito.status === 'editado' ? 'Salvo' : 'Confirmado'}</span>
+    {feito.texto && <span className="font-serif text-base text-white/85 truncate">{resumo(feito.texto)}</span>}
+  </motion.div>
+);
+
+/** O botão principal depois de confirmar: mesmo lugar, mesmo tamanho, agora verde. */
+const PrincipalFeito: React.FC<{ feito: Feito }> = ({ feito }) => (
+  <div className={`${PRIMARIO} rounded-lg bg-green-500/15 border border-green-400/40 text-green-400 font-sans font-bold inline-flex items-center justify-center gap-2`} role="status" data-testid="principal-feito">
+    <IconeCheck />{feito.status === 'editado' ? 'Salvo' : 'Confirmado'}
+  </div>
+);
+
+/** Ação secundária: botão de texto, nunca competindo com o principal. */
+const Sec: React.FC<React.ComponentProps<typeof Button>> = ({ className = '', ...p }) => (
+  <Button variant="link" size="md" className={`${SECUNDARIO} ${className}`} {...p} />
+);
+
+/** (g) Barra de ações fixa no rodapé do cartão: UM botão principal em cima; as secundárias em texto embaixo. */
+const BarraAcoes: React.FC<{
+  principal: React.ReactNode;
+  secundarias?: React.ReactNode;
+  onVoltar?: () => void;
+  podeVoltar?: boolean;
+  onPular?: () => void;
+  onPerguntas?: () => void;
+}> = ({ principal, secundarias, onVoltar, podeVoltar = true, onPular, onPerguntas }) => (
+  <div className="sticky bottom-0 z-10 -mx-5 sm:-mx-8 px-5 sm:px-8 pt-3 pb-3 bg-prosperus-navy-mid/95 backdrop-blur border-t border-white/10 rounded-b-lg space-y-1" data-testid="barra-acoes">
+    {principal}
+    <div className="flex flex-wrap items-center justify-center gap-x-1 gap-y-0">
+      {onVoltar && <Sec onClick={onVoltar} disabled={!podeVoltar}>Voltar</Sec>}
+      {secundarias}
+      {onPular && <Sec onClick={onPular}>Pular por agora</Sec>}
+      {onPerguntas && <Sec className="lg:hidden" onClick={onPerguntas}>Perguntas</Sec>}
+    </div>
+  </div>
+);
 
 // ── um campo dentro do passo ─────────────────────────────────────────────────
 
@@ -78,6 +169,9 @@ interface CampoPassoProps {
   decide: UseScriptFicha['decide'];
   /** No par (antes × depois) cada coluna tem os próprios botões e não avança sozinha. */
   par?: boolean;
+  /** Valor recolhido na linha "Confirmado" (o wizard segura 400 ms e avança). */
+  feito?: Feito | null;
+  onConcluir?: (f: Feito) => void;
   onAvancar?: () => void;
   onVoltar?: () => void;
   podeVoltar?: boolean;
@@ -87,13 +181,14 @@ interface CampoPassoProps {
 }
 
 const CampoPasso: React.FC<CampoPassoProps> = ({
-  campo, contexto, decide, par = false, onAvancar, onVoltar, podeVoltar = true, onPerguntas, onRecarregar, onEditingChange,
+  campo, contexto, decide, par = false, feito = null, onConcluir, onAvancar, onVoltar, podeVoltar = true, onPerguntas, onRecarregar, onEditingChange,
 }) => {
   const editor = useFieldEditor(campo, contexto);
   const { editing, canSave } = editor;
   const status = statusDaTela(campo);
   const temSugestao = !sugestaoVazia(campo.sugerido);
-  const avancar = () => { if (!par) onAvancar?.(); };
+  const [feitoLocal, setFeitoLocal] = useState<Feito | null>(null);
+  const feitoAtual = feito || feitoLocal;
 
   useEffect(() => {
     onEditingChange?.(editing);
@@ -101,126 +196,139 @@ const CampoPasso: React.FC<CampoPassoProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
-  const confirmar = () => { decide(campo.key, { status: 'confirmado' }); avancar(); };
+  // No par, a coluna guarda a linha "Confirmado" até o estado salvo chegar
+  useEffect(() => { setFeitoLocal(null); }, [campo.status, campo.valor]);
+
+  const concluir = (f: Feito) => {
+    if (par) setFeitoLocal(f);
+    onConcluir?.(f);
+  };
+  const confirmar = () => { decide(campo.key, { status: 'confirmado' }); concluir({ status: 'confirmado', texto: textoDoModo(campo, 'sugerido') }); };
   const salvar = () => {
     const d = editor.decision();
     if (!d) return;
     decide(campo.key, d);
     editor.reset();
-    avancar();
+    concluir({ status: 'editado', texto: d.valor || '' });
   };
-  const emBranco = () => { decide(campo.key, { status: 'aceito_vazio' }); avancar(); };
+  const emBranco = () => { decide(campo.key, { status: 'aceito_vazio' }); if (!par) onAvancar?.(); };
   const desfazer = () => decide(campo.key, { status: temSugestao ? 'sugerido' : 'vazio' });
   const usarAlternativa = (t: string) => decide(campo.key, { status: 'editado', valor: t });
   const editar = () => editor.start(status === 'sugerido' ? 'sugerido' : status === 'aceito_vazio' ? 'vazio' : 'atual');
 
   const sufixo = par ? '' : ' e avançar';
   const rotuloBranco = campo.obrigatorio ? 'Deixar em branco por enquanto' : 'Não se aplica';
+  const classePrincipal = par ? 'min-h-[44px] w-full sm:w-auto' : PRIMARIO;
 
-  // Botões principais por estado. Valor vazio nunca ganha "Confirmar": vai direto de "Salvar".
-  let principais: React.ReactNode;
-  if (editing) {
-    principais = (
-      <>
-        <Button variant="primary" size="lg" className={TAP} onClick={salvar} disabled={!canSave}>{`Salvar${sufixo}`}</Button>
-        <Button variant="ghost" size="lg" className={TAP} onClick={editor.reset}>Cancelar</Button>
-      </>
+  // (e) A linha "no seu script": ao vivo no editor, da sugestão, ou do valor decidido
+  const previaViva = <PreviaCampo campo={campo} estrutura={editor.est} texto={editor.draft} contexto={contexto} editing />;
+
+  // (d) + (e): a resposta e a linha "no seu script"
+  let corpo: React.ReactNode;
+  if (feitoAtual) {
+    corpo = <ResumoConfirmado feito={feitoAtual} />;
+  } else if (editing) {
+    corpo = (
+      <div className="space-y-4">
+        <FieldEditor campo={campo} editor={editor} testId={`wizard-editor-${campo.key}`} />
+        {previaViva}
+      </div>
     );
   } else if (status === 'sugerido') {
-    principais = (
+    corpo = (
+      <div className="space-y-4">
+        <SugestaoEncontrada campo={campo} />
+        <FichaDisplay campo={campo} modo="sugerido" contexto={contexto} />
+        <PreviaCampo campo={campo} modo="sugerido" contexto={contexto} />
+        <TextoOriginal campo={campo} />
+        <Alternativas campo={campo} onUse={usarAlternativa} />
+      </div>
+    );
+  } else if (status === 'vazio') {
+    corpo = (
+      <div className="space-y-4">
+        <p className="text-sm text-white/60 font-sans italic" data-testid={`convite-${campo.key}`}>{COPY_VAZIO}</p>
+        <FieldEditor campo={campo} editor={editor} testId={`wizard-editor-${campo.key}`} />
+        {previaViva}
+      </div>
+    );
+  } else {
+    corpo = (
+      <div className="space-y-4">
+        {status !== 'aceito_vazio' && <FichaDisplay campo={campo} modo="atual" contexto={contexto} />}
+        {status !== 'aceito_vazio' && <PreviaCampo campo={campo} modo="atual" contexto={contexto} />}
+        <div className="flex flex-wrap items-center gap-3">
+          <StatusChip status={status} />
+          {status === 'confirmado' && campo.fonte && <Fonte campo={campo} />}
+          {status === 'aceito_vazio' && campo.obrigatorio && (
+            <span className="text-xs text-prosperus-gold-light/80 font-sans">{COPY_EM_BRANCO}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // (g) UM botão principal por estado; as secundárias em texto. Valor vazio nunca ganha "Confirmar": vai direto de "Salvar".
+  let principal: React.ReactNode = null;
+  let secundarias: React.ReactNode = null;
+  if (feitoAtual) {
+    principal = <PrincipalFeito feito={feitoAtual} />;
+  } else if (editing) {
+    principal = <Button variant="primary" size="lg" className={classePrincipal} onClick={salvar} disabled={!canSave}><IconeCheck />{`Salvar${sufixo}`}</Button>;
+    secundarias = <Sec onClick={editor.reset}>Cancelar</Sec>;
+  } else if (status === 'sugerido') {
+    principal = <Button variant="primary" size="lg" className={classePrincipal} onClick={confirmar}><IconeCheck />{`Confirmar${sufixo}`}</Button>;
+    secundarias = (
       <>
-        <Button variant="primary" size="lg" className={TAP} onClick={confirmar}>{`Confirmar${sufixo}`}</Button>
-        <Button variant="secondary" size="lg" className={TAP} onClick={editar}>Editar</Button>
+        <Sec onClick={editar}>Editar</Sec>
+        <Sec onClick={emBranco}>{rotuloBranco}</Sec>
       </>
     );
   } else if (status === 'vazio') {
-    principais = (
-      <>
-        <Button variant="primary" size="lg" className={TAP} onClick={salvar} disabled={!canSave}>{`Salvar${sufixo}`}</Button>
-        <Button variant="ghost" size="lg" className={TAP} onClick={emBranco}>{rotuloBranco}</Button>
-      </>
-    );
+    principal = <Button variant="primary" size="lg" className={classePrincipal} onClick={salvar} disabled={!canSave}><IconeCheck />{`Salvar${sufixo}`}</Button>;
+    secundarias = <Sec onClick={emBranco}>{rotuloBranco}</Sec>;
   } else {
-    principais = (
+    principal = par ? null : <Button variant="primary" size="lg" className={classePrincipal} onClick={onAvancar}>Avançar</Button>;
+    secundarias = (
       <>
-        {!par && <Button variant="primary" size="lg" className={TAP} onClick={onAvancar}>Avançar</Button>}
-        <Button variant="secondary" size="lg" className={TAP} onClick={editar}>{status === 'aceito_vazio' ? 'Preencher' : 'Editar'}</Button>
-        <Button variant="ghost" size="lg" className={TAP} onClick={desfazer}>{status === 'aceito_vazio' && temSugestao ? 'Ver sugestão' : 'Desfazer'}</Button>
+        <Sec onClick={editar}>{status === 'aceito_vazio' ? 'Preencher' : 'Editar'}</Sec>
+        <Sec onClick={desfazer}>{status === 'aceito_vazio' && temSugestao ? 'Ver sugestão' : 'Desfazer'}</Sec>
       </>
     );
   }
 
-  const corpo = editing ? (
-    <FieldEditor campo={campo} editor={editor} testId={`wizard-editor-${campo.key}`} />
-  ) : status === 'sugerido' ? (
-    <div className="space-y-3">
-      <FichaDisplay campo={campo} modo="sugerido" contexto={contexto} />
-      <Fonte campo={campo} />
-      <TextoOriginal campo={campo} />
-      <Alternativas campo={campo} onUse={usarAlternativa} />
-    </div>
-  ) : status === 'vazio' ? (
-    <div className="space-y-3">
-      <p className="text-sm text-white/60 font-sans italic">{COPY_VAZIO}</p>
-      <FieldEditor campo={campo} editor={editor} testId={`wizard-editor-${campo.key}`} />
-    </div>
-  ) : (
-    <div className="space-y-3">
-      {status !== 'aceito_vazio' && (
-        <div className="rounded-lg border border-green-500/20 p-2 sm:p-3">
-          <FichaDisplay campo={campo} modo="atual" contexto={contexto} />
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-3">
-        <StatusChip status={status} />
-        {status === 'confirmado' && campo.fonte && <span className="text-[11px] text-white/40 font-sans">Fonte: {campo.fonte}</span>}
-        {status === 'aceito_vazio' && campo.obrigatorio && (
-          <span className="text-[11px] text-prosperus-gold-light/80 font-sans">{COPY_EM_BRANCO}</span>
-        )}
-      </div>
-    </div>
-  );
-
-  const contextoCampo = <ContextoCampo campo={campo} onRecarregar={onRecarregar} compacto={par} />;
+  // (f) contexto por pergunta; a transcrição ou a nota pode virar a resposta
+  const contextoCampo = <ContextoCampo campo={campo} onRecarregar={onRecarregar} compacto={par} onUsarTexto={(t: string) => editor.startTexto(t)} />;
 
   if (par) {
     return (
       <div className="space-y-3" data-testid={`wizard-campo-${campo.key}`}>
         {corpo}
-        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">{principais}</div>
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
+          {principal}
+          {secundarias}
+        </div>
         {contextoCampo}
       </div>
     );
   }
 
+  const podePular = !editing && !feitoAtual && !campo.decidido;
   return (
-    <div className="space-y-4" data-testid={`wizard-campo-${campo.key}`}>
+    <div className="space-y-6" data-testid={`wizard-campo-${campo.key}`}>
       {corpo}
       {contextoCampo}
-      <BarraAcoes onVoltar={onVoltar} podeVoltar={podeVoltar} onPular={editing ? undefined : onAvancar} onPerguntas={onPerguntas}>{principais}</BarraAcoes>
+      <BarraAcoes
+        principal={principal}
+        secundarias={secundarias}
+        onVoltar={onVoltar}
+        podeVoltar={podeVoltar}
+        onPular={podePular ? onAvancar : undefined}
+        onPerguntas={onPerguntas}
+      />
     </div>
   );
 };
-
-/** Barra de ações fixa no rodapé (celular): principais em cima; Voltar, Perguntas e Pular embaixo. */
-const BarraAcoes: React.FC<{
-  children: React.ReactNode;
-  onVoltar?: () => void;
-  podeVoltar?: boolean;
-  onPular?: () => void;
-  onPerguntas?: () => void;
-}> = ({ children, onVoltar, podeVoltar = true, onPular, onPerguntas }) => (
-  <div className="sticky bottom-0 -mx-4 sm:-mx-6 lg:mx-0 px-4 sm:px-6 lg:px-0 pt-3 pb-3 bg-prosperus-navy-mid/95 backdrop-blur border-t border-white/10 space-y-2">
-    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">{children}</div>
-    <div className="flex items-center justify-between gap-2">
-      <Button variant="link" size="md" className="min-h-[44px]" onClick={onVoltar} disabled={!podeVoltar}>Voltar</Button>
-      {onPerguntas && (
-        <Button variant="link" size="md" className="min-h-[44px] lg:hidden" onClick={onPerguntas}>Perguntas</Button>
-      )}
-      {onPular ? <Button variant="link" size="md" className="min-h-[44px]" onClick={onPular}>Pular por agora</Button> : <span />}
-    </div>
-  </div>
-);
 
 // ── o wizard ─────────────────────────────────────────────────────────────────
 
@@ -239,6 +347,8 @@ function editavel(alvo: EventTarget | null): boolean {
   return !!el.closest('input, textarea, select, [contenteditable="true"]');
 }
 
+const CARTAO = 'bg-prosperus-navy-mid border border-white/5 rounded-lg px-5 sm:px-8 pt-6 shadow-2xl space-y-6 overflow-x-clip';
+
 export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFecharFicha, fechandoFicha = false, onRecarregar }) => {
   const { data, decide } = ficha;
   const blocos = data?.blocos || [];
@@ -249,11 +359,20 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   const [dir, setDir] = useState(1);
   const [tela, setTela] = useState<Tela>(() => (passos.length && passoInicial(passos) < 0 ? { tipo: 'fim' } : { tipo: 'passo' }));
   const [sheet, setSheet] = useState(false);
+  const [feito, setFeito] = useState<Feito | null>(null);
+  const feitoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editingRef = useRef(false);
   const sheetRef = useRef(false);
   sheetRef.current = sheet;
   const acoesRef = useRef<{ proximo: () => void; voltar: () => void }>({ proximo: () => {}, voltar: () => {} });
   const fecharSheet = useCallback(() => setSheet(false), []);
+
+  const i = Math.min(idx, Math.max(0, passos.length - 1));
+  const emPasso = tela.tipo === 'passo';
+  const blocoAtual = emPasso && passos.length ? passos[i].bloco : null;
+  const [abertos, toggleBloco] = useBlocosAbertos(blocoAtual);
+
+  useEffect(() => () => { if (feitoTimer.current) clearTimeout(feitoTimer.current); }, []);
 
   // Setas do teclado (desktop): esquerda volta, direita avança. Não mexe quando o foco está num campo de texto.
   useEffect(() => {
@@ -272,27 +391,46 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   if (!data || !passos.length) return null;
 
-  const i = Math.min(idx, passos.length - 1);
   const passo = passos[i];
   const bloco = blocos.find((b) => b.numero === passo.bloco) || blocos[0];
   const { progresso } = data;
   const isConfirmed = data.ficha_status === 'confirmada';
-  const allRequiredDone = progresso.obrigatorios_decididos >= progresso.obrigatorios;
+  const faltam = faltamParaScript(progresso);
+  const allRequiredDone = faltam === 0;
+
+  const limparFeito = () => {
+    if (feitoTimer.current) { clearTimeout(feitoTimer.current); feitoTimer.current = null; }
+    setFeito(null);
+  };
 
   const irPara = (n: number, d: number) => {
+    limparFeito();
     setDir(d);
     setIdx(Math.max(0, Math.min(n, passos.length - 1)));
     setTela({ tipo: 'passo' });
   };
 
   const avancar = () => {
+    limparFeito();
     if (i >= passos.length - 1) { setTela({ tipo: 'fim' }); return; }
     const prox = passos[i + 1];
-    if (prox.bloco !== passo.bloco) { setTela({ tipo: 'bloco', de: passo.bloco, para: prox.bloco }); return; }
+    if (prox.bloco !== passo.bloco) { setDir(1); setTela({ tipo: 'bloco', de: passo.bloco, para: prox.bloco }); return; }
     irPara(i + 1, 1);
   };
 
+  /** Confirmar / salvar: segura a linha "Confirmado" por 400 ms e só então a próxima pergunta desliza. */
+  const concluir = (f: Feito) => {
+    if (feitoTimer.current) clearTimeout(feitoTimer.current);
+    setFeito(f);
+    feitoTimer.current = setTimeout(() => {
+      feitoTimer.current = null;
+      setFeito(null);
+      avancar();
+    }, CONFIRMADO_MS);
+  };
+
   const voltar = () => {
+    limparFeito();
     if (tela.tipo !== 'passo') { setTela({ tipo: 'passo' }); return; }
     if (i > 0) irPara(i - 1, -1);
   };
@@ -300,18 +438,13 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   const continuar = () => { if (i < passos.length - 1) irPara(i + 1, 1); };
 
   const proximo = () => {
+    if (feito) return;
     if (tela.tipo === 'passo') avancar();
     else if (tela.tipo === 'bloco') continuar();
   };
   acoesRef.current = { proximo, voltar };
 
   const irParaPasso = (j: number) => irPara(j, j >= i ? 1 : -1);
-
-  const irParaBloco = (n: number) => {
-    const a = passos.findIndex((p) => p.bloco === n && pendente(p));
-    const j = a >= 0 ? a : passos.findIndex((p) => p.bloco === n);
-    if (j >= 0) irParaPasso(j);
-  };
 
   const irParaObrigatorioPendente = () => {
     const j = passos.findIndex((p) => p.campos.some((c) => c.obrigatorio && !c.decidido));
@@ -325,61 +458,69 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
       const j = (i + k) % n;
       if (pendente(passos[j])) { irPara(j, j > i ? 1 : -1); return; }
     }
+    limparFeito();
     setTela({ tipo: 'fim' });
   };
 
-  // Posicao dentro do bloco: "Campo 3 de 9" (o par conta as duas chaves)
+  // Posição dentro do bloco: "Pergunta 3 de 9" (o par conta as duas chaves)
   const camposDoBloco = bloco.campos;
   const pos = camposDoBloco.findIndex((c) => c.key === passo.campos[0].key) + 1;
-  const posLabel = passo.campos.length > 1 ? `Campos ${pos} e ${pos + 1} de ${camposDoBloco.length}` : `Campo ${pos} de ${camposDoBloco.length}`;
-  const pct = progresso.total ? Math.round((progresso.decididos / progresso.total) * 100) : 0;
+  const posLabel = passo.campos.length > 1 ? `Perguntas ${pos} e ${pos + 1} de ${camposDoBloco.length}` : `Pergunta ${pos} de ${camposDoBloco.length}`;
+  const pctBloco = bloco.total ? Math.round((bloco.decididos / bloco.total) * 100) : 0;
+  const algumRefinando = passo.campos.some((c) => campoRefinando(c as { refinando?: boolean }));
 
+  /** (a) Cabeçalho fixo: chip "Bloco 3 · Mentorado", "Pergunta 4 de 9", o filete do bloco e "faltam N para o seu script". */
   const cabecalho = (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-prosperus-gold-dark bg-prosperus-gold-dark/10 px-3 py-1 rounded-full font-sans">
-          Bloco {bloco.numero} de {blocos.length} · {bloco.nome}
-        </span>
-        <span className="text-xs text-white/50 font-sans" aria-live="polite" aria-atomic="true" data-testid="wizard-posicao">
-          {tela.tipo === 'passo' ? posLabel : ''}
-        </span>
-      </div>
-      <PilulasBlocos blocos={blocos} atual={tela.tipo === 'passo' ? passo.bloco : null} onIr={irParaBloco} />
-      {BLOCK_INTRO[bloco.numero] && <p className="text-sm text-white/60 font-serif italic">{BLOCK_INTRO[bloco.numero]}</p>}
-      <div className="space-y-1">
-        <div className="w-full bg-white/10 rounded-full h-1" role="progressbar" aria-valuemin={0} aria-valuemax={progresso.total} aria-valuenow={progresso.decididos} aria-label="Campos decididos">
-          <div className="h-full bg-gradient-to-r from-prosperus-gold-dark to-prosperus-gold-light rounded-full transition-all" style={{ width: `${pct}%` }} />
+    <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:mx-0 px-4 sm:px-6 lg:px-0 pt-2 pb-2 bg-prosperus-navy/95 backdrop-blur space-y-2" data-testid="wizard-cabecalho">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <span className="inline-flex items-center rounded-full border border-prosperus-gold-dark/40 bg-prosperus-gold-dark/10 px-2.5 py-1 text-[11px] uppercase tracking-wide text-prosperus-gold-light font-sans" data-testid="chip-bloco">
+            Bloco {bloco.numero} · {bloco.nome}
+          </span>
+          <span className="text-xs text-white/60 font-sans" aria-live="polite" aria-atomic="true" data-testid="wizard-posicao">{emPasso ? posLabel : ''}</span>
+          {emPasso && <BadgeObrigatorio campo={passo.campos[0]} />}
+          {emPasso && algumRefinando && <BadgeRefinando />}
         </div>
-        <p className="text-[11px] text-white/40 font-sans">{progresso.decididos} de {progresso.total} decididos · {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios</p>
+        <ContadorFaltam n={faltam} className="text-xs text-white/70" />
+      </div>
+      <div
+        className="w-full bg-white/10 rounded-full h-0.5"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={bloco.total}
+        aria-valuenow={bloco.decididos}
+        aria-label={`Bloco ${bloco.numero}: ${bloco.decididos} de ${bloco.total} decididos`}
+      >
+        <div className="h-full bg-gradient-to-r from-prosperus-gold-dark to-prosperus-gold-light rounded-full transition-all" style={{ width: `${pctBloco}%` }} />
       </div>
     </div>
   );
 
-  const badge = (c: ScriptFieldView) => (c.obrigatorio
-    ? <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-prosperus-gold-dark/20 text-prosperus-gold-light font-sans">obrigatório</span>
-    : <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-white/10 text-white/50 font-sans">opcional</span>);
-
   const abrirPerguntas = () => setSheet(true);
   const marcarEditing = (v: boolean) => { editingRef.current = v; };
+
+  /** (b) + (c): a pergunta em serifa grande e a linha "por que isso importa no script". */
+  const topo = (pergunta: string, campo: ScriptFieldView) => (
+    <div className="space-y-3">
+      {pos === 1 && BLOCK_INTRO[bloco.numero] && <p className="text-sm text-white/50 font-serif italic">{BLOCK_INTRO[bloco.numero]}</p>}
+      <h3 className="font-serif text-2xl sm:text-[32px] text-white leading-snug" data-testid="wizard-title">{pergunta}</h3>
+      <PorQueImporta campo={campo} />
+    </div>
+  );
 
   const renderPasso = () => {
     if (passo.campos.length === 1) {
       const c = passo.campos[0];
       return (
-        <div className="space-y-4" data-testid={`wizard-step-${c.key}`}>
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-sans text-xs text-prosperus-gold-dark font-bold">{c.key} · {c.nome}</span>
-              {badge(c)}
-              {campoRefinando(c as { refinando?: boolean }) && <BadgeRefinando />}
-            </div>
-            <h3 className="font-serif text-xl sm:text-2xl text-white leading-snug" data-testid="wizard-title">{c.pergunta}</h3>
-          </div>
+        <div className={CARTAO} data-testid={`wizard-step-${c.key}`}>
+          {topo(c.pergunta, c)}
           <CampoPasso
             key={c.key}
             campo={c}
             contexto={contexto}
             decide={decide}
+            feito={feito}
+            onConcluir={concluir}
             onAvancar={avancar}
             onVoltar={voltar}
             podeVoltar={i > 0}
@@ -391,61 +532,71 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
       );
     }
     const sugeridos = passo.campos.filter((c) => statusDaTela(c) === 'sugerido');
-    const confirmarTodos = () => { sugeridos.forEach((c) => decide(c.key, { status: 'confirmado' })); avancar(); };
-    const algumRefinando = passo.campos.some((c) => campoRefinando(c as { refinando?: boolean }));
+    const confirmarTodos = () => {
+      sugeridos.forEach((c) => decide(c.key, { status: 'confirmado' }));
+      concluir({ status: 'confirmado', texto: sugeridos.map((c) => resumo(textoDoModo(c, 'sugerido'), 48)).join(' · ') });
+    };
+    const principal = feito
+      ? <PrincipalFeito feito={feito} />
+      : sugeridos.length > 0
+      ? <Button variant="primary" size="lg" className={PRIMARIO} onClick={confirmarTodos}><IconeCheck />{sugeridos.length === 2 ? 'Confirmar os dois e avançar' : 'Confirmar e avançar'}</Button>
+      : <Button variant="primary" size="lg" className={PRIMARIO} onClick={avancar}>Avançar</Button>;
     return (
-      <div className="space-y-4" data-testid={`wizard-step-${passo.id}`}>
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-sans text-xs text-prosperus-gold-dark font-bold">{passo.campos.map((c) => c.key).join(' e ')}</span>
-            {badge(passo.campos[0])}
-            {algumRefinando && <BadgeRefinando />}
+      <div className={CARTAO} data-testid={`wizard-step-${passo.id}`}>
+        {topo('Daqui a 1 ano: sem resolver e resolvido', passo.campos[0])}
+        {feito ? <ResumoConfirmado feito={feito} /> : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {passo.campos.map((c, k) => (
+              <div key={c.key} className={`min-w-0 space-y-3 border-l-2 pl-4 ${k === 1 ? 'border-prosperus-gold-dark/60' : 'border-white/15'}`} data-testid={`janela-${c.key}`}>
+                <span className={`block text-[11px] uppercase tracking-wide font-sans ${k === 1 ? 'text-prosperus-gold-light' : 'text-white/60'}`}>{c.template?.rotulo || c.nome}</span>
+                <p className="text-sm text-white/70 font-sans">{c.pergunta}</p>
+                <CampoPasso key={c.key} campo={c} contexto={contexto} decide={decide} par onRecarregar={onRecarregar} onEditingChange={marcarEditing} />
+              </div>
+            ))}
           </div>
-          <h3 className="font-serif text-xl sm:text-2xl text-white leading-snug" data-testid="wizard-title">Daqui a 1 ano: sem resolver e resolvido</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {passo.campos.map((c) => (
-            <div key={c.key} className="rounded-lg border border-prosperus-gold-dark/25 bg-prosperus-gold-dark/[0.03] p-3 space-y-2 min-w-0">
-              <span className="block text-[11px] uppercase tracking-wide text-prosperus-gold-light font-sans">{c.template?.rotulo || c.nome}</span>
-              <p className="text-sm text-white/70 font-sans">{c.pergunta}</p>
-              <CampoPasso key={c.key} campo={c} contexto={contexto} decide={decide} par onRecarregar={onRecarregar} onEditingChange={marcarEditing} />
-            </div>
-          ))}
-        </div>
-        <BarraAcoes onVoltar={voltar} podeVoltar={i > 0} onPular={avancar} onPerguntas={abrirPerguntas}>
-          {sugeridos.length > 0
-            ? <Button variant="primary" size="lg" className={TAP} onClick={confirmarTodos}>{sugeridos.length === 2 ? 'Confirmar os dois e avançar' : 'Confirmar e avançar'}</Button>
-            : <Button variant="primary" size="lg" className={TAP} onClick={avancar}>Avançar</Button>}
-        </BarraAcoes>
+        )}
+        <BarraAcoes principal={principal} onVoltar={voltar} podeVoltar={i > 0} onPular={feito ? undefined : avancar} onPerguntas={abrirPerguntas} />
       </div>
     );
   };
 
-  /** Fechamento de bloco: papel creme, sóbrio. Nome, "x de y decididos", prévia do script, um fio dourado, o próximo bloco. */
+  /**
+   * Fechamento de bloco: papel creme, sóbrio, sem confete. "Bloco Mentor fechado. O Passo 1 já tem a sua voz.",
+   * o passo rascunhado linha a linha (selo "rascunho v0"), um fio dourado e o próximo bloco. O mapa dos blocos
+   * fica só no navegador.
+   */
   const renderBloco = (t: Extract<Tela, { tipo: 'bloco' }>) => {
     const de = blocos.find((b) => b.numero === t.de);
     const para = blocos.find((b) => b.numero === t.para);
     if (!de || !para) return null;
     const faltamObrig = de.obrigatorios - de.obrigatorios_decididos;
-    const previa = PREVIA_SCRIPT[de.numero];
+    const passosRevelados = passosDoBloco(de.numero);
+    const titulo = de.fechado ? `Bloco ${de.nome} fechado. ${fraseDosPassos(de.numero)}` : `Bloco ${de.nome}: por enquanto é isso.`;
     return (
-      <div className="rounded-lg bg-prosperus-neutral-white text-prosperus-navy p-5 sm:p-8 space-y-5" data-testid="wizard-interstitial">
+      <div className="rounded-lg bg-prosperus-neutral-white text-prosperus-navy px-5 sm:px-8 py-6 sm:py-8 space-y-6" data-testid="wizard-interstitial">
         <div className="space-y-1">
           <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Bloco {de.numero} · {de.nome}</p>
-          <h3 className="font-serif text-2xl sm:text-3xl text-prosperus-navy leading-tight">
-            {de.fechado ? `Bloco ${de.nome} fechado.` : `Bloco ${de.nome}: por enquanto é isso.`}
-          </h3>
+          <h3 className="font-serif text-2xl sm:text-3xl text-prosperus-navy leading-tight">{titulo}</h3>
           <p className="text-sm text-prosperus-navy/70 font-sans">
             {de.decididos} de {de.total} decididos
             {faltamObrig > 0 ? ` · ${faltamObrig} obrigatórios em aberto, dá para voltar quando quiser` : ''}
           </p>
         </div>
-        {previa && (
-          <p className="text-sm text-prosperus-navy/85 font-serif italic leading-relaxed" data-testid="wizard-previa">
-            <span className="not-italic font-sans text-[11px] uppercase tracking-widest text-prosperus-gold-dark mr-2">Prévia do seu script</span>
-            {previa}
-          </p>
-        )}
+
+        <div className="space-y-3" data-testid="wizard-previa">
+          <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Prévia do seu script</p>
+          {de.numero === META_SCRIPT.bloco ? (
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest text-prosperus-navy/50 font-sans">No alto do script</p>
+              <PreviaMeta contexto={contexto} />
+              {!de.decididos && <p className="text-sm text-prosperus-navy/60 font-sans">A meta entra no alto do script quando você decidir a oferta e a cadência.</p>}
+            </div>
+          ) : (
+            passosRevelados.map((p) => <PreviaPasso key={p.n} passo={p} contexto={contexto} fechado={de.fechado} />)
+          )}
+          {PREVIA_SCRIPT[de.numero] && <p className="text-sm text-prosperus-navy/60 font-serif italic">{PREVIA_SCRIPT[de.numero]}</p>}
+        </div>
+
         <hr className="border-0 h-px bg-prosperus-gold-dark" aria-hidden="true" />
         <div className="space-y-1">
           <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Próximo</p>
@@ -454,25 +605,25 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           <p className="text-xs text-prosperus-navy/50 font-sans">{para.total} campos · {para.obrigatorios} obrigatórios</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
-          <Button variant="primary" size="lg" className={TAP} onClick={continuar}>Continuar</Button>
-          <Button variant="outline" size="lg" className={`${TAP} !border-prosperus-navy/30 !text-prosperus-navy hover:!bg-prosperus-navy/5`} onClick={voltar}>Voltar</Button>
+          <Button variant="primary" size="lg" className="min-h-[48px] w-full sm:w-auto sm:min-w-[220px]" onClick={continuar}>Continuar</Button>
+          <Button variant="link" size="lg" className="min-h-[44px] !text-prosperus-navy/70 hover:!text-prosperus-navy" onClick={voltar}>Voltar</Button>
         </div>
       </div>
     );
   };
 
-  /** Fim da ficha: quantos campos faltam para o script e o mapa dos blocos. */
+  /** Fim da ficha: quantos campos faltam para o script e um único link "Ver o que falta"; o mapa fica no navegador. */
   const renderFim = () => {
-    const faltamObrig = progresso.obrigatorios - progresso.obrigatorios_decididos;
+    const faltamObrig = faltam;
     const faltamTotal = progresso.total - progresso.decididos;
     const titulo = faltamObrig > 0
       ? (faltamObrig === 1 ? 'Falta 1 campo para o seu script' : `Faltam ${faltamObrig} campos para o seu script`)
-      : faltamTotal > 0 ? 'Os obrigatórios estão decididos' : 'Você decidiu tudo';
+      : COPY_SCRIPT_PRONTO;
     return (
-      <div className="space-y-5 py-2" data-testid="wizard-fim">
-        <div className="text-center space-y-1">
+      <div className={`${CARTAO} pb-6 text-center`} data-testid="wizard-fim">
+        <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Fim da ficha</p>
-          <h3 className="font-serif text-2xl sm:text-3xl text-white" data-testid="wizard-faltam">{titulo}</h3>
+          <h3 className="font-serif text-2xl sm:text-3xl text-white leading-snug" data-testid="wizard-faltam">{titulo}</h3>
           <p className="text-sm text-white/70 font-sans">
             {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios decididos
             <span className="text-white/40"> · {progresso.decididos} de {progresso.total} no total</span>
@@ -482,36 +633,30 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           )}
           {isConfirmed && <p className="text-xs text-green-400 font-sans">Ficha fechada. Se editar algum campo, ela reabre e o script é refeito.</p>}
         </div>
-        <MapaBlocos blocos={blocos} onIr={irParaBloco} />
-        <div className="flex flex-col sm:flex-row sm:justify-center gap-2">
-          {faltamObrig > 0 && <Button variant="secondary" size="lg" className={TAP} onClick={irParaObrigatorioPendente}>Ver o que falta</Button>}
+        <div className="flex flex-col items-center gap-1">
           {allRequiredDone && onFecharFicha && (
-            <Button variant="primary" size="lg" className={TAP} onClick={onFecharFicha} disabled={isConfirmed} loading={fechandoFicha}>
-              {isConfirmed ? 'Ficha fechada' : 'Fechar ficha'}
+            <Button variant="primary" size="lg" className={PRIMARIO} onClick={onFecharFicha} disabled={isConfirmed} loading={fechandoFicha}>
+              <IconeCheck />{isConfirmed ? 'Ficha fechada' : 'Fechar ficha'}
             </Button>
           )}
-          <Button variant="ghost" size="lg" className={TAP} onClick={voltar}>Voltar</Button>
+          <div className="flex flex-wrap items-center justify-center gap-x-1">
+            {faltamObrig > 0 && <Sec onClick={irParaObrigatorioPendente}>Ver o que falta</Sec>}
+            <Sec onClick={voltar}>Voltar</Sec>
+            <Sec className="lg:hidden" onClick={abrirPerguntas}>Perguntas</Sec>
+          </div>
         </div>
       </div>
     );
   };
 
   const chave = tela.tipo === 'passo' ? passo.id : tela.tipo === 'bloco' ? `bloco-${tela.de}-${tela.para}` : 'fim';
-  const emPasso = tela.tipo === 'passo';
+  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso };
 
   return (
-    <div className="bg-prosperus-navy-mid border border-white/5 rounded-lg p-4 sm:p-6 shadow-2xl overflow-x-clip" data-testid="ficha-wizard">
-      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
-        <NavegadorLateral
-          blocos={blocos}
-          passos={passos}
-          atual={emPasso ? i : -1}
-          blocoAtual={emPasso ? passo.bloco : null}
-          onIr={irParaPasso}
-          onIrBloco={irParaBloco}
-          onProximaPendente={proximaPendente}
-        />
-        <div className="space-y-5 min-w-0">
+    <div className="ficha-scroll" data-testid="ficha-wizard">
+      <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6 lg:items-start">
+        <NavegadorLateral {...nav} onProximaPendente={proximaPendente} />
+        <div className="w-full max-w-[720px] mx-auto min-w-0 space-y-4">
           {cabecalho}
           <AnimatePresence mode="wait" custom={dir} initial={false}>
             <motion.div
@@ -521,22 +666,14 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ duration: emPasso ? 0.2 : 0.3, ease: 'easeInOut' }}
+              transition={{ duration: emPasso ? SLIDE_S : 0.3, ease: 'easeInOut' }}
             >
               {tela.tipo === 'passo' ? renderPasso() : tela.tipo === 'bloco' ? renderBloco(tela) : renderFim()}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
-      <NavegadorSheet
-        aberto={sheet}
-        onFechar={fecharSheet}
-        bloco={bloco}
-        totalBlocos={blocos.length}
-        passos={passos}
-        atual={emPasso ? i : -1}
-        onIr={irParaPasso}
-      />
+      <NavegadorSheet {...nav} aberto={sheet} onFechar={fecharSheet} />
     </div>
   );
 };

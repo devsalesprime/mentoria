@@ -4,7 +4,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import type { ScriptFieldView } from '../../../data/script-ficha-fields';
-import { buildContext, resolveWidget, type Estrutura } from './index';
+import { buildContext, resolveWidget, type Estrutura, type ParseContext, type ResolvedWidget } from './index';
 import { DISPLAYS, TextoBruto } from './display';
 
 export type DisplayModo = 'sugerido' | 'atual';
@@ -16,18 +16,19 @@ export function textoDoModo(campo: ScriptFieldView, modo: DisplayModo): string {
   return modo === 'sugerido' ? campo.sugerido || '' : campo.valor_efetivo || campo.valor || campo.sugerido || '';
 }
 
-interface FichaDisplayProps {
-  campo: ScriptFieldView;
-  modo?: DisplayModo;
-  contexto?: Record<string, ScriptFieldView>;
-  className?: string;
+export interface EstruturaResolvida {
+  widget: ResolvedWidget | null;
+  ctx: ParseContext;
+  texto: string;
+  estrutura: Estrutura | null;
+  bruto: boolean;
 }
 
-export const FichaDisplay: React.FC<FichaDisplayProps> = ({ campo, modo = 'sugerido', contexto, className = '' }) => {
+/** Widget, contexto e estrutura (salva ou parseada do texto) de um campo, no modo pedido. */
+export function useEstruturaResolvida(campo: ScriptFieldView, modo: DisplayModo, contexto?: Record<string, ScriptFieldView>): EstruturaResolvida {
   const widget = useMemo(() => resolveWidget(campo), [campo.widget, campo.template]);
   const ctx = useMemo(() => buildContext(campo, contexto), [campo, contexto]);
   const texto = textoDoModo(campo, modo);
-
   const resolvido = useMemo<{ estrutura: Estrutura | null; bruto: boolean }>(() => {
     if (!widget) return { estrutura: null, bruto: false };
     if (modo === 'atual' && campo.status === 'editado' && campo.estrutura && typeof campo.estrutura === 'object' && !Array.isArray(campo.estrutura)) {
@@ -38,13 +39,25 @@ export const FichaDisplay: React.FC<FichaDisplayProps> = ({ campo, modo = 'suger
     const vazio = !widget.render(r.estrutura);
     return { estrutura: vazio ? null : r.estrutura, bruto: r.bruto };
   }, [widget, ctx, texto, modo, campo.status, campo.estrutura]);
+  return { widget, ctx, texto, ...resolvido };
+}
+
+interface FichaDisplayProps {
+  campo: ScriptFieldView;
+  modo?: DisplayModo;
+  contexto?: Record<string, ScriptFieldView>;
+  className?: string;
+}
+
+export const FichaDisplay: React.FC<FichaDisplayProps> = ({ campo, modo = 'sugerido', contexto, className = '' }) => {
+  const { widget, ctx, texto, estrutura, bruto } = useEstruturaResolvida(campo, modo, contexto);
 
   if (!texto.trim()) return null;
 
-  if (!widget || !resolvido.estrutura || resolvido.bruto) {
+  if (!widget || !estrutura || bruto) {
     return (
       <div className={className}>
-        <TextoBruto texto={texto} tipo={campo.tipo} nota={widget && resolvido.bruto ? NOTA_TEXTO_CORRIDO : undefined} testId={`display-bruto-${campo.key}`} />
+        <TextoBruto texto={texto} tipo={campo.tipo} nota={widget && bruto ? NOTA_TEXTO_CORRIDO : undefined} testId={`display-bruto-${campo.key}`} />
       </div>
     );
   }
@@ -52,7 +65,7 @@ export const FichaDisplay: React.FC<FichaDisplayProps> = ({ campo, modo = 'suger
   const Display = DISPLAYS[widget.type];
   return (
     <div className={className} data-testid={`display-${campo.key}`}>
-      <Display campo={campo} template={widget.template} value={resolvido.estrutura} ctx={ctx} />
+      <Display campo={campo} template={widget.template} value={estrutura} ctx={ctx} />
     </div>
   );
 };
@@ -76,10 +89,14 @@ export const TextoOriginal: React.FC<{ campo: ScriptFieldView }> = ({ campo }) =
   );
 };
 
-/** Linha "Fonte: …" com a marca de derivado. */
+/** Fonte sem colchetes nem espaços dobrados. */
+export function fonteLimpa(fonte: string | null | undefined): string {
+  return (fonte || '').replace(/[\[\]]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** Linha "Fonte: …" discreta: cinza, sem negrito, sem colchetes; "derivado" quando a classe é DER. */
 export const Fonte: React.FC<{ campo: ScriptFieldView; className?: string }> = ({ campo, className = '' }) => (
-  <p className={`text-xs text-white/50 font-sans ${className}`}>
-    Fonte: {campo.fonte || 'não informada'}
-    {campo.classe === 'DER' && <span className="ml-2 px-1.5 py-0.5 rounded bg-white/10 text-white/60">derivado</span>}
-  </p>
+  <span className={`text-xs text-white/45 font-sans font-normal ${className}`} data-testid={`fonte-${campo.key}`}>
+    Fonte: {fonteLimpa(campo.fonte) || 'não informada'}{campo.classe === 'DER' ? ' · derivado' : ''}
+  </span>
 );

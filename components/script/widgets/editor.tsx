@@ -1,7 +1,7 @@
 /**
  * Editor de um campo da ficha: estado (estrutura do widget ou rascunho de texto), abertura a partir
- * da sugestão / do valor atual / em branco, e a decisão pronta para o `decide` do hook.
- * Usado pelo FichaField (cartão) e pelo FichaWizard (passo a passo).
+ * da sugestão / do valor atual / em branco / de um texto (transcrição de áudio), e a decisão pronta
+ * para o `decide` do hook. Usado pelo FichaField (cartão) e pelo FichaWizard (passo a passo).
  */
 import React, { useMemo, useState } from 'react';
 import type { ScriptFieldView } from '../../../data/script-ficha-fields';
@@ -24,6 +24,8 @@ export interface FieldEditorState {
   setEstrutura: (e: Estrutura) => void;
   /** Abre o editor. 'sugerido' = parte da sugestão; 'atual' = do valor decidido (estrutura salva, se houver); 'vazio' = em branco. */
   start: (mode: EditMode) => void;
+  /** Abre o editor a partir de um texto (ex.: "Usar como resposta" da transcrição do áudio). */
+  startTexto: (texto: string) => void;
   reset: () => void;
   /** Decisão 'editado' com valor (e estrutura, quando há widget); null quando não há o que salvar. */
   decision: () => FieldDecision | null;
@@ -40,7 +42,7 @@ export function useFieldEditor(campo: ScriptFieldView, contexto?: Record<string,
 
   const est: Estrutura | null = widget ? (estrutura ?? widget.vazio(ctx)) : null;
   const rendered = widget && est ? widget.render(est) : draft.trim();
-  const canSave = rendered.length > 0;
+  const canSave = widget && est ? widget.valido(est) : rendered.length > 0;
 
   const reset = () => {
     setEditing(false);
@@ -49,13 +51,9 @@ export function useFieldEditor(campo: ScriptFieldView, contexto?: Record<string,
     setBruto(false);
   };
 
-  const start = (mode: EditMode) => {
-    const text = mode === 'vazio' ? '' : mode === 'sugerido' ? campo.sugerido : (campo.valor || campo.sugerido || '');
+  const abrirCom = (text: string) => {
     if (widget) {
-      if (mode === 'atual' && campo.status === 'editado' && campo.estrutura && typeof campo.estrutura === 'object') {
-        setEstruturaState(campo.estrutura);
-        setBruto(false);
-      } else if (!text.trim()) {
+      if (!text.trim()) {
         setEstruturaState(widget.vazio(ctx));
         setBruto(false);
       } else {
@@ -69,6 +67,19 @@ export function useFieldEditor(campo: ScriptFieldView, contexto?: Record<string,
     setEditing(true);
   };
 
+  const start = (mode: EditMode) => {
+    const text = mode === 'vazio' ? '' : mode === 'sugerido' ? campo.sugerido : (campo.valor || campo.sugerido || '');
+    if (widget && mode === 'atual' && campo.status === 'editado' && campo.estrutura && typeof campo.estrutura === 'object') {
+      setEstruturaState(campo.estrutura);
+      setBruto(false);
+      setEditing(true);
+      return;
+    }
+    abrirCom(text);
+  };
+
+  const startTexto = (texto: string) => abrirCom(texto || '');
+
   const decision = (): FieldDecision | null => {
     if (!canSave) return null;
     if (widget && est) return { status: 'editado', valor: rendered, estrutura: est };
@@ -79,7 +90,7 @@ export function useFieldEditor(campo: ScriptFieldView, contexto?: Record<string,
     widget, ctx, editing, bruto, est, draft, canSave,
     setDraft,
     setEstrutura: (e) => { setEstruturaState(e); setBruto(false); },
-    start, reset, decision,
+    start, startTexto, reset, decision,
   };
 }
 

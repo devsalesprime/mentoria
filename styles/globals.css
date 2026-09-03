@@ -50,3 +50,323 @@ body {
 @utility border-gold-gradient {
   border-image: linear-gradient(to right, #FFE39B, #CA9A43) 1;
 }
+
+/* ── Ficha do Script: barra de rolagem discreta (6 px, trilho transparente, polegar dourado) ── */
+.ficha-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(184, 147, 63, 0.35) transparent;
+}
+.ficha-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.ficha-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ficha-scroll::-webkit-scrollbar-thumb {
+  background: rgba(184, 147, 63, 0.35);
+  border-radius: 8px;
+}
+
+/* ── Script dos 7 passos: folha de leitura (.script-*) e impressao ─────── */
+.script-paper {
+  background-color: #FCF7F0;
+  color: #080808;
+}
+.script-rule {
+  height: 2px;
+  background: linear-gradient(90deg, #CA9A43 0%, #FFE39B 55%, rgba(255, 227, 155, 0) 100%);
+}
+.script-medalha {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #FFE39B 0%, #CA9A43 100%);
+  color: #0A2540;
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(10, 37, 64, 0.18);
+}
+.script-nota-rotulo {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: rgba(10, 37, 64, 0.62);
+  margin-bottom: 0.3rem;
+}
+.script-objetivo {
+  padding-left: 0.9rem;
+  border-left: 3px solid #CA9A43;
+}
+.script-fala {
+  background: #FFFDF8;
+  border: 1px solid rgba(202, 154, 67, 0.35);
+  border-left: 4px solid #CA9A43;
+  border-radius: 0.75rem;
+  padding: 0.9rem 1.1rem;
+}
+.script-fala-texto {
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  line-height: 1.55;
+  color: #0A2540;
+  quotes: "\201C" "\201D";
+}
+.script-fala-texto::before { content: open-quote; color: #CA9A43; }
+.script-fala-texto::after { content: close-quote; color: #CA9A43; }
+@media (min-width: 640px) {
+  .script-fala-texto { font-size: 1.3rem; }
+}
+.script-fala-direcao {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  font-style: italic;
+  color: rgba(10, 37, 64, 0.72);
+}
+.script-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.15rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid rgba(202, 154, 67, 0.5);
+  border-radius: 0.35rem;
+  background: rgba(202, 154, 67, 0.16);
+  color: #0A2540;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.script-tag-acionar {
+  background: #0A2540;
+  border-color: #0A2540;
+  color: #FFE39B;
+}
+.script-copiar {
+  flex: none;
+  min-height: 28px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgba(10, 37, 64, 0.25);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: rgba(10, 37, 64, 0.75);
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.script-copiar:hover { background: #0A2540; color: #FCF7F0; }
+.script-copiar-claro { border-color: rgba(255, 227, 155, 0.5); color: #FFE39B; }
+.script-copiar-claro:hover { background: #FFE39B; color: #0A2540; }
+.script-check {
+  display: inline-block;
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0.2rem 0.6rem 0 0;
+  border: 1.5px solid rgba(10, 37, 64, 0.45);
+  border-radius: 0.2rem;
+}
+.script-bolinha {
+  display: inline-block;
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin: 0.55rem 0.6rem 0 0;
+  border-radius: 9999px;
+  background: #CA9A43;
+}
+.script-num {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin: 0.1rem 0.6rem 0 0;
+  border-radius: 9999px;
+  background: rgba(10, 37, 64, 0.08);
+  color: #0A2540;
+  font-family: var(--font-serif);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.script-como-usar {
+  padding: 0.9rem 1.1rem;
+  border: 1px dashed rgba(202, 154, 67, 0.6);
+  border-radius: 0.75rem;
+  font-size: 0.92rem;
+}
+.script-checklist { padding: 0.25rem 0; }
+.script-nota {
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(10, 37, 64, 0.1);
+  border-radius: 0.75rem;
+  background: rgba(10, 37, 64, 0.045);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.script-nota-observar { background: rgba(18, 63, 91, 0.07); }
+.script-nota-erro {
+  background: rgba(202, 154, 67, 0.13);
+  border-color: rgba(202, 154, 67, 0.45);
+}
+.script-nota-proximo {
+  background: #0A2540;
+  border-color: #0A2540;
+  color: #FCF7F0;
+}
+.script-nota-proximo .script-nota-rotulo { color: #FFE39B; }
+.script-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.script-table th {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 2px solid #CA9A43;
+  text-align: left;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #0A2540;
+}
+.script-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid rgba(10, 37, 64, 0.12);
+  vertical-align: top;
+}
+.script-table td:first-child {
+  width: 3rem;
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  color: #CA9A43;
+}
+.script-cartao {
+  padding: 1.25rem 1.4rem;
+  border: 1px solid #CA9A43;
+  border-radius: 1rem;
+  background: #0A2540;
+  color: #FCF7F0;
+}
+.script-cartao-corpo h3 {
+  margin: 0.9rem 0 0.35rem;
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  color: #FFE39B;
+}
+.script-cartao-corpo ol, .script-cartao-corpo ul { padding-left: 1.25rem; }
+.script-cartao-corpo ol { list-style: decimal; }
+.script-cartao-corpo ul { list-style: disc; }
+.script-cartao-corpo li {
+  margin: 0.2rem 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.script-md { font-size: 0.95rem; line-height: 1.6; color: #080808; }
+.script-md h1, .script-md h2, .script-md h3 {
+  font-family: var(--font-serif);
+  color: #0A2540;
+  margin: 1rem 0 0.4rem;
+}
+.script-md h1 { font-size: 1.6rem; }
+.script-md h2 { font-size: 1.35rem; }
+.script-md h3 { font-size: 1.15rem; }
+.script-md p { margin: 0.5rem 0; }
+.script-md ul { list-style: disc; padding-left: 1.25rem; }
+.script-md ol { list-style: decimal; padding-left: 1.25rem; }
+.script-md li { margin: 0.25rem 0; }
+.script-md strong { color: #0A2540; }
+.script-md blockquote {
+  padding-left: 0.8rem;
+  border-left: 3px solid #CA9A43;
+  font-style: italic;
+  color: rgba(10, 37, 64, 0.8);
+}
+.script-md table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.script-md th { text-align: left; border-bottom: 1px solid rgba(10, 37, 64, 0.25); padding: 0.4rem 0.5rem; }
+.script-md td { border-bottom: 1px solid rgba(10, 37, 64, 0.1); padding: 0.4rem 0.5rem; vertical-align: top; }
+.script-comentarios-titulo {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 0.85rem;
+  border: 1px solid rgba(10, 37, 64, 0.2);
+  border-radius: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(10, 37, 64, 0.75);
+}
+.script-comentarios-titulo::-webkit-details-marker { display: none; }
+.script-comentarios[open] .script-comentarios-titulo { background: rgba(10, 37, 64, 0.06); }
+
+@media print {
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  html, body { background: #fff !important; color: #111 !important; }
+  body * { visibility: hidden; }
+  #script-print-root, #script-print-root * { visibility: visible; }
+  #script-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #fff !important;
+    color: #111;
+  }
+  .script-no-print { display: none !important; }
+  .script-doc { display: block !important; }
+  .script-doc-titulo { break-before: page; page-break-before: always; }
+  .script-passo { break-before: page; page-break-before: always; }
+  .script-fala, .script-nota, .script-cartao, .script-como-usar, .script-mapa table { break-inside: avoid; page-break-inside: avoid; }
+  .script-h1, .script-h2, .script-h3, .script-doc-titulo h2 {
+    font-family: "EB Garamond", Georgia, serif;
+    color: #0A2540;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .script-paper { background: #fff !important; }
+  .script-fala { background: #fff; border-color: #bbb; border-left-color: #CA9A43; }
+  .script-fala-texto { color: #111; font-size: 12.5pt; }
+  .script-nota { background: #fff; border-color: #bbb; }
+  .script-nota-erro { border-color: #CA9A43; }
+  .script-nota-proximo { background: #fff; border: 1.5px solid #0A2540; color: #111; }
+  .script-nota-proximo .script-nota-rotulo { color: #0A2540; }
+  .script-cartao { background: #fff; color: #111; border: 1.5px solid #0A2540; }
+  .script-cartao h2, .script-cartao-corpo h3 { color: #0A2540; }
+  .script-medalha { background: #fff; border: 1.5px solid #CA9A43; color: #0A2540; box-shadow: none; }
+  .script-tag { background: #fff; border-color: #999; color: #111; }
+  .script-tag-acionar { border-color: #0A2540; color: #0A2540; }
+  .script-rule { background: #CA9A43; }
+  #script-print-root a { color: #0A2540; text-decoration: none; }
+}
+.ficha-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(184, 147, 63, 0.6);
+}
+.ficha-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}

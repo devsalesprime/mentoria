@@ -99,6 +99,32 @@ describe('ContextoCampo', () => {
     expect(screen.getByText('Adicionar contexto · 2')).toBeInTheDocument();
   });
 
+  it('"Usar como resposta": a nota escrita vai para o campo sem virar contexto; a transcrição de um áudio da lista também', async () => {
+    api.get.mockResolvedValue({ data: { items: [item({ id: 'a1', tipo: 'audio', transcricao: 'Sou a Paloma e ajudo indústrias familiares.' }), item({ id: 'l1', tipo: 'link', url: 'https://ex.com' })] } });
+    const onUsarTexto = vi.fn();
+    render(<ContextoCampo campo={campo({ contexto_count: 2 })} onUsarTexto={onUsarTexto} />);
+    await waitFor(() => expect(screen.getByTestId('contexto-itens-2.1')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
+    const painel = () => within(screen.getByTestId('contexto-painel-nota'));
+    expect(painel().getByRole('button', { name: 'Usar como resposta' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Nota'), { target: { value: 'Vendo só por indicação.' } });
+    fireEvent.click(painel().getByRole('button', { name: 'Usar como resposta' }));
+    expect(onUsarTexto).toHaveBeenCalledWith('Vendo só por indicação.');
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('contexto-painel-nota')).not.toBeInTheDocument();
+    // na lista: só o áudio com transcrição oferece o atalho (o link não)
+    const a = screen.getByTestId('contexto-item-a1');
+    fireEvent.click(within(a).getByRole('button', { name: 'Usar como resposta' }));
+    expect(onUsarTexto).toHaveBeenLastCalledWith('Sou a Paloma e ajudo indústrias familiares.');
+    expect(within(screen.getByTestId('contexto-item-l1')).queryByRole('button', { name: 'Usar como resposta' })).not.toBeInTheDocument();
+  });
+
+  it('sem onUsarTexto o atalho não aparece', () => {
+    render(<ContextoCampo campo={campo()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.queryByRole('button', { name: 'Usar como resposta' })).not.toBeInTheDocument();
+  });
+
   it('sem contexto: não busca a lista ao montar, mostra as 5 ações e esconde "Pedir sugestão"', () => {
     render(<ContextoCampo campo={campo()} />);
     expect(api.get).not.toHaveBeenCalled();

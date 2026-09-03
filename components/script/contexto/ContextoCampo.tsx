@@ -156,9 +156,18 @@ export interface ContextoCampoProps {
   onRecarregar?: () => Promise<void> | void;
   /** Versão mais apertada (colunas do par antes × depois). */
   compacto?: boolean;
+  /** Usa uma transcrição de áudio ou uma nota como a resposta do campo (abre o editor com o texto). */
+  onUsarTexto?: (texto: string) => void;
 }
 
-export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarregar, compacto = false }) => {
+/** Texto do item que pode virar resposta: a transcrição do áudio ou o texto da nota. */
+export function textoParaResposta(item: ContextoItem): string {
+  if (item.tipo === 'audio') return (item.transcricao || '').trim();
+  if (item.tipo === 'nota') return (item.texto || '').trim();
+  return '';
+}
+
+export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarregar, compacto = false, onUsarTexto }) => {
   const ctx = useContextoCampo(campo, { onRecarregar });
   const [acao, setAcao] = useState<ContextoTipo | null>(null);
   const [ultimoAudio, setUltimoAudio] = useState<ContextoItem | null>(null);
@@ -232,7 +241,12 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
                 {ultimoAudio.transcricao?.trim() || 'Áudio enviado. A transcrição aparece em instantes.'}
               </div>
               <p className="text-[11px] text-white/50 font-sans">A IA vai usar isto. Gravou errado? Exclua o item embaixo e grave de novo.</p>
-              <Button variant="ghost" size="sm" className={TAP} onClick={() => { setUltimoAudio(null); setAcao(null); }}>Pronto</Button>
+              <div className="flex flex-wrap gap-2">
+                {onUsarTexto && !!ultimoAudio.transcricao?.trim() && (
+                  <Button variant="secondary" size="sm" className={TAP} onClick={() => { onUsarTexto(ultimoAudio.transcricao!.trim()); setUltimoAudio(null); setAcao(null); }}>Usar como resposta</Button>
+                )}
+                <Button variant="ghost" size="sm" className={TAP} onClick={() => { setUltimoAudio(null); setAcao(null); }}>Pronto</Button>
+              </div>
             </div>
           )}
         </div>
@@ -296,6 +310,9 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} placeholder="Escreva o que a IA precisa saber sobre esta pergunta" aria-label="Nota" className={`${INPUT} resize-y`} />
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" size="md" className={TAP} onClick={() => enviar({ tipo: 'nota', texto })} disabled={!texto.trim() || ctx.enviando} loading={ctx.enviando}>Salvar nota</Button>
+            {onUsarTexto && (
+              <Button variant="secondary" size="md" className={TAP} onClick={() => { onUsarTexto(texto.trim()); limparForm(); setAcao(null); }} disabled={!texto.trim() || ctx.enviando}>Usar como resposta</Button>
+            )}
             <Button variant="ghost" size="md" className={TAP} onClick={() => setAcao(null)}>Cancelar</Button>
           </div>
         </div>
@@ -305,7 +322,7 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
   };
 
   return (
-    <div className={`rounded-lg border border-white/10 bg-white/[0.02] ${compacto ? 'p-2.5' : 'p-3'} space-y-3`} data-testid={`contexto-${campo.key}`}>
+    <div className={`border-t border-white/10 ${compacto ? 'pt-3' : 'pt-4'} space-y-3`} data-testid={`contexto-${campo.key}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] uppercase tracking-wide text-white/50 font-sans">
           Adicionar contexto{ctx.total > 0 ? ` · ${ctx.total}` : ''}
@@ -367,6 +384,15 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
                     {TIPO_ROTULO[item.tipo] || 'Contexto'} · {nome}
                     {item.tipo === 'audio' && !item.transcricao?.trim() ? ' · transcrição a caminho' : ''}
                   </p>
+                  {onUsarTexto && !!textoParaResposta(item) && (
+                    <button
+                      type="button"
+                      onClick={() => onUsarTexto(textoParaResposta(item))}
+                      className="min-h-[44px] -mb-2 text-[11px] text-prosperus-gold-light/90 hover:text-prosperus-gold-light font-sans underline-offset-2 hover:underline"
+                    >
+                      Usar como resposta
+                    </button>
+                  )}
                 </div>
                 {meu && (
                   <button

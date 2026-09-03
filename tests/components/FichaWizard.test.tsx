@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 vi.mock('framer-motion', () => ({
   motion: new Proxy({}, {
@@ -14,7 +14,8 @@ vi.mock('framer-motion', () => ({
 
 vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { items: [] } }), post: vi.fn(), delete: vi.fn() } }));
 
-import { FichaWizard, montarPassos, passoInicial } from '../../components/script/FichaWizard';
+import { CONFIRMADO_MS, FichaWizard, montarPassos, passoInicial } from '../../components/script/FichaWizard';
+import { COPY_VAZIO } from '../../components/script/FichaField';
 import { recomputeView, type ScriptFichaData, type UseScriptFicha } from '../../hooks/useScriptFicha';
 import { SCRIPT_BLOCKS, SCRIPT_FIELD_BY_KEY, type ScriptBlockView, type ScriptFieldView } from '../../data/script-ficha-fields';
 
@@ -89,9 +90,22 @@ function montar(data: ScriptFichaData = dados(), extra: Partial<UseScriptFicha> 
   return { ...utils, decide, onFecharFicha, onRecarregar };
 }
 
+beforeEach(() => { vi.useFakeTimers(); });
+afterEach(() => { vi.useRealTimers(); });
+
 const titulo = () => screen.getByTestId('wizard-title').textContent;
 const P = (key: string) => SCRIPT_FIELD_BY_KEY[key].pergunta;
-const COPY_VAZIO = 'Não encontramos nos seus materiais. Conte com as suas palavras ou grave um áudio.';
+/** Toca o botão principal e deixa passar o tempo do estado "Confirmado". */
+const tocarEAvancar = (nome: string) => {
+  fireEvent.click(screen.getByRole('button', { name: nome }));
+  act(() => { vi.advanceTimersByTime(CONFIRMADO_MS + 50); });
+};
+const lateral = () => screen.getByTestId('navegador-lateral');
+/** Abre o bloco no navegador lateral (se ainda fechado) e toca a pergunta. */
+const irPelaLateral = (bloco: number, id: string) => {
+  if (!within(lateral()).queryByTestId(`lateral-nav-passo-${id}`)) fireEvent.click(within(lateral()).getByTestId(`lateral-nav-bloco-${bloco}`));
+  fireEvent.click(within(lateral()).getByTestId(`lateral-nav-passo-${id}`));
+};
 
 describe('FichaWizard: passos', () => {
   it('montarPassos junta o par antes × depois (3.5 e 3.6) numa tela só', () => {
@@ -109,30 +123,73 @@ describe('FichaWizard: passos', () => {
   });
 });
 
-describe('FichaWizard: navegação', () => {
-  it('abre no primeiro campo sem decisão, com o título grande, a posição no bloco e o mapa de blocos; sem "Hoje" nem "Dia N"', () => {
+describe('FichaWizard: a tela de uma pergunta', () => {
+  it('lê de cima para baixo: chip do bloco + número, a pergunta grande, por que importa, "Sugestão encontrada" com a fonte discreta, a linha "no seu script" e o contexto; sem "Hoje" nem "Dia N"', () => {
     const { container } = montar();
-    expect(titulo()).toBe(P('1.1'));
-    expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Campo 1 de 2');
-    expect(screen.getByTestId('bloco-pill-1')).toHaveAttribute('aria-current', 'step');
-    expect(screen.getByTestId('bloco-pill-4')).toHaveTextContent('0/1');
+    // (a) chip do bloco + número da pergunta
+    expect(screen.getByTestId('chip-bloco')).toHaveTextContent('Bloco 1 · Meta');
+    expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Pergunta 1 de 2');
     expect(screen.getByText('Meta: onde você quer chegar, com número e prazo.')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    // a sugestao aparece no visual do widget (chip marcado), com a fonte
-    expect(screen.getByText('Mentoria Sucessão').closest('[data-selected]')).toHaveAttribute('data-selected', 'true');
-    expect(screen.getByText(/Fonte: Exclusive Book/)).toBeInTheDocument();
+    // (b) a pergunta é o título
+    expect(titulo()).toBe(P('1.1'));
+    // (c) por que isso importa no script (o que alimenta)
+    expect(screen.getByTestId('ajuda-1.1')).toHaveTextContent('Por que isso importa no script: Entra no Passo 3');
+    // (d) a sugestão dentro do widget, com o cabeçalho e a fonte sem negrito nem colchetes
+    expect(screen.getByText('Sugestão encontrada')).toBeInTheDocument();
+    expect(screen.getAllByText('Mentoria Sucessão')[0].closest('[data-selected]')).toHaveAttribute('data-selected', 'true');
+    const fonte = screen.getByTestId('fonte-1.1');
+    expect(fonte).toHaveTextContent('Fonte: Exclusive Book · P1');
+    expect(fonte.querySelector('b, strong')).toBeNull();
+    expect(fonte.textContent).not.toMatch(/[\[\]]/);
+    // (e) a linha "no seu script" em itálico
+    const previa = screen.getByTestId('previa-1.1');
+    expect(previa).toHaveTextContent('No seu script');
+    expect(previa).toHaveTextContent('Mentoria Sucessão');
+    expect(previa.className).toContain('italic');
+    // (f) contexto por pergunta embaixo do campo
+    expect(screen.getByTestId('contexto-1.1')).toBeInTheDocument();
+    // (g) um só botão principal, largo e dourado, com o check
+    const principal = screen.getByRole('button', { name: 'Confirmar e avançar' });
+    expect(principal.className).toContain('w-full');
+    expect(principal.querySelector('svg')).not.toBeNull();
     expect(container.textContent).not.toMatch(/Hoje:/);
     expect(container.textContent).not.toMatch(/\bDia \d/);
-    // contexto por pergunta embaixo do campo
-    expect(screen.getByTestId('contexto-1.1')).toBeInTheDocument();
   });
 
-  it('Confirmar e avançar decide o campo e vai para o próximo', () => {
+  it('fonte entre colchetes aparece limpa', () => {
+    montar(dados({ blocos: [blocoDe(1, [campoDe('1.1', 'Mentoria Sucessão', { fonte: '[Exclusive Book · P2]' })])] }));
+    expect(screen.getByTestId('fonte-1.1')).toHaveTextContent('Fonte: Exclusive Book · P2');
+    expect(screen.getByTestId('fonte-1.1').textContent).not.toMatch(/[\[\]]/);
+  });
+
+  it('Confirmar e avançar: decide, recolhe o valor na linha "Confirmado" por 400 ms e só então a próxima pergunta entra', () => {
     const { decide } = montar();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar e avançar' }));
     expect(decide).toHaveBeenCalledWith('1.1', { status: 'confirmado' });
+    // estado "Confirmado": o valor virou uma linha compacta e o botão principal trocou de cara
+    const resumo = screen.getByTestId('resumo-confirmado');
+    expect(resumo).toHaveTextContent('Confirmado');
+    expect(resumo).toHaveTextContent('Mentoria Sucessão');
+    expect(screen.getByTestId('principal-feito')).toHaveTextContent('Confirmado');
+    expect(screen.queryByRole('button', { name: 'Confirmar e avançar' })).not.toBeInTheDocument();
+    expect(titulo()).toBe(P('1.1'));
+    act(() => { vi.advanceTimersByTime(CONFIRMADO_MS - 50); });
+    expect(titulo()).toBe(P('1.1'));
+    act(() => { vi.advanceTimersByTime(100); });
     expect(titulo()).toBe(P('1.2'));
-    expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Campo 2 de 2');
+    expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Pergunta 2 de 2');
+    expect(screen.queryByTestId('resumo-confirmado')).not.toBeInTheDocument();
+  });
+
+  it('as ações secundárias são botões de texto embaixo do principal: Editar, Deixar em branco, Pular por agora, Voltar', () => {
+    montar();
+    const barra = screen.getByTestId('barra-acoes');
+    for (const nome of ['Editar', 'Deixar em branco por enquanto', 'Pular por agora', 'Voltar']) {
+      const b = within(barra).getByRole('button', { name: nome });
+      expect(b.className).not.toContain('bg-prosperus-gold-dark');
+    }
+    expect(within(barra).getAllByRole('button').filter((b) => b.className.includes('bg-prosperus-gold-dark'))).toHaveLength(1);
   });
 
   it('Voltar retorna ao campo anterior', () => {
@@ -143,7 +200,7 @@ describe('FichaWizard: navegação', () => {
     expect(titulo()).toBe(P('1.1'));
   });
 
-  it('campo vazio: editor direto com o convite, "Salvar e avançar" e nunca "Confirmar"; no fim do bloco, o interstício creme com prévia e o próximo bloco', () => {
+  it('campo vazio: editor direto com o convite, "Salvar e avançar" e nunca "Confirmar"; no fim do bloco, o interstício creme com a prévia e o próximo bloco', () => {
     const { decide } = montar();
     fireEvent.click(screen.getByRole('button', { name: 'Pular por agora' }));
     expect(screen.getByText(COPY_VAZIO)).toBeInTheDocument();
@@ -158,9 +215,11 @@ describe('FichaWizard: navegação', () => {
     expect(within(inter).getByText('Próximo')).toBeInTheDocument();
     expect(within(inter).getByText(/2\. Mentor/)).toBeInTheDocument();
     expect(within(inter).getByText('Mentor: quem você é e o que te legitima a cobrar caro.')).toBeInTheDocument();
+    expect(within(inter).queryByTestId('mapa-blocos')).not.toBeInTheDocument();
     fireEvent.click(within(inter).getByRole('button', { name: 'Continuar' }));
     expect(titulo()).toBe(P('2.1'));
-    expect(screen.getByTestId('bloco-pill-2')).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByTestId('chip-bloco')).toHaveTextContent('Bloco 2 · Mentor');
+    expect(within(lateral()).getByTestId('lateral-nav-bloco-2')).toHaveAttribute('aria-current', 'true');
   });
 
   it('sugestão "a definir" é tratada como vazia: editor direto e sem "Confirmar e avançar"', () => {
@@ -173,24 +232,31 @@ describe('FichaWizard: navegação', () => {
     expect(container.textContent).not.toContain('a definir');
   });
 
-  it('Editar troca o visual pelo widget no lugar e "Salvar e avançar" envia valor e estrutura', () => {
+  it('Editar troca o visual pelo widget no lugar; "Salvar e avançar" envia valor e estrutura, mostra "Salvo" e avança', () => {
     const { decide } = montar();
-    fireEvent.click(screen.getByTestId('bloco-pill-2'));
+    irPelaLateral(2, '2.1');
     expect(titulo()).toBe(P('2.1'));
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
     expect(screen.getByTestId('wizard-editor-2.1')).toBeInTheDocument();
-    const input = screen.getByLabelText('Editar Frase de especialista') as HTMLInputElement;
-    expect(input.value).toMatch(/Sou a Paloma/);
-    fireEvent.change(input, { target: { value: 'Sou a Paloma.' } });
+    const input = screen.getByLabelText('Frase de especialista: quem é você') as HTMLInputElement;
+    expect(input.value).toMatch(/Paloma/);
+    fireEvent.change(input, { target: { value: 'Paloma' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar e avançar' }));
-    expect(decide).toHaveBeenCalledWith('2.1', { status: 'editado', valor: 'Sou a Paloma.', estrutura: { frase: 'Sou a Paloma.' } });
+    expect(decide).toHaveBeenCalledTimes(1);
+    const [key, decisao] = decide.mock.calls[0];
+    expect(key).toBe('2.1');
+    expect(decisao.status).toBe('editado');
+    expect(decisao.valor).toMatch(/Paloma/);
+    expect(decisao.estrutura.lacunas.sou).toBe('Paloma');
+    expect(screen.getByTestId('resumo-confirmado')).toHaveTextContent('Salvo');
+    act(() => { vi.advanceTimersByTime(CONFIRMADO_MS + 50); });
     expect(titulo()).toBe(P('2.3'));
     expect(screen.getByText('VS')).toBeInTheDocument();
   });
 
-  it('entre blocos só há o interstício (sem tela de dia); o último passo leva ao fim com "Faltam N campos para o seu script" e o mapa dos blocos', () => {
+  it('entre blocos só há o interstício (sem tela de dia); o último passo leva ao fim com "Faltam N campos", "Ver o que falta" e sem mapa de blocos', () => {
     montar();
-    fireEvent.click(screen.getByTestId('bloco-pill-2'));
+    irPelaLateral(2, '2.1');
     fireEvent.click(screen.getByRole('button', { name: 'Pular por agora' }));
     expect(titulo()).toBe(P('2.3'));
     fireEvent.click(screen.getByRole('button', { name: 'Pular por agora' }));
@@ -199,24 +265,24 @@ describe('FichaWizard: navegação', () => {
     expect(inter.textContent).not.toMatch(/\bDia \d/);
     fireEvent.click(within(inter).getByRole('button', { name: 'Continuar' }));
     expect(titulo()).toBe(P('4.1'));
-    expect(screen.getByText('Método Corrente')).toBeInTheDocument();
+    expect(screen.getAllByText('Método Corrente').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'Pular por agora' }));
     const fim = screen.getByTestId('wizard-fim');
     expect(within(fim).getByTestId('wizard-faltam')).toHaveTextContent('Faltam 4 campos para o seu script');
-    expect(within(fim).getByTestId('mapa-blocos')).toHaveTextContent('1. Meta');
-    expect(within(fim).getByTestId('mapa-blocos')).toHaveTextContent('2 em aberto');
+    expect(within(fim).queryByTestId('mapa-blocos')).not.toBeInTheDocument();
+    expect(within(fim).queryByText(/1\. Meta/)).not.toBeInTheDocument();
     expect(fim.textContent).not.toMatch(/\bDia \d/);
     expect(within(fim).queryByRole('button', { name: 'Fechar ficha' })).not.toBeInTheDocument();
     fireEvent.click(within(fim).getByRole('button', { name: 'Ver o que falta' }));
     expect(titulo()).toBe(P('1.1'));
   });
 
-  it('no fim, tocar um bloco do mapa leva ao primeiro pendente dele', () => {
+  it('no fim, o navegador lateral segue sendo o único mapa: abrir um bloco e tocar a pergunta leva até ela', () => {
     montar();
-    fireEvent.click(screen.getByTestId('bloco-pill-4'));
+    irPelaLateral(4, '4.1');
     fireEvent.click(screen.getByRole('button', { name: 'Pular por agora' }));
-    const fim = screen.getByTestId('wizard-fim');
-    fireEvent.click(within(fim).getByRole('button', { name: /2\. Mentor/ }));
+    expect(screen.getByTestId('wizard-fim')).toBeInTheDocument();
+    irPelaLateral(2, '2.1');
     expect(titulo()).toBe(P('2.1'));
   });
 
@@ -229,7 +295,7 @@ describe('FichaWizard: navegação', () => {
     });
     const { decide, onFecharFicha } = montar(d);
     expect(titulo()).toBe(P('4.1'));
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar e avançar' }));
+    tocarEAvancar('Confirmar e avançar');
     expect(decide).toHaveBeenCalledWith('4.1', { status: 'confirmado' });
     const fim = screen.getByTestId('wizard-fim');
     // o mock de decide nao muda os dados: 4.1 segue pendente
@@ -246,11 +312,12 @@ describe('FichaWizard: navegação', () => {
     const { onFecharFicha } = montar(d);
     const fim = screen.getByTestId('wizard-fim');
     expect(within(fim).getByTestId('wizard-faltam')).toHaveTextContent('Você decidiu tudo');
+    expect(screen.getByTestId('contador-faltam')).toHaveTextContent('tudo decidido para o seu script');
     fireEvent.click(within(fim).getByRole('button', { name: 'Fechar ficha' }));
     expect(onFecharFicha).toHaveBeenCalled();
   });
 
-  it('par antes × depois é uma tela só com "Confirmar os dois e avançar"', () => {
+  it('par antes × depois é uma tela só com "Confirmar os dois e avançar" e a mesma confirmação recolhida', () => {
     const d = dados({
       blocos: [blocoDe(3, [campoDe('3.5', 'Mais um ano preso na operação.'), campoDe('3.6', 'A empresa roda sem ela.')])],
     });
@@ -258,32 +325,57 @@ describe('FichaWizard: navegação', () => {
     expect(titulo()).toBe('Daqui a 1 ano: sem resolver e resolvido');
     expect(screen.getByText('Daqui a 1 ano sem resolver')).toBeInTheDocument();
     expect(screen.getByText('Daqui a 1 ano resolvido')).toBeInTheDocument();
-    expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Campos 1 e 2 de 2');
+    expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Perguntas 1 e 2 de 2');
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar os dois e avançar' }));
     expect(decide).toHaveBeenCalledWith('3.5', { status: 'confirmado' });
     expect(decide).toHaveBeenCalledWith('3.6', { status: 'confirmado' });
+    expect(screen.getByTestId('resumo-confirmado')).toHaveTextContent('Confirmado');
+    act(() => { vi.advanceTimersByTime(CONFIRMADO_MS + 50); });
+    expect(screen.getByTestId('wizard-fim')).toBeInTheDocument();
   });
 });
 
-describe('FichaWizard: navegação por perguntas', () => {
-  it('"Perguntas" abre a folha com as perguntas do bloco, ponto de estado e a atual marcada; tocar pula e fecha', () => {
+describe('FichaWizard: um navegador só, hierárquico', () => {
+  it('não há pílulas dos blocos em cima nem mapa dos blocos no fim: os 6 blocos aparecem uma vez, como seções do navegador', () => {
+    montar();
+    expect(screen.queryByTestId('bloco-pill-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mapa-blocos')).not.toBeInTheDocument();
+    const nav = lateral();
+    expect(within(nav).getByRole('region', { name: 'Bloco 1: Meta' })).toBeInTheDocument();
+    expect(within(nav).getByRole('region', { name: 'Bloco 2: Mentor' })).toBeInTheDocument();
+    expect(within(nav).getByRole('region', { name: 'Bloco 4: Método' })).toBeInTheDocument();
+    expect(screen.getAllByText('Mentor')).toHaveLength(1);
+    // o bloco atual está aberto com as perguntas dentro; os outros, fechados
+    expect(within(nav).getByTestId('lateral-nav-bloco-1')).toHaveAttribute('aria-expanded', 'true');
+    expect(within(nav).getByTestId('lateral-nav-passo-1.1')).toHaveAttribute('aria-current', 'step');
+    expect(within(nav).getByTestId('lateral-nav-bloco-2')).toHaveAttribute('aria-expanded', 'false');
+    expect(within(nav).queryByTestId('lateral-nav-passo-2.1')).not.toBeInTheDocument();
+    // a contagem por bloco
+    expect(within(nav).getByTestId('lateral-nav-bloco-4-contagem')).toHaveTextContent('0/1');
+  });
+
+  it('"Perguntas" abre a folha com a mesma hierarquia (bloco aberto > perguntas com ponto de estado), a atual marcada; tocar pula e fecha', () => {
     montar();
     expect(screen.queryByTestId('navegador-sheet')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Perguntas' }));
     const sheet = screen.getByTestId('navegador-sheet');
-    expect(within(sheet).getByRole('dialog', { name: 'Perguntas do bloco 1' })).toBeInTheDocument();
+    expect(within(sheet).getByRole('dialog', { name: 'Perguntas da ficha' })).toBeInTheDocument();
+    expect(within(sheet).getByTestId('navegador-sheet-lista').className).toContain('ficha-scroll');
+    expect(within(sheet).getByTestId('sheet-nav-bloco-1')).toHaveAttribute('aria-expanded', 'true');
     const p11 = within(sheet).getByTestId('sheet-nav-passo-1.1');
     expect(p11).toHaveAttribute('aria-current', 'step');
     expect(within(p11).getByRole('img', { name: 'Sugerido' })).toBeInTheDocument();
     const p12 = within(sheet).getByTestId('sheet-nav-passo-1.2');
-    expect(within(p12).getByRole('img', { name: 'Vazio' })).toBeInTheDocument();
+    expect(within(p12).getByRole('img', { name: 'Em branco' })).toBeInTheDocument();
     expect(within(sheet).queryByTestId('sheet-nav-passo-2.1')).not.toBeInTheDocument();
+    fireEvent.click(within(sheet).getByTestId('sheet-nav-bloco-2'));
+    expect(within(sheet).getByTestId('sheet-nav-passo-2.1')).toBeInTheDocument();
     fireEvent.click(p12);
     expect(titulo()).toBe(P('1.2'));
     expect(screen.queryByTestId('navegador-sheet')).not.toBeInTheDocument();
   });
 
-  it('barra lateral: blocos como seções, perguntas como itens, estado por ponto e "Próxima pendente"', () => {
+  it('coluna lateral: blocos como seções, perguntas como itens, estado no vocabulário único e "Próxima pendente"; a contagem sobe com a ficha', () => {
     const d = dados({
       blocos: [
         blocoDe(1, [confirmado('1.1', 'Mentoria'), campoDe('1.2', '')]),
@@ -293,17 +385,24 @@ describe('FichaWizard: navegação por perguntas', () => {
     });
     montar(d);
     expect(titulo()).toBe(P('1.2'));
-    const lateral = screen.getByTestId('navegador-lateral');
-    expect(within(lateral).getByRole('region', { name: 'Bloco 2: Mentor' })).toBeInTheDocument();
-    expect(within(within(lateral).getByTestId('lateral-nav-passo-1.1')).getByRole('img', { name: 'Confirmado' })).toBeInTheDocument();
-    expect(within(within(lateral).getByTestId('lateral-nav-passo-2.1')).getByRole('img', { name: 'Editado por você' })).toBeInTheDocument();
-    expect(within(within(lateral).getByTestId('lateral-nav-passo-4.1')).getByRole('img', { name: 'Em revisão pela IA' })).toBeInTheDocument();
-    expect(within(lateral).getByTestId('lateral-nav-passo-1.2')).toHaveAttribute('aria-current', 'step');
-    fireEvent.click(within(lateral).getByRole('button', { name: 'Próxima pendente' }));
+    const nav = lateral();
+    expect(within(nav).getByTestId('lateral-nav-bloco-1-contagem')).toHaveTextContent('1/2');
+    expect(within(nav).getByTestId('lateral-nav-bloco-2-contagem')).toHaveTextContent('1/2');
+    expect(within(within(nav).getByTestId('lateral-nav-passo-1.1')).getByRole('img', { name: 'Confirmado' })).toBeInTheDocument();
+    expect(within(nav).getByTestId('lateral-nav-passo-1.2')).toHaveAttribute('aria-current', 'step');
+    fireEvent.click(within(nav).getByTestId('lateral-nav-bloco-2'));
+    expect(within(within(nav).getByTestId('lateral-nav-passo-2.1')).getByRole('img', { name: 'Editado' })).toBeInTheDocument();
+    fireEvent.click(within(nav).getByTestId('lateral-nav-bloco-4'));
+    expect(within(within(nav).getByTestId('lateral-nav-passo-4.1')).getByRole('img', { name: 'Em revisão pela IA' })).toBeInTheDocument();
+    fireEvent.click(within(nav).getByRole('button', { name: 'Próxima pendente' }));
     expect(titulo()).toBe(P('2.3'));
-    fireEvent.click(within(lateral).getByTestId('lateral-nav-passo-4.1'));
+    // ao trocar de bloco, só o atual fica aberto
+    expect(within(nav).getByTestId('lateral-nav-bloco-2')).toHaveAttribute('aria-expanded', 'true');
+    expect(within(nav).getByTestId('lateral-nav-bloco-4')).toHaveAttribute('aria-expanded', 'false');
+    irPelaLateral(4, '4.1');
     expect(titulo()).toBe(P('4.1'));
     expect(screen.getAllByTestId('badge-refinando').length).toBeGreaterThan(0);
+    expect(within(nav).getAllByRole('listitem').map((li) => li.textContent).join(' ')).not.toMatch(/Editado por você|Deixado em branco|Vazio\b/);
   });
 
   it('setas do teclado: direita avança, esquerda volta; dentro de um campo de texto não navega', () => {
@@ -312,12 +411,19 @@ describe('FichaWizard: navegação por perguntas', () => {
     expect(titulo()).toBe(P('1.2'));
     fireEvent.keyDown(window, { key: 'ArrowLeft' });
     expect(titulo()).toBe(P('1.1'));
-    fireEvent.click(screen.getByTestId('bloco-pill-2'));
+    irPelaLateral(2, '2.1');
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
-    const input = screen.getByLabelText('Editar Frase de especialista');
+    const input = screen.getByLabelText('Frase de especialista: quem é você');
     fireEvent.keyDown(input, { key: 'ArrowRight' });
     expect(titulo()).toBe(P('2.1'));
     expect(screen.getByTestId('wizard-editor-2.1')).toBeInTheDocument();
+  });
+
+  it('a barra de rolagem discreta: o wizard e a lista da folha levam a classe ficha-scroll', () => {
+    montar();
+    expect(screen.getByTestId('ficha-wizard').className).toContain('ficha-scroll');
+    fireEvent.click(screen.getByRole('button', { name: 'Perguntas' }));
+    expect(screen.getByTestId('navegador-sheet-lista').className).toContain('ficha-scroll');
   });
 
   it('nenhum texto visível usa travessão, emoji, "a definir" nem a palavra diagnóstico', () => {
