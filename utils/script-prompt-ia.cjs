@@ -69,9 +69,11 @@ function buildPromptIA(ctx = {}) {
   L.push('6. Nunca invente números, nomes, clientes ou casos. Sem fonte, é [INCERTO] com "não sei".');
   L.push('7. Mantenha as palavras do próprio mentor sempre que tiver a fala dele (frases de cliente, nomes de método, promessas).');
   L.push(`8. Responda todos os ${SF.FIELD_KEYS.length} campos, mesmo os incertos.`);
-  L.push('9. Termine com uma seção final:');
+  L.push('9. Termine com duas seções finais:');
   L.push('### FONTES');
   L.push('<lista do que você usou: documentos, conversas, materiais, um por linha>');
+  L.push('### MATERIAIS QUE VALE A PENA ENVIAR');
+  L.push('<liste, um por linha, os materiais que o mentor provavelmente tem e que ajudariam a completar os campos [PARCIAL] e [INCERTO]: apostila ou slides da mentoria, proposta ou roteiro de venda, transcrição ou gravação de reunião de venda, planilha ou export do CRM, página de vendas, depoimentos e casos com números, podcasts, entrevistas, reportagens, blog. Para cada um, diga qual campo ele preenche.>');
   return L.join('\n');
 }
 

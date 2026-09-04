@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Logo } from './ui/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -271,8 +271,17 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   } = useDiagnosticPersistence(token);
 
   // Script 7 Passos: uma instancia so, compartilhada entre Materiais e Ficha (nao faz nada sem cohort)
-  const scriptFicha = useScriptFicha(token, !!cohort, resolvedEmail);
-  const scriptEnabled = !!cohort && scriptFicha.enabled;
+  // O JWT ja carrega cohort/clubSlug desde o login: habilita a area do script no primeiro paint,
+  // sem esperar o GET /api/diagnostic (que chegava depois e deixava o menu sem "Script 7 Passos").
+  const cohortDoToken = useMemo(() => {
+    try {
+      const payload = JSON.parse(atob((token.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/')));
+      return typeof payload?.cohort === 'string' && payload.cohort ? payload.cohort : null;
+    } catch { return null; }
+  }, [token]);
+  const cohortEfetivo = cohort ?? cohortDoToken;
+  const scriptFicha = useScriptFicha(token, !!cohortEfetivo, resolvedEmail);
+  const scriptEnabled = !!cohortEfetivo && scriptFicha.enabled;
   const scriptSummary = scriptFicha.data?.script;
   const scriptMenu: ScriptMenuState = {
     enabled: scriptEnabled,

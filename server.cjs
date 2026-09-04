@@ -523,7 +523,18 @@ app.use(require('./routes/jobs.cjs')(deps));
 // ============================================
 
 // Servir arquivos estáticos da pasta dist
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'dist'), {
+  index: false,
+  setHeaders: (res, filePath) => {
+    // index.html nunca em cache (aponta para chunks com hash que mudam a cada deploy);
+    // assets com hash podem ser imutaveis.
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    } else if (/[\/]assets[\/]/.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 
 // Middleware de Erro Global (CAPTURAR 500s)
 app.use((err, req, res, next) => {
@@ -555,6 +566,7 @@ app.use((req, res) => {
 
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   if (fs.existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
     res.sendFile(indexPath);
   } else {
     console.error('❌ [FALLBACK] Frontend (index.html) não encontrado em:', indexPath);

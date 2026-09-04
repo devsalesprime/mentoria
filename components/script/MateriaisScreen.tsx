@@ -25,7 +25,6 @@ const SCRIPT_EXTENSIONS = ['.md', '.csv', '.json', '.txt'];
 const LINK_TYPES: { id: MaterialLink['tipo']; label: string }[] = [
   { id: 'drive', label: 'Drive' },
   { id: 'site', label: 'Site' },
-  { id: 'plataforma', label: 'Plataforma de conteúdo' },
   { id: 'outro', label: 'Outro' },
 ];
 
@@ -164,6 +163,13 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
       {/* Como funciona */}
       <ComoFunciona prazo={data.config?.prazo_materiais} />
 
+      {/* Peca para a sua IA preencher */}
+      <PromptIA
+        token={token}
+        resposta={data.materials?.resposta_ia || null}
+        onSave={(texto) => saveMaterials({ resposta_ia: texto })}
+      />
+
       {/* Categorias */}
       <div className="space-y-3">
         {MATERIAL_CATEGORIAS.map((cat) => {
@@ -258,13 +264,6 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
           </ul>
         )}
       </div>
-
-      {/* Peca para a sua IA preencher */}
-      <PromptIA
-        token={token}
-        resposta={data.materials?.resposta_ia || null}
-        onSave={(texto) => saveMaterials({ resposta_ia: texto })}
-      />
 
       {/* Acesso a plataforma de conteudo (opcional) */}
       <AcessosPlataforma acessos={acessos} onChange={(next) => saveMaterials({ acessos: next })} />
