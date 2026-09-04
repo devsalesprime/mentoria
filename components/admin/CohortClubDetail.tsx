@@ -45,6 +45,16 @@ interface ScriptVersao {
   content_md?: string;
 }
 interface ScriptComentario { id: string; versao: number; passo: number; texto: string; autor_email: string | null; autor_nome: string | null; created_at: string }
+/** Grifo do leitor (GET /api/admin/clubs/:slug/script-grifos): passo = a tela (0 cartao, 1 sumario, 2..8 Passo 1..7, 9 preparacao). */
+interface ScriptGrifo { id: string; versao: number; passo: number; documento: 'treinamento' | 'campo'; texto: string; cor: 'dourado' | 'verde' | 'vermelho'; nota: string; autor_email: string | null; autor_nome: string | null; created_at: string; resolvido_em: string | null }
+const GRIFO_COR_ROTULO: Record<ScriptGrifo['cor'], string> = { dourado: 'ajustar', verde: 'manter', vermelho: 'tirar' };
+const GRIFO_COR_CLASSE: Record<ScriptGrifo['cor'], string> = { dourado: 'bg-prosperus-gold/20 text-prosperus-gold', verde: 'bg-green-600/20 text-green-400', vermelho: 'bg-red-600/20 text-red-300' };
+function telaDoGrifo(passo: number): string {
+  if (passo <= 0) return 'Cartão';
+  if (passo === 1) return 'Sumário';
+  if (passo >= 9) return 'Preparação';
+  return `Passo ${passo - 1}`;
+}
 interface ContextoItem { id: string; field_key: string; tipo: string; file_name: string | null; url: string; texto: string; legenda: string; transcricao: string | null; erro_transcricao: string | null; autor_email: string | null; autor_nome: string | null; created_at: string; download_url: string | null }
 
 interface ClubDetail {
@@ -119,6 +129,8 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const [versaoAberta, setVersaoAberta] = useState<number | null>(null);
   const [conteudo, setConteudo] = useState<Record<number, string>>({});
   const [carregandoVersao, setCarregandoVersao] = useState<number | null>(null);
+  // Grifos do leitor por versao (so leitura); null = ainda nao carregado
+  const [grifos, setGrifos] = useState<ScriptGrifo[] | null>(null);
 
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -259,6 +271,17 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
     const md = await fetchVersao(n);
     if (md != null) setVersaoAberta(n);
   };
+
+  // Grifos do leitor (so leitura): GET /api/admin/clubs/:slug/script-grifos, carregado quando a aba Script abre
+  useEffect(() => {
+    if (tab !== 'script' || grifos != null) return;
+    let vivo = true;
+    axios.get(`/api/admin/clubs/${slug}/script-grifos`, { headers })
+      .then((res) => { if (vivo && res.data?.success) setGrifos(res.data.grifos || []); })
+      .catch(() => { if (vivo) setGrifos([]); });
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, slug]);
 
   const baixarVersao = async (n: number) => {
     const md = await fetchVersao(n);
@@ -610,6 +633,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
             </p>
           ) : (detail.versoes || []).map((v) => {
             const coms = (detail.comentarios || []).filter((c) => c.versao === v.versao);
+            const grifosDaVersao = (grifos || []).filter((g) => g.versao === v.versao);
             const aberta = versaoAberta === v.versao;
             return (
               <div key={v.id} className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
@@ -623,7 +647,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                       )}
                     </p>
                     <p className="text-[11px] text-white/40">
-                      escrito {formatDateTime(v.created_at)}{v.job_id ? ` · job ${v.job_id}` : ''}{v.aprovado_em ? ` · aprovado ${formatDateTime(v.aprovado_em)} por ${v.aprovado_por || '?'}` : ''} · {coms.length} comentário(s)
+                      escrito {formatDateTime(v.created_at)}{v.job_id ? ` · job ${v.job_id}` : ''}{v.aprovado_em ? ` · aprovado ${formatDateTime(v.aprovado_em)} por ${v.aprovado_por || '?'}` : ''} · {coms.length} comentário(s) · {grifosDaVersao.length} grifo(s)
                     </p>
                     {v.resumo && <p className="text-xs text-white/60 mt-1">{v.resumo}</p>}
                   </div>
@@ -650,6 +674,22 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                       </li>
                     ))}
                   </ul>
+                )}
+                {grifosDaVersao.length > 0 && (
+                  <div data-testid="admin-grifos">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/40 font-semibold mb-1">Grifos do leitor (só leitura)</p>
+                    <ul className="space-y-1.5">
+                      {grifosDaVersao.map((g) => (
+                        <li key={g.id} className="text-xs border-l-2 border-white/15 pl-2">
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${GRIFO_COR_CLASSE[g.cor]}`}>{GRIFO_COR_ROTULO[g.cor]}</span>
+                          <span className="text-prosperus-gold font-semibold ml-2">{telaDoGrifo(g.passo)}</span>
+                          <span className="text-white/40 ml-1">· {g.documento}</span>
+                          <span className="text-white/50 ml-2">{g.autor_nome || g.autor_email || '?'} · {formatDateTime(g.created_at)}{g.resolvido_em ? ` · atendido ${formatDateTime(g.resolvido_em)}` : ''}</span>
+                          <p className="text-white/80">«{g.texto}»{g.nota ? ` → ${g.nota}` : ''}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             );

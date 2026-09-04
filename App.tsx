@@ -8,6 +8,7 @@ import { NotFound } from './components/routing/NotFound';
 import { LandingPage } from './components/routing/LandingPage';
 import { LoginPage } from './components/routing/LoginPage';
 import { lerSessaoAdmin, lerSessaoMembro } from './components/routing/session';
+import { ScriptPrintPage } from './components/script/script/ScriptPrintPage';
 
 interface UserData {
   name: string;
@@ -96,6 +97,12 @@ function App() {
               token={userData?.token || ''}
               onTokenRefresh={handleTokenRefresh}
             />
+          </AuthGuard>
+        } />
+        {/* Pagina de impressao do script (fora do layout do Dashboard: o PDF sai inteiro, paginado em A4) */}
+        <Route path="/dashboard/script/imprimir" element={
+          <AuthGuard isAuthenticated={isMemberAuthenticated}>
+            <ScriptPrintPage token={userData?.token || ''} />
           </AuthGuard>
         } />
         <Route path="/dashboard/:module" element={

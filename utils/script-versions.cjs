@@ -4,8 +4,11 @@
  * meta: JSON livre do worker; quando o job e `revisar`, a rota grava meta.tipo = 'revisao' e meta.base_versao (a versao comentada).
  * status: rascunho | aprovado (o membro aprova em POST /api/script/versoes/:versao/aprovar).
  * Comentario: passo 0 = geral, 1..7 = "## Passo N" do markdown.
+ * Grifos (utils/script-grifos.cjs): quando a versao nova nasce de um job `revisar`, insertVersion marca resolvidos os grifos
+ * pendentes ate a versao base (payload.versao do job).
  */
 const { z } = require('zod');
+const SG = require('./script-grifos.cjs');
 
 const VERSAO_STATUSES = ['rascunho', 'aprovado'];
 
@@ -89,7 +92,27 @@ async function insertVersion({ dbGet, dbRun, uuidv4 }, { club_slug, content_md, 
      VALUES (?, ?, ?, ?, ?, ?, 'rascunho', ?)`,
     [id, club_slug, versao, content_md, resumo || null, meta == null ? null : JSON.stringify(meta), job_id]
   );
+  await resolveGrifosDoJob({ dbGet, dbRun }, club_slug, job_id);
   return getVersion({ dbGet }, club_slug, versao, { withContent: false });
+}
+
+/**
+ * Versao publicada por um job `revisar`: os grifos pendentes ate a versao base (payload.versao) ficam resolvidos.
+ * Sem job, job de outro tipo ou banco sem a tabela cohort_jobs: nao faz nada.
+ */
+async function resolveGrifosDoJob({ dbGet, dbRun }, club_slug, job_id) {
+  if (!job_id) return 0;
+  try {
+    const job = await dbGet('SELECT tipo, payload FROM cohort_jobs WHERE id = ?', [job_id]);
+    if (!job || job.tipo !== 'revisar') return 0;
+    const payload = parseJson(job.payload, null);
+    const base = payload && payload.versao != null ? Number(payload.versao) : NaN;
+    if (!Number.isInteger(base) || base < 1) return 0;
+    return await SG.resolveGrifos({ dbRun }, club_slug, base);
+  } catch (e) {
+    console.error('resolveGrifosDoJob:', e.message);
+    return 0;
+  }
 }
 
 /** Lista (sem conteudo), mais recente primeiro, com contagem de comentarios. */
@@ -181,4 +204,5 @@ module.exports = {
   listComments,
   insertComment,
   scriptSummary,
+  resolveGrifosDoJob,
 };

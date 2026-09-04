@@ -36,6 +36,7 @@ function mockVersao(md: string) {
   (axios.get as any).mockImplementation(async (url: string) => {
     if (url === '/api/script/versoes') return { data: { success: true, versoes: [{ id: 'v1', versao: 1, status: 'rascunho', resumo: 'primeira', created_at: '2026-09-03 12:00:00', comentarios_count: 0 }], job: { id: 'j1', status: 'done' } } };
     if (url === '/api/script/versoes/1') return { data: { success: true, versao: { id: 'v1', versao: 1, status: 'rascunho', content_md: md, created_at: '2026-09-03 12:00:00' }, comentarios: [{ id: 'c1', versao: 1, passo: 2, texto: 'Trocar a dor', autor_nome: 'Ana', created_at: '2026-09-03 12:10:00' }] } };
+    if (url === '/api/script/versoes/1/grifos') return { data: { success: true, grifos: [] } };
     throw new Error('url inesperada ' + url);
   });
   (axios.post as any).mockImplementation(async (url: string, body: any) => {
@@ -43,6 +44,14 @@ function mockVersao(md: string) {
     if (url.endsWith('/aprovar')) return { data: { success: true, versao: { versao: 1, status: 'aprovado', aprovado_em: '2026-09-03 12:30:00' } } };
     throw new Error('post inesperado ' + url);
   });
+}
+
+/** Abre o script e vai para a tela do passo N pelo mapa. */
+async function irParaPasso(n: number) {
+  const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
+  fireEvent.click(within(nav).getByRole('button', { name: new RegExp(`^Passo ${n}:`) }));
+  await screen.findByText(`Passo ${n} de 7`);
+  return nav;
 }
 
 describe('splitScript', () => {
@@ -112,6 +121,8 @@ describe('parseScript', () => {
     expect(doc.mapa?.html).toMatch(/<table>/);
     expect(doc.cartao?.texto).toContain('Os 7 passos em 7 linhas');
     expect(doc.cartao?.texto).not.toContain('###');
+    expect(doc.cartaoMontado).toBe(false);
+    expect(doc.premissa).toBeNull();
     expect(JSON.stringify(doc)).not.toMatch(/\[ficha|\(fonte|a definir|Rastreabilidade/);
   });
 
@@ -130,6 +141,9 @@ describe('parseScript', () => {
     const p2 = doc.documentos[0].passos[1];
     expect(p2.blocos.map((b) => b.tipo)).toEqual(['objetivo', 'dizer', 'erro']);
     expect(p2.blocos[1].dizer[0]).toEqual({ kind: 'sub', titulo: 'C · Contexto' });
+    // sem "## Cartao de bolso": o leitor monta um a partir das falas
+    expect(doc.cartaoMontado).toBe(true);
+    expect(doc.cartao?.texto).toContain('1. Conexão (com Abertura): Prazer, sou a Paloma.');
   });
 
   it('markdownToTexto tira marcacao e vira tabela em linhas', () => {
@@ -140,6 +154,7 @@ describe('parseScript', () => {
 describe('ScriptScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
   });
 
@@ -159,56 +174,76 @@ describe('ScriptScreen', () => {
     expect(onNavigate).toHaveBeenCalledWith('script_ficha');
   });
 
-  it('com versao: documento diagramado com titulo, indice, 7 passos por documento, falas com copiar, cartao, sem marcas de fonte', async () => {
+  it('com versao: abre no cartao, mapa com os 7 passos, um passo por tela com Treinamento e Campo, falas com copiar, folha de impressao inteira, sem marcas de fonte', async () => {
     mockVersao(FIXTURE);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="t" />);
-    expect(await screen.findByText('Script dos 7 passos da venda')).toBeInTheDocument();
-    expect(screen.getByText('Script v1')).toBeInTheDocument();
-    const paper = container.querySelector('#script-print-root')!;
-    expect(paper.querySelector('.script-titulo p')?.textContent).toBe('Elos Club');
-    expect(paper.querySelector('.script-rule')).not.toBeNull();
+    expect(await screen.findByText('Script v1')).toBeInTheDocument();
+    const reader = await screen.findByTestId('script-reader');
 
-    // indice do documento ativo (treinamento): 7 passos
+    // primeira tela: cartao de bolso, com copiar
+    expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
+    fireEvent.click(within(reader).getByRole('button', { name: 'Copiar cartão de bolso' }));
+    await waitFor(() => expect((navigator.clipboard.writeText as any)).toHaveBeenLastCalledWith(expect.stringContaining('Os 7 passos em 7 linhas')));
+
+    // mapa: cartao, sumario, 7 passos, preparacao
     const nav = screen.getByRole('navigation', { name: 'Índice do script' });
     expect(within(nav).getAllByRole('button', { name: /^Passo \d:/ })).toHaveLength(7);
     expect(within(nav).getByRole('button', { name: 'Passo 2: Investigação (Método CNCS)' })).toBeInTheDocument();
+    expect(within(nav).getByRole('button', { name: 'Cartão de bolso' })).toHaveAttribute('aria-current', 'page');
+    // o passo 2 tem comentario: ponto no mapa
+    expect(within(nav).getByRole('button', { name: /^Passo 2:/ })).toHaveAttribute('data-marcada', 'sim');
 
-    // 7 secoes em cada documento, medalhao numerado
-    const d1 = container.querySelector('section[data-doc="d1"]')!;
-    const d2 = container.querySelector('section[data-doc="d2"]')!;
+    // sumario: titulo, cabecalho, os 7 passos em uma linha
+    fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
+    expect(await within(reader).findByText('Script dos 7 passos da venda')).toBeInTheDocument();
+    expect(within(reader).getByText('Para quem eu vendo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ir para o passo 3: Apresentação (da Solução)' })).toBeInTheDocument();
+
+    // passo 1: treinamento com medalhao, falas em cartoes com copiar, etiquetas, checklist, notas
+    await irParaPasso(1);
+    expect(within(reader).getByText('Conexão (com Abertura)')).toBeInTheDocument();
+    expect(reader.querySelector('.script-medalha')?.textContent).toBe('1');
+    const falas = reader.querySelectorAll('.script-fala');
+    expect(falas.length).toBe(3);
+    const copiar = within(reader).getAllByRole('button', { name: /^Copiar fala/ });
+    expect(copiar.length).toBe(3);
+    fireEvent.click(copiar[0]);
+    await waitFor(() => expect((navigator.clipboard.writeText as any)).toHaveBeenLastCalledWith(expect.stringContaining('Prazer, eu sou o Rafael')));
+    expect((navigator.clipboard.writeText as any).mock.calls.at(-1)[0]).not.toContain('[ficha');
+    expect(await within(reader).findByText('copiado')).toBeInTheDocument();
+    expect(within(reader).getAllByText('Vendedor').length).toBeGreaterThan(0);
+    expect(within(reader).getByText('Mentora')).toBeInTheDocument();
+    expect(within(reader).getByText('ACIONAR MENTORA')).toBeInTheDocument();
+    expect(reader.querySelectorAll('.script-check').length).toBe(2);
+    expect(reader.querySelectorAll('.script-nota-erro').length).toBe(1);
+    expect(within(reader).getByText('O que observar')).toBeInTheDocument();
+
+    // aba Campo do mesmo passo
+    fireEvent.click(screen.getByRole('tab', { name: 'Campo' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Campo' })).toHaveAttribute('aria-selected', 'true'));
+    expect(within(reader).getByText(/Deixa eu entender o seu cenário/)).toBeInTheDocument();
+    await irParaPasso(5);
+    expect(within(reader).getByText(/totalizando R\$140 mil no primeiro ano/)).toBeInTheDocument();
+
+    // preparacao e metricas: mapa em tabela + performance
+    fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+    expect(await within(reader).findByText('Mapa de preparação')).toBeInTheDocument();
+    expect(reader.querySelector('.script-table table')).not.toBeNull();
+    expect(within(reader).getByText('Performance e métricas')).toBeInTheDocument();
+
+    // a folha de impressao inteira (Ctrl+P): os dois documentos, 7 passos cada, cartao
+    const paper = container.querySelector('#script-print-root')!;
+    expect(paper.querySelector('.script-titulo p')?.textContent).toBe('Elos Club');
+    const d1 = paper.querySelector('section[data-doc="d1"]')!;
+    const d2 = paper.querySelector('section[data-doc="d2"]')!;
     expect(d1.querySelectorAll('section.script-passo')).toHaveLength(7);
     expect(d2.querySelectorAll('section.script-passo')).toHaveLength(7);
     expect(d1.querySelectorAll('.script-medalha')[6].textContent).toBe('7');
-    expect(d1.className).toContain('block');
-    expect(d2.className).toContain('hidden');
-
-    // falas em cartoes com botao copiar; texto limpo
-    const falas = d1.querySelectorAll('.script-fala');
-    expect(falas.length).toBeGreaterThanOrEqual(20);
-    const copiar = within(d1 as HTMLElement).getAllByRole('button', { name: /^Copiar fala/ });
-    expect(copiar.length).toBe(falas.length);
-    fireEvent.click(copiar[0]);
-    await waitFor(() => expect((navigator.clipboard.writeText as any)).toHaveBeenCalledWith(expect.stringContaining('Prazer, eu sou o Rafael')));
-    expect((navigator.clipboard.writeText as any).mock.calls[0][0]).not.toContain('[ficha');
-    expect(await within(d1 as HTMLElement).findByText('copiado')).toBeInTheDocument();
-
-    // etiquetas de voz e instrucao
-    expect(within(d1 as HTMLElement).getAllByText('Vendedor').length).toBeGreaterThan(0);
-    expect(within(d1 as HTMLElement).getByText('Mentora')).toBeInTheDocument();
-    expect(within(d1 as HTMLElement).getByText('ACIONAR MENTORA')).toBeInTheDocument();
-
-    // checklist de perguntas, notas lado a lado, objecoes
-    expect(d1.querySelectorAll('.script-check').length).toBeGreaterThan(10);
-    expect(d1.querySelectorAll('.script-nota-erro').length).toBe(7);
-    expect(within(d1 as HTMLElement).getAllByText('O que observar').length).toBe(7);
-
-    // mapa e cartao de bolso com copiar
-    expect(paper.querySelector('.script-table table')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Copiar cartão de bolso' }));
-    await waitFor(() => expect((navigator.clipboard.writeText as any)).toHaveBeenLastCalledWith(expect.stringContaining('Os 7 passos em 7 linhas')));
+    expect(paper.querySelectorAll('.script-fala').length).toBeGreaterThanOrEqual(20);
+    expect(paper.querySelector('#script-cartao')).not.toBeNull();
 
     // limpeza defensiva: nada de marca de fonte, nota editorial ou placeholder no que o leitor ve
-    const texto = paper.textContent || '';
+    const texto = container.textContent || '';
     expect(texto).not.toContain('[ficha');
     expect(texto).not.toContain('(fonte');
     expect(texto).not.toContain('a definir');
@@ -216,32 +251,39 @@ describe('ScriptScreen', () => {
     expect(texto).not.toContain('Gerado só');
     expect(texto).not.toContain('\u2014');
 
-    // acoes
+    // acoes; o PDF abre a pagina de impressao (fora do Dashboard) com o documento escolhido
     expect(screen.getByText('Baixar (.md)')).toBeInTheDocument();
-    expect(screen.getByText('Imprimir ou salvar em PDF')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Imprimir ou salvar em PDF' })).toBeInTheDocument();
+    const open = vi.fn().mockReturnValue({});
+    Object.defineProperty(window, 'open', { value: open, configurable: true, writable: true });
+    fireEvent.click(screen.getByTestId('pdf-campo'));
+    expect(open).toHaveBeenCalledWith(expect.stringMatching(/dashboard\/script\/imprimir\?doc=campo&versao=1$/), '_blank', 'noopener');
+    fireEvent.click(screen.getByTestId('pdf-treinamento'));
+    expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=treinamento&versao=1$/), '_blank', 'noopener');
+    fireEvent.click(screen.getByTestId('pdf-ambos'));
+    expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=ambos&versao=1$/), '_blank', 'noopener');
     expect(screen.getByText('Aprovar')).toBeInTheDocument();
     expect(screen.getByText('Pedir nova versão')).toBeInTheDocument();
-
-    // seletor de documento: Campo passa a ser o visivel
-    fireEvent.click(screen.getByRole('tab', { name: 'Campo' }));
-    await waitFor(() => expect(container.querySelector('section[data-doc="d2"]')!.className).toContain('block'));
-    expect(container.querySelector('section[data-doc="d1"]')!.className).toContain('hidden');
-    expect(within(d2 as HTMLElement).getByText(/totalizando R\$140 mil no primeiro ano/)).toBeInTheDocument();
+    expect(screen.queryByTestId('pedir-com-grifos')).toBeNull();
   }, 30000);
 
-  it('comentarios recolhidos por passo, aprovar e pedir nova versao', async () => {
+  it('comentarios recolhidos por passo (na tela do passo) e geral (no sumario), aprovar e pedir nova versao', async () => {
     mockVersao(FIXTURE);
     const ficha = fichaMock();
     render(<ScriptScreen ficha={ficha} token="t" />);
-    await screen.findByText('Script dos 7 passos da venda');
-    expect((await screen.findAllByText('Trocar a dor')).length).toBeGreaterThan(0);
-    const resumos = screen.getAllByText('Comentar este passo');
-    expect(resumos.length).toBe(14);
-    const caixas = screen.getAllByPlaceholderText('O que mudar, cortar ou reforçar neste passo?');
-    fireEvent.change(caixas[0], { target: { value: 'Mais direto' } });
-    fireEvent.click(screen.getAllByText('Enviar comentário')[0]);
+    await screen.findByText('Script v1');
+    const nav = await irParaPasso(2);
+    expect((await screen.findAllByText('Trocar a dor')).length).toBe(1);
+    expect(screen.getAllByText('Comentar este passo')).toHaveLength(1);
+    await irParaPasso(1);
+    fireEvent.change(screen.getByPlaceholderText('O que mudar, cortar ou reforçar neste passo?'), { target: { value: 'Mais direto' } });
+    fireEvent.click(screen.getByText('Enviar comentário'));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/comentarios', { passo: 1, texto: 'Mais direto' }, expect.anything()));
     expect((await screen.findAllByText('Mais direto')).length).toBeGreaterThan(0);
+    expect(within(nav).getByRole('button', { name: /^Passo 1:/ })).toHaveAttribute('data-marcada', 'sim');
+    fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
+    expect(await screen.findByText('Comentar o script como um todo')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('O que achou do script como um todo?')).toBeInTheDocument();
 
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getByText('Aprovar'));
@@ -261,15 +303,15 @@ describe('ScriptScreen', () => {
     const ficha = fichaMock();
     render(<ScriptScreen ficha={ficha} token="t" />);
     // espera a versao carregar antes de clicar: o mock do framer-motion remonta o <button> a cada render
-    await screen.findAllByText('Comentar este passo');
-    expect(screen.getByText(/Comente os passos e peça a nova versão/)).toBeInTheDocument();
+    await screen.findByTestId('script-reader');
+    expect(screen.getByText(/Selecione um trecho para grifar/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Gerar do zero'));
     await waitFor(() => expect(ficha.gerarScript).toHaveBeenCalled());
     expect(ficha.pedirRevisao).not.toHaveBeenCalled();
     expect(await screen.findByText(/^Pedido feito\. Você recebe/)).toBeInTheDocument();
     expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
     expect(screen.getByText('Gerar do zero').closest('button')).toBeDisabled();
-    expect(screen.queryByText(/Comente os passos e peça a nova versão/)).toBeNull();
+    expect(screen.queryByText(/Selecione um trecho para grifar/)).toBeNull();
   });
 
   it('com job revisar na fila: estado do job aparece e os botoes ficam travados', async () => {
@@ -277,30 +319,34 @@ describe('ScriptScreen', () => {
     (axios.get as any).mockImplementation(async (url: string) => {
       if (url === '/api/script/versoes') return { data: { success: true, versoes: [{ id: 'v1', versao: 1, status: 'rascunho', resumo: '', created_at: '2026-09-03 12:00:00', comentarios_count: 0 }], job: { id: 'j3', tipo: 'revisar', status: 'running' } } };
       if (url === '/api/script/versoes/1') return { data: { success: true, versao: { id: 'v1', versao: 1, status: 'rascunho', content_md: MD_V1, created_at: '2026-09-03 12:00:00' }, comentarios: [] } };
+      if (url === '/api/script/versoes/1/grifos') return { data: { success: true, grifos: [] } };
       throw new Error('url inesperada ' + url);
     });
     render(<ScriptScreen ficha={fichaMock()} token="t" />);
-    await screen.findAllByText('Comentar este passo');
-    expect(await screen.findByText(/Uma nova versão está sendo escrita a partir dos seus comentários\./)).toBeInTheDocument();
+    await screen.findByTestId('script-reader');
+    expect(await screen.findByText(/Uma nova versão está sendo escrita a partir dos seus comentários e grifos\./)).toBeInTheDocument();
     expect(screen.getByText('Nova versão a caminho').closest('button')).toBeDisabled();
     expect(screen.getByText('Gerar do zero').closest('button')).toBeDisabled();
   });
 
-  it('versao v1 antiga (um documento, com marcas) tambem renderiza limpa, sem seletor de documento', async () => {
+  it('versao v1 antiga (um documento, com marcas) tambem renderiza limpa, sem abas de documento', async () => {
     const v1 = '# Script v1 · Os 7 Passos · Elos Club\n\n> Gerado só a partir da ficha `[ficha X.Y]`.\n\n**Para quem eu vendo:** o dono `[ficha 3.1]`\n\n' +
       [1, 2, 3, 4, 5, 6, 7].map((n) => `## Passo ${n} · Nome ${n}\n\n**Objetivo:** objetivo ${n}.\n\n**Como conduzir:**\n\n1. Direção \`[ficha 2.1]\`: "Fala do passo ${n} (fonte: ficha 2.2)." Anote.\n\n**Erro a evitar:** erro ${n}.\n`).join('\n') +
       '\n## Rastreabilidade dos números\n\n| Número | Campo |\n|--|--|\n| R$14 mil | 5.3 |\n';
     mockVersao(v1);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="t" />);
-    await screen.findByText('Script dos 7 passos da venda');
+    const reader = await screen.findByTestId('script-reader');
+    // cartao montado a partir das falas
+    expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
+    expect(within(reader).getByText(/Montado a partir do script de campo/)).toBeInTheDocument();
+    await irParaPasso(3);
     expect(screen.queryByRole('tablist')).toBeNull();
-    expect(container.querySelectorAll('section.script-passo')).toHaveLength(7);
-    expect(container.querySelectorAll('.script-fala')).toHaveLength(7);
-    const texto = container.querySelector('#script-print-root')!.textContent || '';
+    expect(within(reader).getByText('Fala do passo 3.')).toBeInTheDocument();
+    expect(container.querySelector('#script-print-root')!.querySelectorAll('section.script-passo')).toHaveLength(7);
+    const texto = container.textContent || '';
     expect(texto).not.toContain('[ficha');
     expect(texto).not.toContain('(fonte');
     expect(texto).not.toContain('Rastreabilidade');
-    expect(texto).toContain('Fala do passo 3.');
   }, 30000);
 
   it('nenhum texto visível usa travessão nem a palavra vetada', async () => {

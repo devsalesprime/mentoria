@@ -7,6 +7,7 @@ const PIA = require('../utils/script-prompt-ia.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
 const CTX = require('../utils/script-context.cjs');
 const SV = require('../utils/script-versions.cjs');
+const SG = require('../utils/script-grifos.cjs');
 const SUF = require('../utils/suficiencia.cjs');
 
 /**
@@ -27,6 +28,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
+  SG.ensureScriptGrifosTable(dbRun).catch((e) => console.error('script_grifos DDL error:', e.message));
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
 
   // Mesmo diskStorage de routes/files.cjs (data/uploads/<userId>/<timestamp>-<nome>); limite por tipo em CTX.fileError
@@ -50,9 +52,11 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     pedido: z.string().trim().max(2000).optional().default(''),
   });
 
-  // POST /api/script/versoes/:versao/revisar  { pedido? }
+  // POST /api/script/versoes/:versao/revisar  { pedido?, comentarios? }
+  // comentarios = os grifos ja convertidos pelo front ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9); opcional.
   const revisarSchema = z.object({
     pedido: z.string().trim().max(5000).optional().default(''),
+    comentarios: z.array(SG.grifoComentarioSchema).max(300).optional(),
   });
 
   const SCRIPT_CATEGORIES = [
@@ -632,19 +636,47 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // POST /api/script/versoes/:versao/revisar  { pedido? }  -> "Pedir nova versao": job `revisar` (1 ativo por clube, junto com `script`)
-  // payload = a versao base (content_md) + TODOS os comentarios dela + pedido livre; o worker escreve a proxima versao a partir disso.
-  // Nao exige ficha confirmada: a base e a versao ja escrita.
+  /**
+   * Grifos -> comentarios da versao, para o payload do job `revisar`.
+   * O front manda os grifos ja convertidos em `comentarios` ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9);
+   * sem eles, o servidor converte os grifos pendentes ate a versao no mesmo formato. Cada um vira um comentario da versao
+   * (autor = quem pediu; no banco o passo 9 vira 0) e entra no payload com o passo da tela (0..7 ou 9).
+   * Dedupe pelo texto: pedir de novo com os mesmos grifos nao duplica.
+   */
+  async function comentariosDosGrifos(slug, n, vindos, autorEmail) {
+    const existentes = await SV.listComments({ dbAll }, slug, n);
+    const lista = Array.isArray(vindos) && vindos.length
+      ? vindos
+      : (await SG.listGrifosPendentes({ dbAll }, slug, n)).map(SG.grifoParaComentario);
+    const textos = new Set(existentes.map((c) => c.texto));
+    const novos = [];
+    for (const c of lista) {
+      const texto = String(c.texto || '').trim();
+      if (!texto || textos.has(texto)) continue;
+      textos.add(texto);
+      const saved = await SV.insertComment({ dbGet, dbRun, uuidv4 }, {
+        club_slug: slug, versao: n, passo: SG.passoNoBanco(c.passo), texto, autor_email: autorEmail,
+      });
+      novos.push({ passo: Number(c.passo) || 0, texto, autor: saved.autor_nome || saved.autor_email || null, created_at: saved.created_at, origem: 'grifo' });
+    }
+    return {
+      existentes: existentes.map((c) => ({ passo: c.passo, texto: c.texto, autor: c.autor_nome || c.autor_email || null, created_at: c.created_at })),
+      novos,
+    };
+  }
+
+  // POST /api/script/versoes/:versao/revisar  { pedido?, comentarios? }  -> "Pedir nova versao": job `revisar` (1 ativo por clube, junto com `script`)
+  // payload = a versao base (content_md) + TODOS os comentarios dela (inclusive os grifos convertidos) + pedido livre;
+  // o worker escreve a proxima versao a partir disso. Nao exige ficha confirmada: a base e a versao ja escrita.
   router.post('/api/script/versoes/:versao/revisar', authMiddleware, cohortGuard, validateBody(revisarSchema), async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
       const slug = req.cohort.club_slug;
       const versao = await SV.getVersion({ dbGet }, slug, n);
       if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
-      const comentarios = (await SV.listComments({ dbAll }, slug, n)).map((c) => ({
-        passo: c.passo, texto: c.texto, autor: c.autor_nome || c.autor_email || null, created_at: c.created_at,
-      }));
       const key = VM.normEmail(req.cohort.email);
+      const { existentes, novos } = await comentariosDosGrifos(slug, n, req.body.comentarios, key);
+      const comentarios = [...existentes, ...novos];
       const payload = {
         versao: n,
         content_md: versao.content_md,
@@ -653,6 +685,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         pedido_em: new Date().toISOString(),
       };
       if (req.body.pedido) payload.pedido = req.body.pedido;
+      const grifos = comentarios.filter((c) => SG.comentarioEhGrifo(c.texto));
+      if (grifos.length) {
+        payload.grifos = {
+          total: grifos.length,
+          ajustar: grifos.filter((c) => /^\[GRIFO ajustar\]/.test(c.texto)).length,
+          manter: grifos.filter((c) => /^\[GRIFO manter\]/.test(c.texto)).length,
+          tirar: grifos.filter((c) => /^\[GRIFO tirar\]/.test(c.texto)).length,
+        };
+      }
       const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
         tipo: 'revisar',
         club_slug: slug,
@@ -661,9 +702,89 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         payload,
       });
       await touchActivity(slug);
-      res.json({ success: true, versao: n, comentarios: comentarios.length, job: { ...jobView(job), existing } });
+      res.json({ success: true, versao: n, comentarios: comentarios.length, grifos: grifos.length, job: { ...jobView(job), existing } });
     } catch (error) {
       console.error('Error in POST /api/script/versoes/:versao/revisar:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Grifos (do clube; so o autor edita e apaga) ─────────────────────────
+
+  // GET /api/script/versoes/:versao/grifos  -> { grifos } (os da versao + os pendentes de versoes anteriores)
+  router.get('/api/script/versoes/:versao/grifos', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      res.json({ success: true, grifos: await SG.listGrifosDaVersao({ dbAll }, req.cohort.club_slug, n) });
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes/:versao/grifos:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/versoes/:versao/grifos  { passo (tela 0..9), documento, texto (20..600), prefixo, sufixo, cor, nota? }
+  router.post('/api/script/versoes/:versao/grifos', authMiddleware, cohortGuard, validateBody(SG.grifoCreateSchema), async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const grifo = await SG.insertGrifo({ dbGet, dbRun, uuidv4 }, {
+        ...req.body, club_slug: req.cohort.club_slug, versao: n, autor_email: req.cohort.email, autor_nome: req.cohort.name || null,
+      });
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, grifo });
+    } catch (error) {
+      console.error('Error in POST /api/script/versoes/:versao/grifos:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  /** O grifo do clube, ou 404; 403 quando nao e do autor. */
+  async function grifoDoAutor(req, res) {
+    const grifo = await SG.getGrifo({ dbGet }, req.cohort.club_slug, req.params.id);
+    if (!grifo) { res.status(404).json({ success: false, message: 'Grifo não encontrado.' }); return null; }
+    if (VM.normEmail(grifo.autor_email || '') !== VM.normEmail(req.cohort.email)) {
+      res.status(403).json({ success: false, message: 'Só quem fez o grifo pode mudar ou apagar.' });
+      return null;
+    }
+    return grifo;
+  }
+
+  // PATCH /api/script/grifos/:id  { nota?, cor? }  (so o autor)
+  router.patch('/api/script/grifos/:id', authMiddleware, cohortGuard, validateBody(SG.grifoPatchSchema), async (req, res) => {
+    try {
+      const grifo = await grifoDoAutor(req, res); if (!grifo) return;
+      const atualizado = await SG.updateGrifo({ dbGet, dbRun }, req.cohort.club_slug, grifo.id, req.body);
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, grifo: atualizado });
+    } catch (error) {
+      console.error('Error in PATCH /api/script/grifos/:id:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // DELETE /api/script/grifos/:id  (so o autor)
+  router.delete('/api/script/grifos/:id', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const grifo = await grifoDoAutor(req, res); if (!grifo) return;
+      await SG.deleteGrifo({ dbRun }, req.cohort.club_slug, grifo.id);
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, id: grifo.id });
+    } catch (error) {
+      console.error('Error in DELETE /api/script/grifos/:id:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/admin/clubs/:slug/script-grifos  -> { grifos } (admin, so leitura; fica aqui porque a tabela e deste modulo)
+  const adminOnly = (req, res, next) => (req.user && req.user.role === 'admin' ? next() : res.status(403).json({ success: false, message: 'Acesso negado. Apenas admin.' }));
+  router.get('/api/admin/clubs/:slug/script-grifos', authMiddleware, adminOnly, async (req, res) => {
+    try {
+      res.json({ success: true, grifos: await SG.listGrifos({ dbAll }, req.params.slug) });
+    } catch (error) {
+      console.error('Error in GET /api/admin/clubs/:slug/script-grifos:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

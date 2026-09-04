@@ -556,10 +556,15 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   /**
    * "Pedir nova versão": job `revisar` a partir da versao N e de TODOS os comentarios dela (1 ativo por clube, no mesmo
    * escopo do job `script`: se ja ha um ativo, o servidor devolve esse com `existing: true`). Atualiza `data.script.job`.
+   * "Pedir nova versão com os grifos": `extra.comentarios` leva os grifos ja convertidos ("[GRIFO ajustar] «trecho» → nota",
+   * passo 0..7 ou 9); o servidor grava cada um como comentario da versao e os poe no payload do job.
    */
-  const pedirRevisao = useCallback(async (versao: number, pedido: string = ''): Promise<{ ok: boolean; job?: ScriptJobInfo | null; existing?: boolean; message?: string }> => {
+  const pedirRevisao = useCallback(async (versao: number, pedido: string = '', extra?: { comentarios?: { passo: number; texto: string }[] }): Promise<{ ok: boolean; job?: ScriptJobInfo | null; existing?: boolean; message?: string }> => {
     try {
-      const res = await axios.post(`/api/script/versoes/${versao}/revisar`, pedido ? { pedido } : {}, authHeaders(token));
+      const body: Record<string, unknown> = {};
+      if (pedido) body.pedido = pedido;
+      if (extra?.comentarios?.length) body.comentarios = extra.comentarios;
+      const res = await axios.post(`/api/script/versoes/${versao}/revisar`, body, authHeaders(token));
       if (res.data?.success) {
         const job = toJobInfo(res.data.job);
         setData((prev) => (prev ? {

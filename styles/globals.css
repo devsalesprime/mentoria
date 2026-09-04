@@ -319,9 +319,426 @@ body {
 .script-comentarios-titulo::-webkit-details-marker { display: none; }
 .script-comentarios[open] .script-comentarios-titulo { background: rgba(10, 37, 64, 0.06); }
 
+/* ── Leitor em telas (ScriptReader): cartao, sumario, um passo por tela, preparacao ── */
+.script-reader { max-width: 760px; margin: 0 auto; min-width: 0; }
+.script-tela { min-width: 0; overflow-wrap: anywhere; }
+.script-tela-intro {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: rgba(10, 37, 64, 0.75);
+}
+.script-bloco-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-height: 44px;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(202, 154, 67, 0.45);
+  border-radius: 0.75rem;
+  background: rgba(202, 154, 67, 0.1);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.script-bloco-card:hover { background: rgba(202, 154, 67, 0.2); }
+.script-passo-linha {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.6rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.script-passo-linha:hover { background: rgba(10, 37, 64, 0.05); }
+.script-abas {
+  display: inline-flex;
+  border: 1px solid rgba(10, 37, 64, 0.2);
+  border-radius: 0.6rem;
+  overflow: hidden;
+}
+.script-aba {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 1rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(10, 37, 64, 0.7);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.script-aba:hover { background: rgba(10, 37, 64, 0.06); }
+.script-aba-ativa { background: #0A2540; color: #FFE39B; }
+.script-barra {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.9rem;
+  background: rgba(3, 26, 43, 0.96);
+  backdrop-filter: blur(6px);
+  min-width: 0;
+}
+.script-barra-btn {
+  flex: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.6rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.script-barra-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.script-barra-btn:disabled { opacity: 0.35; cursor: default; }
+.script-barra-btn-forte { background: #CA9A43; border-color: #CA9A43; color: #080808; }
+.script-barra-btn-forte:hover:not(:disabled) { background: #D4B050; }
+.script-mapa-strip {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.2rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.script-mapa-strip::-webkit-scrollbar { display: none; }
+.script-mapa-item {
+  position: relative;
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.55rem;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.script-mapa-item:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.script-mapa-item-atual { background: #CA9A43; color: #080808; }
+.script-mapa-item-atual:hover { background: #D4B050; color: #080808; }
+.script-mapa-ponto {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #FFE39B;
+  box-shadow: 0 0 0 1.5px rgba(3, 26, 43, 0.9);
+}
+.script-mapa-item-atual .script-mapa-ponto { background: #0A2540; box-shadow: 0 0 0 1.5px #CA9A43; }
+
+/* Campos de personalizacao ao vivo ([nome], [repita a dor ...]) e marcas proibidas ([VALIDAR, [DEFINIR) */
+.script-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  vertical-align: baseline;
+  margin: 0 0.1rem;
+  padding: 0.05rem 0.5rem 0.05rem 0.4rem;
+  border: 1px dashed #CA9A43;
+  border-radius: 0.5rem;
+  background: rgba(255, 227, 155, 0.35);
+  color: #0A2540;
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: 0.8em;
+  line-height: 1.3;
+  cursor: help;
+}
+.script-slot-pena { font-style: normal; font-size: 0.9em; color: #CA9A43; }
+.script-proibido {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.15rem;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid #b91c1c;
+  border-radius: 0.35rem;
+  background: rgba(185, 28, 28, 0.12);
+  color: #b91c1c;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Premissa REP */
+.script-premissa {
+  padding: 1rem 1.2rem;
+  border: 1px solid rgba(202, 154, 67, 0.55);
+  border-left: 4px solid #CA9A43;
+  border-radius: 0.9rem;
+  background: rgba(255, 227, 155, 0.18);
+}
+.script-premissa-citacao {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(202, 154, 67, 0.5);
+  font-size: 0.78rem;
+  font-style: italic;
+  color: rgba(10, 37, 64, 0.7);
+}
+
+/* Anatomia da fala: trechos sublinhados por componente + etiquetas */
+.script-anatomia { margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed rgba(202, 154, 67, 0.45); }
+.script-anatomia-lista { padding-left: 1rem; list-style: disc; font-size: 0.85rem; line-height: 1.5; color: rgba(10, 37, 64, 0.85); }
+.script-anatomia-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.script-anatomia-chip {
+  --anat: rgba(202, 154, 67, 0.35);
+  --anat-forte: #CA9A43;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  background: var(--anat);
+  color: #0A2540;
+  font-family: var(--font-sans);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.script-anatomia-chip:hover { border-color: var(--anat-forte); }
+.script-anatomia-chip-ativa { border-color: var(--anat-forte); box-shadow: 0 0 0 2px var(--anat); }
+.script-anatomia-chip-nome { font-weight: 700; }
+.script-anatomia-chip-porque { color: rgba(10, 37, 64, 0.78); }
+.script-anatomia-trecho {
+  --anat: rgba(202, 154, 67, 0.35);
+  --anat-forte: #CA9A43;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--anat-forte);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
+  text-decoration-skip-ink: none;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+.script-anatomia-trecho-ativa { background: var(--anat); border-radius: 0.2rem; }
+.script-anatomia-trecho-apagada { text-decoration-color: rgba(10, 37, 64, 0.18); }
+.script-anatomia-cor-0 { --anat: rgba(202, 154, 67, 0.35); --anat-forte: #CA9A43; }
+.script-anatomia-cor-1 { --anat: rgba(18, 63, 91, 0.2); --anat-forte: #123F5B; }
+.script-anatomia-cor-2 { --anat: rgba(52, 143, 96, 0.25); --anat-forte: #2f8a5c; }
+.script-anatomia-cor-3 { --anat: rgba(178, 96, 60, 0.25); --anat-forte: #b2603c; }
+.script-anatomia-cor-4 { --anat: rgba(120, 84, 160, 0.24); --anat-forte: #7854a0; }
+.script-anatomia-cor-5 { --anat: rgba(66, 138, 168, 0.25); --anat-forte: #428aa8; }
+
+/* Grifos: pintura sem mexer no DOM (CSS Custom Highlight API) */
+::highlight(script-grifo-dourado) { background-color: rgba(255, 218, 113, 0.55); }
+::highlight(script-grifo-verde) { background-color: rgba(74, 222, 128, 0.4); }
+::highlight(script-grifo-vermelho) { background-color: rgba(248, 113, 113, 0.4); text-decoration: line-through; }
+::highlight(script-grifo-foco) { background-color: rgba(10, 37, 64, 0.22); }
+.script-grifo-bolinha {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  background: currentColor;
+  flex: none;
+}
+.script-grifo-bolinha-dourado, .script-grifo-cor-dourado .script-grifo-bolinha { background: #FFDA71; box-shadow: inset 0 0 0 1px #CA9A43; }
+.script-grifo-bolinha-verde, .script-grifo-cor-verde .script-grifo-bolinha { background: #4ade80; box-shadow: inset 0 0 0 1px #15803d; }
+.script-grifo-bolinha-vermelho, .script-grifo-cor-vermelho .script-grifo-bolinha { background: #f87171; box-shadow: inset 0 0 0 1px #b91c1c; }
+.script-grifo-balao {
+  position: fixed;
+  z-index: 60;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(202, 154, 67, 0.6);
+  border-radius: 0.9rem;
+  background: #FCF7F0;
+  color: #080808;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.script-grifo-balao-folha {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: auto;
+  max-width: none;
+  border-radius: 1rem 1rem 0 0;
+  padding-bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px));
+}
+.script-grifo-previa {
+  margin-top: 0.25rem;
+  font-family: var(--font-serif);
+  font-size: 0.98rem;
+  line-height: 1.35;
+  color: #0A2540;
+}
+.script-grifo-fechar {
+  min-height: 32px;
+  padding: 0 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(10, 37, 64, 0.6);
+  background: transparent;
+  cursor: pointer;
+}
+.script-grifo-cor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 0 0.6rem;
+  border: 1.5px solid rgba(10, 37, 64, 0.15);
+  border-radius: 0.6rem;
+  background: #fff;
+  color: #0A2540;
+  font-family: var(--font-sans);
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.script-grifo-cor-dourado.script-grifo-cor-ativa { border-color: #CA9A43; background: rgba(255, 218, 113, 0.35); }
+.script-grifo-cor-verde.script-grifo-cor-ativa { border-color: #15803d; background: rgba(74, 222, 128, 0.25); }
+.script-grifo-cor-vermelho.script-grifo-cor-ativa { border-color: #b91c1c; background: rgba(248, 113, 113, 0.25); }
+.script-grifo-btn {
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border-radius: 0.6rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.script-grifo-btn-primario { background: #0A2540; color: #FFE39B; }
+.script-grifo-btn-primario:disabled { opacity: 0.5; cursor: default; }
+.script-grifo-btn-secundario { background: transparent; color: rgba(10, 37, 64, 0.7); border: 1px solid rgba(10, 37, 64, 0.2); }
+.script-grifos-painel {
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: #FCF7F0;
+  color: #080808;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+.script-grifo-item {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid rgba(10, 37, 64, 0.12);
+  border-left-width: 4px;
+  border-radius: 0.6rem;
+  background: #fff;
+}
+.script-grifo-item-dourado { border-left-color: #CA9A43; }
+.script-grifo-item-verde { border-left-color: #15803d; }
+.script-grifo-item-vermelho { border-left-color: #b91c1c; }
+.script-grifo-trecho {
+  margin-top: 0.2rem;
+  font-family: var(--font-serif);
+  font-size: 0.98rem;
+  line-height: 1.35;
+  color: #0A2540;
+}
+.script-grifo-acao {
+  min-height: 44px;
+  padding: 0 0.6rem;
+  border-radius: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(10, 37, 64, 0.75);
+  background: transparent;
+  cursor: pointer;
+}
+.script-grifo-acao:hover { background: rgba(10, 37, 64, 0.06); }
+.script-grifo-acao-forte { background: #0A2540; color: #FFE39B; }
+.script-grifo-acao-apagar { color: #b91c1c; }
+.script-grifos-folha-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(2, 15, 25, 0.7);
+}
+.script-grifos-folha {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 80vh;
+  overflow-y: auto;
+  border-radius: 1rem 1rem 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: #FCF7F0;
+}
+.script-grifos-folha .script-grifos-painel { max-height: none; border-radius: 1rem 1rem 0 0; }
+
+@media print {
+  /* "Imprimir cartão": so o cartao de bolso, em A6 (a folha inteira fica escondida) */
+  #script-cartao-print { display: none; }
+  body.script-print-cartao #script-print-root { display: none !important; }
+  body.script-print-cartao #script-cartao-print {
+    display: block;
+    visibility: visible;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    color: #111;
+  }
+  body.script-print-cartao #script-cartao-print * { visibility: visible; }
+  body.script-print-cartao #script-cartao-print .script-cartao-corpo h3 { color: #0A2540; font-family: "EB Garamond", Georgia, serif; font-size: 11pt; margin: 6pt 0 2pt; }
+  body.script-print-cartao #script-cartao-print .script-cartao-corpo li { font-size: 9pt; line-height: 1.3; }
+  .script-slot { border-color: #999; background: #fff; color: #111; }
+  .script-proibido { border-color: #b91c1c; background: #fff; }
+  .script-premissa { background: #fff; border-color: #CA9A43; }
+  .script-anatomia-chip { background: #fff; border: 1px solid #bbb; min-height: 0; }
+  .script-anatomia-trecho { background: transparent; }
+  .script-grifo-balao, .script-grifos-folha-fundo { display: none !important; }
+}
+
 @media print {
   @page { size: A4; margin: 14mm 14mm 16mm; }
-  html, body { background: #fff !important; color: #111 !important; }
+  html, body { background: #fff !important; color: #111 !important; height: auto !important; overflow: visible !important; }
+  /* O layout do Dashboard tem containers com altura da janela e overflow escondido: na impressao eles cortavam o
+     script na primeira pagina. Aqui tudo vira fluxo normal; a folha (#script-print-root) e a unica coisa visivel. */
+  [class*="overflow-"] { overflow: visible !important; }
+  .min-h-screen, .h-screen, .h-full { min-height: 0 !important; height: auto !important; }
+  .fixed, .sticky { position: static !important; }
   body * { visibility: hidden; }
   #script-print-root, #script-print-root * { visibility: visible; }
   #script-print-root {
