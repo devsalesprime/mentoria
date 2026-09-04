@@ -7,6 +7,7 @@ const PIA = require('../utils/script-prompt-ia.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
 const CTX = require('../utils/script-context.cjs');
 const SV = require('../utils/script-versions.cjs');
+const SUF = require('../utils/suficiencia.cjs');
 
 /**
  * Script 7 Passos (membro): Materiais + Ficha do Script + contexto por pergunta + versoes do script.
@@ -26,6 +27,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
+  SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
 
   // Mesmo diskStorage de routes/files.cjs (data/uploads/<userId>/<timestamp>-<nome>); limite por tipo em CTX.fileError
   const contextStorage = multerLib.diskStorage({
@@ -168,6 +170,10 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return {
       club: { slug: user.club_slug, nome: user.club_nome },
       ficha_status: ficha.ficha_status,
+      // 'automatica' quando os materiais bastaram e o app fechou a ficha sozinho; 'mentor' quando ele fechou; null reaberta
+      confirmada_por: ficha.confirmada_por || null,
+      // Gates de suficiencia (GATES-suficiencia.md): { resultado, faltam, motivos, ... } depois do pre-preenchimento; null antes
+      suficiencia: safeJsonParse(ficha.suficiencia, null),
       // Por pessoa: "submitted" quando ESTE membro clicou em "Enviei o que tinha"
       materials_status: mine.submitted_at ? 'submitted' : 'pending',
       materials_submitted_at: mine.submitted_at,
@@ -253,13 +259,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       const { fields, applied, rejected } = SF.applyUpdates(current, updates, req.cohort.email);
 
       if (applied.length) {
-        // Primeira acao do mentor move a ficha para em_revisao; alterar depois de confirmada reabre.
+        // Primeira acao do mentor move a ficha para em_revisao; alterar depois de confirmada reabre (e limpa quem confirmou).
         const nextStatus = ['vazia', 'pre_preenchida', 'confirmada'].includes(req.ficha.ficha_status)
           ? 'em_revisao'
           : req.ficha.ficha_status;
+        const reabriu = req.ficha.ficha_status === 'confirmada';
         await dbRun(
           `UPDATE script_fichas
               SET fields = ?, ficha_status = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                  ${reabriu ? ', confirmada_por = NULL' : ''}
             WHERE club_slug = ?`,
           [JSON.stringify(fields), nextStatus, req.cohort.club_slug]
         );
@@ -298,9 +306,11 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       }
       // Incorporar e decisao do mentor: a ficha vai para em_revisao (confirmada reabre); dispensar nao muda o status
       const nextStatus = r.decidiu && ['vazia', 'pre_preenchida', 'confirmada'].includes(req.ficha.ficha_status) ? 'em_revisao' : req.ficha.ficha_status;
+      const reabriu = r.decidiu && req.ficha.ficha_status === 'confirmada';
       await dbRun(
         `UPDATE script_fichas
             SET fields = ?, ficha_status = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                ${reabriu ? ', confirmada_por = NULL' : ''}
           WHERE club_slug = ?`,
         [JSON.stringify(r.fields), nextStatus, req.cohort.club_slug]
       );
@@ -348,9 +358,29 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   }
 
   // POST /api/script/ficha/complete  -> ficha confirmada + job `script` na fila (1 ativo por clube)
+  // Com suficiencia `parcial`/`suficiente` (GATES-suficiencia.md): basta o mentor decidir os campos em `faltam`;
+  // o resto do que os materiais trouxeram e confirmado em nome dele (origem 'automatica') na hora de fechar.
   router.post('/api/script/ficha/complete', authMiddleware, cohortGuard, async (req, res) => {
     try {
-      const missing = SF.missingRequired(safeJsonParse(req.ficha.fields, {}));
+      let fields = safeJsonParse(req.ficha.fields, {});
+      let missing = SF.missingRequired(fields);
+      let automaticos = [];
+      const suf = safeJsonParse(req.ficha.suficiencia, null);
+      if (missing.length && suf && ['parcial', 'suficiente'].includes(suf.resultado)) {
+        const norm = SF.normalizeFields(fields);
+        const pendentes = (suf.faltam || []).filter((k) => SF.FIELD_BY_KEY[k] && !SF.isDecided(norm[k]));
+        if (pendentes.length) {
+          return res.status(400).json({
+            success: false,
+            message: pendentes.length === 1 ? 'Falta 1 resposta sua para o script.' : `Faltam ${pendentes.length} respostas suas para o script.`,
+            faltam: pendentes,
+          });
+        }
+        const ac = SUF.autoConfirmar(fields);
+        fields = ac.fields;
+        automaticos = ac.confirmados;
+        missing = SF.missingRequired(fields);
+      }
       if (missing.length) {
         return res.status(400).json({
           success: false,
@@ -358,15 +388,19 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
           faltam: missing,
         });
       }
+      // Doutrina de papeis: 6.2 vazio nunca gera script
+      if (!String(SF.effectiveValue(SF.normalizeFields(fields)['6.2']) || '').trim()) {
+        return res.status(400).json({ success: false, message: 'Diga quem conduz a venda (Quem vende e de onde vem o lead) antes de fechar a ficha.', faltam: ['6.2'] });
+      }
       await dbRun(
         `UPDATE script_fichas
-            SET ficha_status = 'confirmada', reviewed_at = CURRENT_TIMESTAMP,
+            SET fields = ?, ficha_status = 'confirmada', confirmada_por = 'mentor', reviewed_at = CURRENT_TIMESTAMP,
                 last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
           WHERE club_slug = ?`,
-        [req.cohort.club_slug]
+        [JSON.stringify(fields), req.cohort.club_slug]
       );
       const { job, existing } = await enqueueScriptJob(req, 'complete');
-      res.json({ success: true, ficha_status: 'confirmada', job: { ...jobView(job), existing } });
+      res.json({ success: true, ficha_status: 'confirmada', confirmada_por: 'mentor', automaticos, job: { ...jobView(job), existing } });
     } catch (error) {
       console.error('Error in POST /api/script/ficha/complete:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });

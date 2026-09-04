@@ -4,7 +4,7 @@ import type { UseScriptFicha } from '../../hooks/useScriptFicha';
 import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-fields';
 import { campoRefinando } from '../../hooks/useContextoCampo';
 import { FichaField } from './FichaField';
-import { FichaWizard } from './FichaWizard';
+import { FichaWizard, textoFaltamRespostas, type FocoWizard } from './FichaWizard';
 import { BLOCK_INTRO } from './FichaNavegador';
 import { ToastStack } from './contexto/ToastStack';
 import { emitirToast } from './contexto/toast';
@@ -55,8 +55,13 @@ const SaveIndicator: React.FC<{ state: UseScriptFicha['saveState'] }> = ({ state
   return <span className="text-xs text-white/30 font-sans">Salva sozinha</span>;
 };
 
+/** Copy dos três resultados dos gates de suficiência (GATES-suficiencia.md), na voz do app. */
+export const COPY_INSUFICIENTE = 'Precisamos de mais material ou das suas respostas';
+export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já está sendo gerado. Se editar algum campo, a ficha reabre e você pode pedir uma nova versão.';
+export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo gerado.';
+
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
-  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento } = ficha;
+  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento, pedirRevisao } = ficha;
   const [openBlock, setOpenBlock] = useState<number | null>(null);
   const [modo, setModo] = useState<Modo>(() => {
     try { return window.localStorage.getItem(MODO_KEY) === 'tudo' ? 'tudo' : 'passo'; } catch { return 'passo'; }
@@ -189,6 +194,52 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     }
   };
 
+  // ── Gates de suficiência (GATES-suficiencia.md): o que a tela mostra depois do pré-preenchimento ──
+  const suf = data?.suficiencia ?? null;
+  const fichaStatus = data?.ficha_status ?? null;
+  /** parcial com `faltam`: o wizard abre só no que falta; ao decidir a última, o script é gerado sozinho */
+  const modoCompletar = !jobAtivo && !!suf && suf.resultado === 'parcial' && (suf.faltam?.length ?? 0) > 0 && fichaStatus !== 'confirmada';
+  const modoInsuficiente = !jobAtivo && !!suf && suf.resultado === 'insuficiente' && fichaStatus !== 'confirmada';
+  const fechadaPelosMateriais = fichaStatus === 'confirmada' && data?.confirmada_por === 'automatica';
+  const focoKeys = useMemo(() => (modoCompletar ? (suf!.faltam || []).filter((k) => !!contexto[k]) : []), [modoCompletar, suf, contexto]);
+  // Campo em `faltam` que já estava decidido quando a tela abriu (sinalizado pelo servidor): conta como pendente até o mentor mexer
+  const sinalizadosRef = useRef<Set<string> | null>(null);
+  if (modoCompletar && sinalizadosRef.current === null) sinalizadosRef.current = new Set(focoKeys.filter((k) => contexto[k]?.decidido));
+  const [tocados, setTocados] = useState<Set<string>>(() => new Set());
+  const pendentesFoco = useMemo(
+    () => focoKeys.filter((k) => !contexto[k]?.decidido || (sinalizadosRef.current?.has(k) && !tocados.has(k))),
+    [focoKeys, contexto, tocados],
+  );
+  const decideFoco = useCallback<UseScriptFicha['decide']>((key, decision) => {
+    setTocados((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    decide(key, decision);
+  }, [decide]);
+  const fichaDoWizard = useMemo<UseScriptFicha>(() => (modoCompletar ? { ...ficha, decide: decideFoco } : ficha), [modoCompletar, ficha, decideFoco]);
+  const foco = useMemo<FocoWizard | null>(() => (modoCompletar ? { keys: focoKeys, pendentes: pendentesFoco } : null), [modoCompletar, focoKeys, pendentesFoco]);
+  // Última resposta decidida: fecha a ficha sozinha (sem botão) e mostra o estado do script
+  const autoFechouRef = useRef(false);
+  useEffect(() => {
+    if (!modoCompletar || autoFechouRef.current || closingFicha || pendentesFoco.length > 0) return;
+    if (!sinalizadosRef.current) return;
+    autoFechouRef.current = true;
+    void handleClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoCompletar, pendentesFoco.length, closingFicha]);
+
+  // Ficha reaberta depois de o script existir: sugere pedir a nova versão (mesmo fluxo da tela "Seu script")
+  const ultimaVersao = data?.script?.ultima?.versao ?? null;
+  const sugerirNovaVersao = fichaStatus === 'em_revisao' && (data?.script?.versoes || 0) > 0 && ultimaVersao != null;
+  const [pedindoVersao, setPedindoVersao] = useState(false);
+  const pedirNovaVersao = async () => {
+    if (ultimaVersao == null || !pedirRevisao) return;
+    setPedindoVersao(true);
+    const r = await pedirRevisao(ultimaVersao);
+    setPedindoVersao(false);
+    emitirToast(r.ok
+      ? (r.existing ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp.' : 'Pedido feito: a nova versão parte da ficha atualizada. Você recebe um aviso no WhatsApp.')
+      : (r.message || 'Não deu para pedir agora.'));
+  };
+
   if (loading && !data) {
     return (
       <div className="bg-prosperus-navy-mid border border-white/5 rounded-lg p-8 min-h-[300px] flex items-center justify-center">
@@ -316,11 +367,43 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         </p>
 
         {isConfirmed && !closedNow && (
-          <p className="text-xs text-green-400 font-sans">
-            Ficha fechada em {formatDate(data.reviewed_at)}. Se editar algum campo, ela reabre e o script é refeito.
-          </p>
+          fechadaPelosMateriais
+            ? <p className="text-xs text-prosperus-gold-light font-sans" data-testid="nota-automatica">{COPY_AUTOMATICA}</p>
+            : <p className="text-xs text-green-400 font-sans">
+                Ficha fechada em {formatDate(data.reviewed_at)}. Se editar algum campo, ela reabre e o script é refeito.
+              </p>
+        )}
+        {sugerirNovaVersao && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-prosperus-gold-dark/30 bg-prosperus-gold-dark/[0.06] px-3 py-2" data-testid="sugestao-nova-versao">
+            <p className="text-xs text-white/80 font-sans">Você mudou a ficha depois do script. Quer uma versão nova com o que mudou?</p>
+            <Button variant="secondary" size="sm" onClick={pedirNovaVersao} loading={pedindoVersao} disabled={pedindoVersao}>Pedir nova versão</Button>
+            {onNavigate && <Button variant="link" size="sm" onClick={() => onNavigate('script_script')}>Ver o script</Button>}
+          </div>
         )}
       </div>
+
+      {/* Suficiência parcial: só o que falta (o resto está guardado em "Preenchido pelos seus materiais") */}
+      {modoCompletar && (
+        <div className="rounded-lg bg-prosperus-neutral-white text-prosperus-navy p-4 sm:p-6 space-y-2" data-testid="banner-completar">
+          <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Quase lá</p>
+          <h3 className="font-serif text-xl sm:text-2xl text-prosperus-navy leading-snug">{textoFaltamRespostas(pendentesFoco.length)}</h3>
+          <p className="text-sm text-prosperus-navy/75 font-sans leading-relaxed">
+            O resto a gente preencheu com os seus materiais: está recolhido em "Preenchido pelos seus materiais" e você pode ajustar quando quiser.
+            Ao responder a última, o script é gerado sozinho.
+          </p>
+        </div>
+      )}
+
+      {/* Suficiência insuficiente: ficha inteira + pedido de mais material */}
+      {modoInsuficiente && (
+        <div className="rounded-lg border border-prosperus-gold-dark/40 bg-prosperus-gold-dark/[0.08] p-4 sm:p-5 space-y-2" data-testid="banner-insuficiente">
+          <h3 className="font-serif text-xl text-white leading-snug">{COPY_INSUFICIENTE}</h3>
+          <p className="text-sm text-white/70 font-sans leading-relaxed">
+            Os materiais que chegaram não bastaram para escrever o seu script. Você pode enviar mais (transcrição de uma venda, proposta, apostila) ou responder a ficha com a sua voz.
+          </p>
+          {onNavigate && <Button variant="secondary" size="md" onClick={() => onNavigate('script_materiais')}>Enviar mais materiais</Button>}
+        </div>
+      )}
 
       {/* Pre-preenchimento em marcos: na fila, em andamento (trilha de 7 etapas), pronto, em conferencia, erro */}
       {mostrarPainel && (
@@ -355,12 +438,19 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             data-testid="ficha-fechada"
           >
             <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Ficha do Script</p>
-            <h3 className="font-serif text-2xl sm:text-3xl text-prosperus-navy">Ficha fechada.</h3>
+            <h3 className="font-serif text-2xl sm:text-3xl text-prosperus-navy">{autoFechouRef.current ? COPY_SCRIPT_GERANDO : 'Ficha fechada.'}</h3>
             <hr className="border-0 h-px bg-prosperus-gold-dark" aria-hidden="true" />
             <p className="text-sm text-prosperus-navy/80 font-sans leading-relaxed">
-              Agora a gente monta o script v1 dos 7 passos. Você recebe para ler e ajustar.
+              {autoFechouRef.current
+                ? 'Suas respostas completaram a ficha. O script chega em alguns minutos, com aviso no WhatsApp; ele aparece em "Seu script".'
+                : 'Agora a gente monta o script v1 dos 7 passos. Você recebe para ler e ajustar.'}
             </p>
-            <Button variant="outline" size="md" className="min-h-[44px] !border-prosperus-navy/30 !text-prosperus-navy hover:!bg-prosperus-navy/5" onClick={() => setClosedNow(false)}>Entendi</Button>
+            <div className="flex flex-wrap gap-2">
+              {autoFechouRef.current && onNavigate && (
+                <Button variant="primary" size="md" className="min-h-[44px]" onClick={() => onNavigate('script_script')}>Ver o script</Button>
+              )}
+              <Button variant="outline" size="md" className="min-h-[44px] !border-prosperus-navy/30 !text-prosperus-navy hover:!bg-prosperus-navy/5" onClick={() => setClosedNow(false)}>Entendi</Button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -384,7 +474,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
 
       {/* Blocos: uma pergunta por tela (wizard) ou acordeoes */}
       {modo === 'passo' ? (
-        <FichaWizard ficha={ficha} contexto={contexto} onFecharFicha={handleClose} fechandoFicha={closingFicha} onRecarregar={recarregar} />
+        <FichaWizard ficha={fichaDoWizard} contexto={contexto} onFecharFicha={handleClose} fechandoFicha={closingFicha} onRecarregar={recarregar} foco={foco} />
       ) : (
         <div className="space-y-3">
           {blocos.map(renderBlock)}
@@ -395,11 +485,20 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm text-white font-sans">
-              {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios decididos
-              <span className="text-white/40"> · {progresso.decididos} de {progresso.total} no total</span>
-            </p>
-            {!allRequiredDone && (
+            {modoCompletar ? (
+              <p className="text-sm text-white font-sans" data-testid="rodape-completar">
+                {textoFaltamRespostas(pendentesFoco.length)}
+                <span className="text-white/40"> · o resto veio dos seus materiais</span>
+              </p>
+            ) : (
+              <p className="text-sm text-white font-sans">
+                {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios decididos
+                <span className="text-white/40"> · {progresso.decididos} de {progresso.total} no total</span>
+              </p>
+            )}
+            {modoCompletar ? (
+              <p className="text-xs text-white/50 font-sans mt-1">Ao responder a última, o script é gerado sozinho: não precisa fechar a ficha.</p>
+            ) : !allRequiredDone && (
               <p className="text-xs text-white/50 font-sans mt-1">
                 Para fechar, cada campo obrigatório precisa de uma decisão: confirmar, editar ou deixar em branco por enquanto.
               </p>
@@ -409,15 +508,17 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             {onNavigate && (
               <Button variant="ghost" size="md" onClick={() => onNavigate('script_materiais')}>Materiais</Button>
             )}
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={handleClose}
-              disabled={!allRequiredDone || isConfirmed}
-              loading={closingFicha}
-            >
-              {isConfirmed ? 'Ficha fechada' : 'Fechar ficha'}
-            </Button>
+            {!modoCompletar && (
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handleClose}
+                disabled={!allRequiredDone || isConfirmed}
+                loading={closingFicha}
+              >
+                {isConfirmed ? 'Ficha fechada' : 'Fechar ficha'}
+              </Button>
+            )}
           </div>
         </div>
         {closeError && <p className="text-xs text-red-400 font-sans">{closeError}</p>}

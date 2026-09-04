@@ -7,6 +7,7 @@ const JOBS = require('../utils/cohort-jobs.cjs');
 const CM = require('../utils/cohort-materials.cjs');
 const CTX = require('../utils/script-context.cjs');
 const SV = require('../utils/script-versions.cjs');
+const SUF = require('../utils/suficiencia.cjs');
 const { scriptPrefillSchema, validateBody } = require('../utils/validation.cjs');
 
 /**
@@ -20,6 +21,23 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
+  SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
+
+  // POST /api/jobs (worker abre uma pendencia com o mentor): { tipo: 'pendencia', club_slug, email?, notify_phone?, payload }
+  // payload = { job_origem, campos: [keys], telefone, enviado_em, tipo_origem, ... } (livre alem disso)
+  const jobCreateSchema = z.object({
+    tipo: z.literal('pendencia'),
+    club_slug: z.string().trim().min(1).max(100),
+    email: z.string().trim().max(320).optional(),
+    notify_phone: z.string().trim().max(20).nullable().optional(),
+    payload: z.object({
+      job_origem: z.string().max(100).nullable().optional(),
+      campos: z.array(z.string().max(8)).max(34).optional().default([]),
+      telefone: z.string().max(20).nullable().optional(),
+      enviado_em: z.string().max(40).nullable().optional(),
+      tipo_origem: z.string().max(40).nullable().optional(),
+    }).passthrough().optional().default({}),
+  });
 
   // progresso (opcional, com qualquer status): marcos do prefill em blocos, objeto de ate 4 KB; null limpa.
   // Forma esperada do worker: { fase: 'extracao'|'bloco'|'finalizando', etapa_atual, etapas_total: 7, rotulo,
@@ -110,7 +128,47 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
 
   router.use('/api/jobs', jobsAuth);
 
-  // POST /api/jobs/next  { tipo?: 'prefill'|'script'|'refinar'|'revisar'|'any' }  -> reivindica o job mais antigo em queued (atomico) ou 204
+  // POST /api/jobs  { tipo: 'pendencia', club_slug, email?, notify_phone?, payload: { job_origem, campos, telefone, enviado_em, tipo_origem } }
+  // Cria a pendencia do worker com o mentor (1 ativa por clube: repetir devolve a existente com existing: true).
+  // email ausente = o do job de origem ou o primeiro membro do clube. Chaves desconhecidas em payload.campos -> 400.
+  router.post('/api/jobs', validateBody(jobCreateSchema), async (req, res) => {
+    try {
+      const { club_slug, payload } = req.body;
+      const club = await getClub(club_slug);
+      if (!club) return res.status(404).json({ success: false, message: `Clube "${club_slug}" não encontrado.` });
+      const desconhecidas = (payload.campos || []).filter((k) => !SF.FIELD_BY_KEY[k]);
+      if (desconhecidas.length) return res.status(400).json({ success: false, message: `Campos desconhecidos: ${desconhecidas.join(', ')}.` });
+      let email = VM.normEmail(req.body.email || '');
+      let notifyPhone = req.body.notify_phone || payload.telefone || null;
+      if (!email && payload.job_origem) {
+        const origem = await JOBS.getJob({ dbGet }, String(payload.job_origem));
+        if (origem && origem.club_slug === club_slug) {
+          email = origem.email;
+          notifyPhone = notifyPhone || origem.notify_phone || null;
+        }
+      }
+      if (!email) {
+        const m = await dbGet(`SELECT email FROM cohort_members WHERE club_slug = ? ORDER BY created_at ASC LIMIT 1`, [club_slug]);
+        email = m ? m.email : '';
+      }
+      if (!email) return res.status(400).json({ success: false, message: 'Informe o e-mail do mentor (o clube não tem membros).' });
+      const phone = notifyPhone ? VM.normalizePhone(notifyPhone) : { ok: true, phone: null };
+      const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+        tipo: 'pendencia',
+        club_slug,
+        email,
+        notify_phone: phone.ok ? phone.phone : null,
+        payload: { ...payload, aberta_em: payload.enviado_em || new Date().toISOString() },
+      });
+      res.status(existing ? 200 : 201).json({ success: true, job, existing });
+    } catch (error) {
+      console.error('Error in POST /api/jobs:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/jobs/next  { tipo?: 'prefill'|'script'|'refinar'|'revisar'|'pendencia'|'any' }  -> reivindica o job mais antigo em queued (atomico) ou 204
+  // `job` vem completo (payload e result inclusos: o worker le result.pendencia e result.mensagem_mentor).
   router.post('/api/jobs/next', validateBody(jobNextSchema), async (req, res) => {
     try {
       const job = await JOBS.claimNextJob({ dbGet }, req.body.tipo === 'any' ? null : req.body.tipo);
@@ -160,11 +218,31 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     res.json({ success: true, job: req.job });
   });
 
-  // PATCH /api/jobs/:id  { status, result?, error? }
+  // PATCH /api/jobs/:id  { status, result?, error?, progresso? }
+  // Job `prefill` chegando a done / needs_human: o app avalia a suficiencia da ficha (GATES-suficiencia.md) e age:
+  //   suficiente  -> ficha confirmada (origem automatica) + job `script` na fila
+  //   parcial / insuficiente -> ficha fica; `faltam` gravado em script_fichas.suficiencia
+  // O result do job ganha { suficiencia: resumo, mensagem_mentor } (o runner manda a mensagem no WhatsApp).
+  // `queued` com `result` funde com o result anterior (reinicio de done/needs_human sem perder a pendencia).
   router.patch('/api/jobs/:id', loadJob, validateBody(jobPatchSchema), async (req, res) => {
     try {
-      const job = await JOBS.updateJobStatus({ dbGet, dbRun }, req.job.id, req.body);
-      res.json({ success: true, job });
+      let job = await JOBS.updateJobStatus({ dbGet, dbRun }, req.job.id, req.body);
+      let suficiencia = null;
+      if (job && job.tipo === 'prefill' && (req.body.status === 'done' || req.body.status === 'needs_human')) {
+        try {
+          const r = await SUF.aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
+            job, status: req.body.status, result: req.body.result, appUrl: appUrl(req), aplicar: true,
+          });
+          suficiencia = { ...SUF.resumoSuficiencia(r.suficiencia), motivos: r.suficiencia.motivos, ficha_status: r.ficha_status, script_job_id: r.script_job ? r.script_job.id : null };
+          const base = job.result && typeof job.result === 'object' && !Array.isArray(job.result) ? job.result : {};
+          const result = { ...base, suficiencia, mensagem_mentor: r.mensagem_mentor };
+          await dbRun(`UPDATE cohort_jobs SET result = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [JSON.stringify(result), job.id]);
+          job = await JOBS.getJob({ dbGet }, job.id);
+        } catch (e) {
+          console.error('suficiencia error (PATCH /api/jobs/:id):', e.message);
+        }
+      }
+      res.json({ success: true, job, ...(suficiencia ? { suficiencia } : {}) });
     } catch (error) {
       console.error('Error in PATCH /api/jobs/:id:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
@@ -250,6 +328,8 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
         job_id: req.job.id,
         club: club ? { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 } : { slug, nome: null, ativo: null },
         ficha_status: ficha.ficha_status,
+        confirmada_por: ficha.confirmada_por || null,
+        suficiencia: safeJsonParse(ficha.suficiencia, null),
         prefill_meta: safeJsonParse(ficha.prefill_meta, null),
         prefilled_at: ficha.prefilled_at,
         reviewed_at: ficha.reviewed_at,
@@ -401,6 +481,16 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
       if (!club) return res.status(404).json({ success: false, message: `Clube "${slug}" não encontrado.` });
 
       const r = await SF.importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, req.body, { job_id: req.job.id });
+      // Ultimo bloco do prefill em marcos: ja avalia a suficiencia e grava (sem agir; a acao e no PATCH done)
+      let suficiencia = null;
+      if (r.parcial && r.blocos_importados.length >= SF.BLOCKS.length) {
+        try {
+          const s = await SUF.aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, { job: req.job, status: 'running', result: null, appUrl: appUrl(req), aplicar: false });
+          suficiencia = { ...SUF.resumoSuficiencia(s.suficiencia), motivos: s.suficiencia.motivos };
+        } catch (e) {
+          console.error('suficiencia error (PUT /api/jobs/:id/prefill):', e.message);
+        }
+      }
       res.json({
         success: true,
         message: `Importados ${r.imported.length} campos; ${r.complementos.length} já decididos ganharam complemento; ${r.skipped.length} mantidos.`,
@@ -415,6 +505,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
         warnings,
         ficha_status: r.ficha_status,
         resumo: r.resumo,
+        ...(suficiencia ? { suficiencia } : {}),
       });
     } catch (error) {
       console.error('Error in PUT /api/jobs/:id/prefill:', error.message);

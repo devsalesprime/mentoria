@@ -92,6 +92,9 @@ export function useBlocosAbertos(blocoAtual: number | null): [number[], (n: numb
   return [abertos, toggle];
 }
 
+/** Título do grupo recolhido com o que os materiais já responderam (modo "completar o que falta"). */
+export const COPY_GRUPO_MATERIAIS = 'Preenchido pelos seus materiais';
+
 interface NavegadorFichaProps {
   blocos: ScriptBlockView[];
   passos: PassoNav[];
@@ -101,14 +104,28 @@ interface NavegadorFichaProps {
   onToggle: (numero: number) => void;
   onIr: (indice: number) => void;
   idPrefixo?: string;
+  /**
+   * Modo "completar o que falta": ids dos passos que precisam da resposta do mentor. Só eles aparecem nos blocos;
+   * os demais ficam recolhidos em "Preenchido pelos seus materiais" (editáveis sob demanda). null = ficha inteira.
+   */
+  focoIds?: string[] | null;
 }
 
 /** Seções (blocos) e itens (perguntas), com as classes do menu lateral do app. */
-export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, atual, blocoAtual, abertos, onToggle, onIr, idPrefixo = '' }) => (
+export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, atual, blocoAtual, abertos, onToggle, onIr, idPrefixo = '', focoIds = null }) => {
+  const foco = focoIds ? new Set(focoIds) : null;
+  const noFoco = (p: PassoNav) => !foco || foco.has(p.id);
+  const outros = foco ? passos.map((p, j) => ({ p, j })).filter(({ p }) => !foco.has(p.id)) : [];
+  const [outrosAberto, setOutrosAberto] = useState(false);
+  const blocosVisiveis = foco ? blocos.filter((b) => passos.some((p) => p.bloco === b.numero && foco.has(p.id))) : blocos;
+  return (
   <nav aria-label="Perguntas da ficha" className="space-y-2">
-    {blocos.map((b) => {
+    {blocosVisiveis.map((b) => {
       const aberto = abertos.includes(b.numero);
       const ativo = b.numero === blocoAtual;
+      const passosDoBloco = passos.filter((p) => p.bloco === b.numero && noFoco(p));
+      const decididosBloco = foco ? passosDoBloco.filter((p) => !pendenteNav(p)).length : b.decididos;
+      const totalBloco = foco ? passosDoBloco.reduce((s, p) => s + p.campos.length, 0) : b.total;
       return (
         <section key={b.numero} aria-label={`Bloco ${b.numero}: ${b.nome}`}>
           <button
@@ -128,14 +145,14 @@ export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, 
               <span className="truncate">{b.nome}</span>
             </span>
             <span className="flex items-center gap-2 shrink-0">
-              <span className="font-sans normal-case tracking-normal text-[11px] text-white/50" data-testid={`${idPrefixo}nav-bloco-${b.numero}-contagem`}>{b.decididos}/{b.total}</span>
+              <span className="font-sans normal-case tracking-normal text-[11px] text-white/50" data-testid={`${idPrefixo}nav-bloco-${b.numero}-contagem`}>{decididosBloco}/{totalBloco}</span>
               <IconeSeta direcao={aberto ? 'baixo' : 'dir'} className="text-white/40" />
             </span>
           </button>
           {aberto && (
             <ul className="mt-1 ml-3 pl-2 border-l border-white/10 space-y-1">
               {passos.map((p, j) => {
-                if (p.bloco !== b.numero) return null;
+                if (p.bloco !== b.numero || !noFoco(p)) return null;
                 const atualItem = j === atual;
                 return (
                   <li key={p.id}>
@@ -162,8 +179,53 @@ export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, 
         </section>
       );
     })}
+    {foco && outros.length > 0 && (
+      <section aria-label={COPY_GRUPO_MATERIAIS} data-testid={`${idPrefixo}nav-outros`}>
+        <button
+          type="button"
+          onClick={() => setOutrosAberto((v) => !v)}
+          aria-expanded={outrosAberto}
+          data-testid={`${idPrefixo}nav-outros-toggle`}
+          className="min-h-[44px] w-full flex items-center justify-between gap-2 px-2 rounded text-[10px] sm:text-xs font-bold uppercase tracking-wide text-gray-400 hover:text-white transition"
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <IconeCheck className="text-prosperus-gold-light shrink-0" title={COPY_GRUPO_MATERIAIS} />
+            <span className="truncate">{COPY_GRUPO_MATERIAIS}</span>
+          </span>
+          <span className="flex items-center gap-2 shrink-0">
+            <span className="font-sans normal-case tracking-normal text-[11px] text-white/50" data-testid={`${idPrefixo}nav-outros-contagem`}>{outros.reduce((s, { p }) => s + p.campos.length, 0)}</span>
+            <IconeSeta direcao={outrosAberto ? 'baixo' : 'dir'} className="text-white/40" />
+          </span>
+        </button>
+        {outrosAberto && (
+          <ul className="mt-1 ml-3 pl-2 border-l border-white/10 space-y-1">
+            {outros.map(({ p, j }) => {
+              const atualItem = j === atual;
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => onIr(j)}
+                    aria-current={atualItem ? 'step' : undefined}
+                    data-testid={`${idPrefixo}nav-passo-${p.id}`}
+                    className={`min-h-[44px] flex items-center gap-2 w-full text-left px-3 py-1.5 rounded transition text-xs sm:text-sm ${
+                      atualItem ? 'bg-prosperus-gold-dark text-black font-semibold' : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <span className={`text-[11px] font-bold font-sans shrink-0 ${atualItem ? 'text-black/70' : 'text-prosperus-gold-dark'}`}>{p.campos.map((c) => c.key).join(' e ')}</span>
+                    <span className="truncate flex-1">{tituloDoPasso(p)}</span>
+                    <span className={`text-[10px] font-sans shrink-0 ${atualItem ? 'text-black/60' : 'text-white/40'}`}>Editar</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    )}
   </nav>
-);
+  );
+};
 
 /** O fim do navegador: "Prévia do script" com quantos capítulos já abriram (os outros ficam trancados). */
 export const BotaoPrevia: React.FC<{ blocos: ScriptBlockView[]; onClick: () => void; ativo?: boolean; testId?: string }> = ({ blocos, onClick, ativo = false, testId = 'nav-previa' }) => {
@@ -194,11 +256,13 @@ interface NavegadorLateralProps extends NavegadorFichaProps {
   /** Abre a prévia do script (capítulos revelados e trancados). */
   onPrevia?: () => void;
   previaAtiva?: boolean;
+  /** Sobrescreve a leitura padrão (modo "completar o que falta": só as respostas do mentor contam). */
+  temPendente?: boolean;
 }
 
 /** Coluna esquerda (desktop, a partir de 1024 px): painel navy fixo com a hierarquia blocos > perguntas e, no fim, a prévia. */
-export const NavegadorLateral: React.FC<NavegadorLateralProps> = ({ onProximaPendente, onPrevia, previaAtiva = false, ...nav }) => {
-  const temPendente = nav.passos.some(pendenteNav);
+export const NavegadorLateral: React.FC<NavegadorLateralProps> = ({ onProximaPendente, onPrevia, previaAtiva = false, temPendente: temPendenteProp, ...nav }) => {
+  const temPendente = temPendenteProp ?? nav.passos.some(pendenteNav);
   return (
     <aside className="hidden lg:block" aria-label="Navegação da ficha" data-testid="navegador-lateral">
       <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto ficha-scroll rounded-lg bg-prosperus-navy-panel border border-white/5 p-3 space-y-3">
@@ -216,10 +280,11 @@ interface NavegadorSheetProps extends NavegadorFichaProps {
   onFechar: () => void;
   onPrevia?: () => void;
   previaAtiva?: boolean;
+  temPendente?: boolean;
 }
 
 /** Folha de baixo (celular): a mesma hierarquia, rolando por dentro com a barra discreta. */
-export const NavegadorSheet: React.FC<NavegadorSheetProps> = ({ aberto, onFechar, onPrevia, previaAtiva = false, ...nav }) => {
+export const NavegadorSheet: React.FC<NavegadorSheetProps> = ({ aberto, onFechar, onPrevia, previaAtiva = false, temPendente: _temPendente, ...nav }) => {
   useEffect(() => {
     if (!aberto) return;
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar(); };

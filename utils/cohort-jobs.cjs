@@ -22,9 +22,9 @@ const PROGRESSO_MAX_BYTES = 4096;
 /** Tipos que escrevem a proxima versao do script do clube: dividem o mesmo escopo de deduplicacao. */
 const SCRIPT_FAMILY = ['script', 'revisar'];
 
-/** Escopo de deduplicacao por tipo: onde 1 job ativo basta. */
+/** Escopo de deduplicacao por tipo: onde 1 job ativo basta. pendencia = 1 ativa por clube (so entre pendencias). */
 function dedupeScope(tipo) {
-  if (SCRIPT_FAMILY.includes(tipo)) return 'club';
+  if (SCRIPT_FAMILY.includes(tipo) || tipo === 'pendencia') return 'club';
   if (tipo === 'refinar') return 'club_field';
   return 'pessoa';
 }
@@ -157,6 +157,8 @@ async function claimNextJob({ dbGet }, tipo = null) {
 /**
  * Atualiza o status pelo worker. Terminal grava finished_at; queued (devolver a fila) limpa started/finished.
  * `progresso` (objeto, ate PROGRESSO_MAX_BYTES) e gravado como JSON com qualquer status; null limpa.
+ * `result` substitui o anterior, EXCETO em `queued` (reinicio de done/needs_human): objeto com objeto e fundido
+ * ({ ...anterior, ...novo }) para nao perder `pendencia`/`mensagem_mentor` ja gravados.
  * @param {{status: string, result?: any, error?: string|null, progresso?: object|null}} patch
  */
 async function updateJobStatus({ dbGet, dbRun }, id, patch) {
@@ -164,7 +166,15 @@ async function updateJobStatus({ dbGet, dbRun }, id, patch) {
   if (!VM.JOB_STATUSES.includes(status)) throw new Error('status inválido');
   const sets = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
   const params = [status];
-  if (patch.result !== undefined) { sets.push('result = ?'); params.push(patch.result == null ? null : JSON.stringify(patch.result)); }
+  if (patch.result !== undefined) {
+    let result = patch.result;
+    if (status === 'queued' && result && typeof result === 'object' && !Array.isArray(result)) {
+      const cur = await getJob({ dbGet }, id);
+      const antigo = cur && cur.result && typeof cur.result === 'object' && !Array.isArray(cur.result) ? cur.result : {};
+      result = { ...antigo, ...result };
+    }
+    sets.push('result = ?'); params.push(result == null ? null : JSON.stringify(result));
+  }
   if (patch.error !== undefined) { sets.push('error = ?'); params.push(patch.error == null ? null : String(patch.error).slice(0, 4000)); }
   if (patch.progresso !== undefined) {
     const json = patch.progresso == null ? null : JSON.stringify(patch.progresso);

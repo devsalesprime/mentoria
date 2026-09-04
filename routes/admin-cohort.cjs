@@ -6,6 +6,7 @@ const CM = require('../utils/cohort-materials.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
 const CTX = require('../utils/script-context.cjs');
 const SV = require('../utils/script-versions.cjs');
+const SUF = require('../utils/suficiencia.cjs');
 
 /**
  * Admin do cohort (clubes do Exclusive) e da Ficha do Script.
@@ -19,8 +20,33 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
+  SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
 
   const normEmail = VM.normEmail;
+
+  /** Quem esta logado no admin, para o registro de "forcado por". */
+  function quemForcou(req) {
+    const u = req.user || {};
+    return String(u.email || u.user || u.name || u.userId || 'admin');
+  }
+
+  /** Pendencias abertas pelo worker (job `pendencia` queued/running) por clube: { [slug]: { job_id, campos: [{ key, nome }], desde, email } }. */
+  async function pendenciasAbertas(slugs) {
+    if (!slugs.length) return {};
+    const rows = await dbAll(
+      `SELECT * FROM cohort_jobs WHERE tipo = 'pendencia' AND status IN ('queued', 'running') AND club_slug IN (${slugs.map(() => '?').join(',')})
+        ORDER BY created_at DESC`,
+      slugs
+    );
+    const out = {};
+    for (const r of rows) {
+      const j = JOBS.rowToJob(r);
+      if (out[j.club_slug]) continue;
+      const campos = ((j.payload && j.payload.campos) || []).filter((k) => SF.FIELD_BY_KEY[k]).map((k) => ({ key: k, nome: SF.FIELD_BY_KEY[k].nome }));
+      out[j.club_slug] = { job_id: j.id, status: j.status, campos, desde: (j.payload && (j.payload.enviado_em || j.payload.aberta_em)) || j.created_at, email: j.email };
+    }
+    return out;
+  }
 
   async function getClub(slug) {
     return dbGet(`SELECT * FROM cohort_clubs WHERE slug = ?`, [slug]);
@@ -76,7 +102,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       const clubs = await dbAll(
         `SELECT cc.slug, cc.nome, cc.ativo, cc.created_at,
                 sf.materials, sf.materials_status, sf.materials_submitted_at, sf.ficha_status, sf.fields,
-                sf.prefilled_at, sf.reviewed_at, sf.last_user_activity_at
+                sf.prefilled_at, sf.reviewed_at, sf.last_user_activity_at, sf.suficiencia, sf.confirmada_por
            FROM cohort_clubs cc
            LEFT JOIN script_fichas sf ON sf.club_slug = cc.slug
           ORDER BY cc.nome COLLATE NOCASE ASC`
@@ -94,6 +120,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
           GROUP BY u.club_slug`
       );
       const countBySlug = Object.fromEntries(fileCounts.map((r) => [r.club_slug, r.c]));
+      const pendencias = await pendenciasAbertas(clubs.map((c) => c.slug));
       const membersBySlug = {};
       for (const m of members) {
         (membersBySlug[m.club_slug] = membersBySlug[m.club_slug] || []).push({
@@ -117,6 +144,11 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
           materials_status: c.materials_status || 'pending',
           materials_submitted_at: c.materials_submitted_at || null,
           ficha_status: c.ficha_status || 'vazia',
+          confirmada_por: c.confirmada_por || null,
+          // Gates de suficiencia: { resultado, faltam, faltam_n, forcado_por, ... } ou null antes do pre-preenchimento
+          suficiencia: SUF.resumoSuficiencia(safeJsonParse(c.suficiencia, null)),
+          // Pendencia aberta pelo worker com o mentor ("Aguardando resposta do mentor"): campos com nome, sem codigo
+          pendencia: pendencias[c.slug] || null,
           confirmados: summary.obrigatorios_decididos,
           obrigatorios: summary.obrigatorios,
           decididos: summary.decididos,
@@ -173,6 +205,10 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
           materials_status: ficha.materials_status,
           materials_submitted_at: ficha.materials_submitted_at,
           ficha_status: ficha.ficha_status,
+          confirmada_por: ficha.confirmada_por || null,
+          // Gates de suficiencia completos (resultado, faltam, motivos, forcado_por, script_job_id)
+          suficiencia: safeJsonParse(ficha.suficiencia, null),
+          pendencia: (await pendenciasAbertas([club.slug]))[club.slug] || null,
           prefill_meta: safeJsonParse(ficha.prefill_meta, null),
           prefilled_at: ficha.prefilled_at,
           reviewed_at: ficha.reviewed_at,
@@ -182,6 +218,85 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       });
     } catch (error) {
       console.error('Error in GET /api/admin/clubs/:slug/script-ficha:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/admin/clubs/:slug/suficiencia/forcar-revisao  -> ficha volta para em_revisao (o mentor ve a ficha completa)
+  // Registra quem forcou em suficiencia.forcado_por; o resultado vira `parcial` (sem `faltam` = wizard completo com aviso).
+  router.post('/api/admin/clubs/:slug/suficiencia/forcar-revisao', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const club = await getClub(req.params.slug);
+      if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
+      const ficha = await ensureFicha(club.slug);
+      const suf = safeJsonParse(ficha.suficiencia, null) || {};
+      const registro = {
+        ...suf,
+        resultado_original: suf.resultado_original || suf.resultado || null,
+        resultado: 'parcial',
+        faltam: Array.isArray(suf.faltam) ? suf.faltam : [],
+        motivos: Array.isArray(suf.motivos) ? suf.motivos : [],
+        forcado_por: { acao: 'revisao', por: quemForcou(req), em: new Date().toISOString() },
+      };
+      await dbRun(
+        `UPDATE script_fichas SET ficha_status = 'em_revisao', confirmada_por = NULL, suficiencia = ?, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
+        [JSON.stringify(registro), club.slug]
+      );
+      res.json({ success: true, ficha_status: 'em_revisao', suficiencia: registro });
+    } catch (error) {
+      console.error('Error in POST /api/admin/clubs/:slug/suficiencia/forcar-revisao:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/admin/clubs/:slug/suficiencia/forcar-script  -> gera o script mesmo assim: confirma o que os materiais trouxeram
+  // (origem automatica), ficha confirmada (confirmada_por 'admin:<quem>'), job `script` na fila. 6.2 vazio nunca gera script (400).
+  router.post('/api/admin/clubs/:slug/suficiencia/forcar-script', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const club = await getClub(req.params.slug);
+      if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
+      const ficha = await ensureFicha(club.slug);
+      const ac = SUF.autoConfirmar(safeJsonParse(ficha.fields, {}));
+      const quemVende = String(SF.effectiveValue(ac.fields['6.2']) || '').trim();
+      if (!quemVende) {
+        return res.status(400).json({ success: false, message: 'Quem vende e de onde vem o lead está vazio: sem isso o script não pode ser gerado.', faltam: ['6.2'] });
+      }
+      const por = quemForcou(req);
+      const suf = safeJsonParse(ficha.suficiencia, null) || {};
+      const registro = {
+        ...suf,
+        resultado_original: suf.resultado_original || suf.resultado || null,
+        resultado: 'suficiente',
+        faltam: [],
+        motivos: Array.isArray(suf.motivos) ? suf.motivos : [],
+        forcado_por: { acao: 'script', por, em: new Date().toISOString() },
+        campos_automaticos: ac.confirmados.length,
+        vazios_automaticos: ac.vazios.length,
+        pendentes_ignorados: ac.pendentes,
+      };
+      const membro = await dbGet(`SELECT email FROM cohort_members WHERE club_slug = ? ORDER BY created_at ASC LIMIT 1`, [club.slug]);
+      const ultimoPrefill = await dbGet(
+        `SELECT email, notify_phone FROM cohort_jobs WHERE club_slug = ? AND tipo = 'prefill' ORDER BY created_at DESC LIMIT 1`,
+        [club.slug]
+      );
+      const email = (ultimoPrefill && ultimoPrefill.email) || (membro && membro.email) || `admin@${club.slug}`;
+      const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+        tipo: 'script',
+        club_slug: club.slug,
+        email,
+        notify_phone: (ultimoPrefill && ultimoPrefill.notify_phone) || null,
+        payload: { nome: null, motivo: 'forcado', origem: 'admin', forcado_por: por, pedido_em: new Date().toISOString() },
+      });
+      registro.script_job_id = job.id;
+      await dbRun(
+        `UPDATE script_fichas
+            SET fields = ?, ficha_status = 'confirmada', confirmada_por = ?, suficiencia = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE club_slug = ?`,
+        [JSON.stringify(ac.fields), `admin:${por}`, JSON.stringify(registro), club.slug]
+      );
+      res.json({ success: true, ficha_status: 'confirmada', confirmada_por: `admin:${por}`, suficiencia: registro, job: { ...job, existing } });
+    } catch (error) {
+      console.error('Error in POST /api/admin/clubs/:slug/suficiencia/forcar-script:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

@@ -29,7 +29,7 @@ import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
 import { FichaScreen } from './script/FichaScreen';
 import { MateriaisScreen } from './script/MateriaisScreen';
 import { ScriptScreen } from './script/ScriptScreen';
-import { useScriptFicha } from '../hooks/useScriptFicha';
+import { useScriptFicha, rotaInicialDoClube, fichaEhSecundaria } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
 import type { FichaStatus, MaterialsStatus } from '../data/script-ficha-fields';
 
@@ -75,7 +75,7 @@ interface DashboardProps {
   onTokenRefresh?: (token: string) => void;
 }
 
-type MenuItem ={ id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold' };
+type MenuItem ={ id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold'; /** item secundario (opcao, nao etapa): menor, sem ponto */ secondary?: boolean };
 type MenuSection = { id: string; title: string; items: MenuItem[] };
 type ScriptMenuState = {
   enabled: boolean;
@@ -83,6 +83,8 @@ type ScriptMenuState = {
   materialsStatus: MaterialsStatus | null;
   /** "Seu script": 'aprovado' | 'rascunho' (versao existe) | 'escrevendo' (job na fila) | null */
   scriptState?: 'aprovado' | 'rascunho' | 'escrevendo' | null;
+  /** Os materiais bastaram (suficiente): "Ficha" vira opcao secundaria depois de "Seu script", nao uma etapa. */
+  fichaSecundaria?: boolean;
 };
 
 // ─── Dynamic sidebar menu ──────────────────────────────────────────────────────
@@ -129,11 +131,17 @@ const getSidebarMenu = (
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
-      items: [
-        { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
-        { id: 'script_ficha', label: 'Ficha do Script', statusDot: fichaDot },
-        { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
-      ],
+      items: script.fichaSecundaria
+        ? [
+          { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
+          { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
+          { id: 'script_ficha', label: 'Ficha', secondary: true },
+        ]
+        : [
+          { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
+          { id: 'script_ficha', label: 'Ficha do Script', statusDot: fichaDot },
+          { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
+        ],
     });
   }
 
@@ -294,6 +302,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
         : (s?.versoes || 0) > 0 ? 'rascunho'
         : s?.job && (s.job.status === 'queued' || s.job.status === 'running') ? 'escrevendo'
         : null,
+      fichaSecundaria: fichaEhSecundaria(scriptFicha.data),
     };
   }, [cohortEfetivo, scriptFicha.enabled, scriptFicha.data]);
 
@@ -332,7 +341,8 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
 
   // PV-1.2/PV-3.1: Default route post-login — redirect to insights when submitted
   // or when admin has delivered feedback for an in_progress user.
-  // Cohort do Exclusive cai na Ficha (ou em Materiais, se a ficha ainda esta vazia).
+  // Cohort do Exclusive: Materiais com a ficha vazia; "Seu script" quando a ficha fechou ou os materiais bastaram
+  // (suficiente); a Ficha nos outros casos (parcial abre so o que falta). Regra: hooks/useScriptFicha.ts rotaInicialDoClube.
   const [hasRedirected, setHasRedirected] = useState(false);
   useEffect(() => {
     if (hasRedirected || urlModule) return; // Don't redirect if user navigated via URL
@@ -340,7 +350,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     if (cohort) {
       if (!scriptFicha.loaded) return;
       if (scriptFicha.enabled && scriptFicha.data) {
-        navigateTo(scriptFicha.data.ficha_status !== 'vazia' ? 'script_ficha' : 'script_materiais');
+        navigateTo(rotaInicialDoClube(scriptFicha.data));
         setHasRedirected(true);
         return;
       }
@@ -733,12 +743,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                           navigateTo(item.id);
                           setIsMobileMenuOpen(false);
                         }}
-                        className={`flex items-center gap-2 w-full text-left px-3 sm:px-4 py-1.5 sm:py-2 rounded transition text-xs sm:text-sm
-                          ${isCurrent ? 'bg-prosperus-gold-dark text-black font-semibold' : 'text-gray-400 hover:text-white hover:bg-white/5'}
+                        data-secondary={item.secondary ? 'true' : undefined}
+                        className={`flex items-center gap-2 w-full text-left px-3 sm:px-4 rounded transition
+                          ${item.secondary ? 'py-1 text-[11px] sm:text-xs italic pl-6 sm:pl-7' : 'py-1.5 sm:py-2 text-xs sm:text-sm'}
+                          ${isCurrent ? 'bg-prosperus-gold-dark text-black font-semibold' : item.secondary ? 'text-gray-500 hover:text-white hover:bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'}
                         `}
                       >
                         <span className="truncate flex-1">{item.label}</span>
-                        {!isCurrent && <DotIndicator dot={item.statusDot} />}
+                        {!isCurrent && !item.secondary && <DotIndicator dot={item.statusDot} />}
                       </button>
                     );
                   })}

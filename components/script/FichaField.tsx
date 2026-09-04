@@ -40,8 +40,19 @@ interface FichaFieldProps {
 // Alvo de toque no celular: 44 px de altura minima (desktop mantem o tamanho do Button)
 const TAP = 'min-h-[44px] sm:min-h-0';
 
-/** Chip de estado do campo, no vocabulário único (Confirmado / Editado / Aceito em branco). */
-export const StatusChip: React.FC<{ status: ScriptFieldView['status'] }> = ({ status }) => {
+/** Rótulo do campo decidido em nome do mentor a partir dos materiais (gates de suficiência); continua editável. */
+export const COPY_PREENCHIDO_MATERIAIS = 'Preenchido pelos seus materiais';
+
+/** true quando quem decidiu o campo foi o app, a partir dos materiais (origem 'automatica'). */
+export function preenchidoPelosMateriais(campo: Pick<ScriptFieldView, 'status' | 'atualizado_por'>): boolean {
+  return (campo.status === 'confirmado' || campo.status === 'aceito_vazio') && campo.atualizado_por === 'automatica';
+}
+
+/** Chip de estado do campo, no vocabulário único (Confirmado / Editado / Aceito em branco / Preenchido pelos seus materiais). */
+export const StatusChip: React.FC<{ status: ScriptFieldView['status']; campo?: Pick<ScriptFieldView, 'status' | 'atualizado_por' | 'key'> }> = ({ status, campo }) => {
+  if (campo && preenchidoPelosMateriais({ ...campo, status })) {
+    return <span className="text-xs text-prosperus-gold-light font-sans" data-testid={`chip-automatica-${campo.key}`}>{COPY_PREENCHIDO_MATERIAIS}</span>;
+  }
   if (status === 'confirmado' || status === 'editado') return <span className="text-xs text-green-400 font-sans">{rotuloStatus(status)}</span>;
   if (status === 'aceito_vazio') return <span className="text-xs text-white/50 font-sans">{rotuloStatus(status)}</span>;
   return null;
@@ -183,7 +194,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
               <FichaDisplay campo={campo} modo="atual" contexto={contexto} />
               {previa}
               <div className="flex flex-wrap items-center gap-3">
-                <StatusChip status={status} />
+                <StatusChip status={status} campo={campo} />
                 {status === 'confirmado' && campo.fonte && <Fonte campo={campo} />}
               </div>
               {!readOnly && (
@@ -215,7 +226,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
           {status === 'aceito_vazio' && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                <StatusChip status={status} />
+                <StatusChip status={status} campo={campo} />
                 {campo.obrigatorio && (
                   <span className="text-[11px] text-prosperus-gold-light/80 font-sans">{COPY_EM_BRANCO}</span>
                 )}

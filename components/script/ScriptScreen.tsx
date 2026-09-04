@@ -290,6 +290,11 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
             <>
               <h2 className="font-serif text-2xl sm:text-3xl text-white leading-tight">Seu script está sendo escrito.</h2>
               <p className="text-sm text-white/70 leading-relaxed">Você recebe um aviso no WhatsApp quando ficar pronto. Ele aparece aqui, com os 7 passos, para ler, comentar, baixar ou imprimir.</p>
+              {ficha.data?.confirmada_por === 'automatica' && (
+                <p className="text-xs text-prosperus-gold-light/90" data-testid="nota-automatica">
+                  Os seus materiais bastaram: a ficha foi preenchida por eles e o script já está a caminho. Se quiser conferir ou ajustar algo, a ficha continua aberta.
+                </p>
+              )}
               {status && (
                 <p className="text-xs text-white/60 flex items-center gap-2">
                   <span className={`w-1.5 h-1.5 rounded-full ${job?.status === 'running' ? 'bg-prosperus-gold-dark animate-pulse' : job?.status === 'queued' ? 'bg-yellow-400' : 'bg-red-400'}`} />
@@ -301,6 +306,9 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               )}
               {!job && fichaConfirmada && (
                 <Button variant="outline" size="md" onClick={gerarDoZero} loading={pedindo} disabled={pedindo}>Pedir o script agora</Button>
+              )}
+              {onNavigate && (
+                <Button variant="link" size="md" className="!px-0" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">Revisar ficha</Button>
               )}
             </>
           ) : (
@@ -361,6 +369,9 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
             {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
           </Button>
           <Button variant="outline" size="md" onClick={gerarDoZero} disabled={pedindo || !!scriptJobAtivo}>Gerar do zero</Button>
+          {onNavigate && (
+            <Button variant="link" size="md" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">Revisar ficha</Button>
+          )}
           {parsed && parsed.documentos.length > 1 && (
             <div role="tablist" aria-label="Documento do script" className="inline-flex rounded-lg border border-white/15 overflow-hidden ml-auto">
               {parsed.documentos.map((d) => (

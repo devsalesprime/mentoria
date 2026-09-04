@@ -159,9 +159,54 @@ export interface ScriptComment {
   created_at: string;
 }
 
+export type SuficienciaResultado = 'suficiente' | 'parcial' | 'insuficiente';
+
+/**
+ * Gates de suficiencia (GATES-suficiencia.md), avaliados no servidor quando o pre-preenchimento termina:
+ * suficiente = o script sai sozinho; parcial = o mentor responde so `faltam`; insuficiente = precisa de mais material.
+ */
+export interface Suficiencia {
+  resultado: SuficienciaResultado;
+  /** Chaves dos campos que precisam da resposta do mentor (ordem da ficha). */
+  faltam: string[];
+  /** Motivos legiveis (pt-BR, sem codigo). */
+  motivos: string[];
+  criticos_ok?: boolean;
+  fontes_distintas?: number;
+  avaliado_em?: string | null;
+  job_id?: string | null;
+  script_job_id?: string | null;
+  forcado_por?: { acao: 'revisao' | 'script'; por: string; em: string } | null;
+}
+
+/** Origem do fechamento da ficha: os materiais bastaram ('automatica'), o mentor fechou ('mentor'), o admin forcou ('admin:<quem>'). */
+export const ORIGEM_AUTOMATICA = 'automatica';
+
+export type RotaScript = 'script_materiais' | 'script_ficha' | 'script_script';
+
+/**
+ * Onde o membro do Exclusive cai ao abrir o app: Materiais com a ficha vazia; "Seu script" quando a ficha esta
+ * fechada ou os materiais bastaram (suficiente); a Ficha nos outros casos (parcial abre so o que falta).
+ */
+export function rotaInicialDoClube(d: Pick<ScriptFichaData, 'ficha_status' | 'suficiencia'> | null | undefined): RotaScript {
+  if (!d || d.ficha_status === 'vazia') return 'script_materiais';
+  if (d.ficha_status === 'confirmada') return 'script_script';
+  if (d.suficiencia?.resultado === 'suficiente' && d.ficha_status !== 'em_revisao') return 'script_script';
+  return 'script_ficha';
+}
+
+/** "Ficha" vira item secundario do menu (nao uma etapa) quando os materiais bastaram e o script segue sozinho. */
+export function fichaEhSecundaria(d: Pick<ScriptFichaData, 'ficha_status' | 'suficiencia'> | null | undefined): boolean {
+  return !!d && d.suficiencia?.resultado === 'suficiente' && d.ficha_status !== 'em_revisao';
+}
+
 export interface ScriptFichaData {
   club: { slug: string; nome: string };
   ficha_status: FichaStatus;
+  /** 'automatica' | 'mentor' | 'admin:<quem>' | null (reaberta). */
+  confirmada_por?: string | null;
+  /** null antes de o pre-preenchimento terminar. */
+  suficiencia?: Suficiencia | null;
   /** Por pessoa: "submitted" quando ESTE membro clicou em "Enviei o que tinha". */
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
@@ -456,7 +501,9 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
       const rec = recomputeView(blocos);
       const ficha_status: FichaStatus = prev.ficha_status === 'vazia' || prev.ficha_status === 'pre_preenchida' || prev.ficha_status === 'confirmada'
         ? 'em_revisao' : prev.ficha_status;
-      return { ...prev, ...rec, ficha_status };
+      // Reabrir uma ficha fechada limpa quem a fechou (o servidor faz o mesmo no PUT fields)
+      const confirmada_por = prev.ficha_status === 'confirmada' ? null : prev.confirmada_por ?? null;
+      return { ...prev, ...rec, ficha_status, confirmada_por };
     });
     pendingRef.current[key] = decision;
     schedule();
@@ -476,6 +523,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
         setData((prev) => (prev ? {
           ...prev,
           ficha_status: 'confirmada',
+          confirmada_por: res.data.confirmada_por || 'mentor',
           reviewed_at: new Date().toISOString(),
           script: { ...(prev.script || { versoes: 0, ultima: null, aprovada: null, job: null }), job: job ?? prev.script?.job ?? null },
         } : prev));

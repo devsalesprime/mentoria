@@ -1,10 +1,33 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { CohortClubDetail } from './CohortClubDetail';
-import { FICHA_STATUS_LABEL, MATERIALS_STATUS_LABEL } from '../../data/script-ficha-fields';
+import { FICHA_STATUS_LABEL, MATERIALS_STATUS_LABEL, SCRIPT_FIELD_BY_KEY } from '../../data/script-ficha-fields';
 import type { FichaStatus, MaterialsStatus } from '../../data/script-ficha-fields';
 
+/** Resumo dos gates de suficiencia (GET /api/admin/cohort .suficiencia); o detalhe do clube traz os motivos. */
+export interface SuficienciaResumo {
+  resultado: 'suficiente' | 'parcial' | 'insuficiente';
+  faltam: string[];
+  faltam_n: number;
+  criticos_ok?: boolean;
+  fontes_distintas?: number;
+  forcado_por?: { acao: 'revisao' | 'script'; por: string; em: string } | null;
+  avaliado_em?: string | null;
+}
+
+/** Pendencia aberta pelo worker com o mentor (job `pendencia` na fila): "Aguardando resposta do mentor". */
+export interface PendenciaAberta {
+  job_id: string;
+  status: string;
+  campos: { key: string; nome: string }[];
+  desde: string | null;
+  email: string;
+}
+
 export interface CohortRow {
+  suficiencia?: SuficienciaResumo | null;
+  pendencia?: PendenciaAberta | null;
+  confirmada_por?: string | null;
   club_slug: string;
   club_nome: string;
   ativo: boolean;
@@ -59,6 +82,44 @@ export const MaterialsBadge: React.FC<{ status: MaterialsStatus; count: number }
   </span>
 );
 
+const SUFICIENCIA_CLASS: Record<SuficienciaResumo['resultado'], string> = {
+  suficiente: 'bg-green-600/20 text-green-400',
+  parcial: 'bg-yellow-600/20 text-yellow-400',
+  insuficiente: 'bg-red-600/20 text-red-300',
+};
+
+/** "suficiente" / "parcial N" / "insuficiente" (+ "forçado" quando o admin interveio); vazio antes do pré-preenchimento. */
+export function suficienciaTexto(s: SuficienciaResumo | null | undefined): string {
+  if (!s) return '';
+  const base = s.resultado === 'parcial' ? `parcial ${s.faltam_n ?? (s.faltam || []).length}` : s.resultado;
+  return s.forcado_por ? `${base} · forçado` : base;
+}
+
+export const SuficienciaBadge: React.FC<{ suficiencia: SuficienciaResumo | null | undefined }> = ({ suficiencia }) => {
+  if (!suficiencia) return <span className="text-[11px] text-white/30" data-testid="suficiencia-badge">sem avaliação</span>;
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${SUFICIENCIA_CLASS[suficiencia.resultado] || SUFICIENCIA_CLASS.parcial}`} data-testid="suficiencia-badge">
+      {suficienciaTexto(suficiencia)}
+    </span>
+  );
+};
+
+/** Nomes dos campos (sem código) de uma pendência ou de `faltam`. */
+export function nomesDosCampos(keys: string[] | { key: string; nome: string }[] | undefined): string {
+  return (keys || []).map((k) => (typeof k === 'string' ? SCRIPT_FIELD_BY_KEY[k]?.nome || k : k.nome)).join(', ');
+}
+
+/** "Aguardando resposta do mentor: campo A, campo B" (pendência aberta pelo worker). */
+export const PendenciaLinha: React.FC<{ pendencia: PendenciaAberta | null | undefined }> = ({ pendencia }) => {
+  if (!pendencia) return null;
+  const nomes = nomesDosCampos(pendencia.campos);
+  return (
+    <p className="text-[11px] text-purple-300 mt-1" data-testid="pendencia-linha">
+      Aguardando resposta do mentor{nomes ? `: ${nomes}` : ''}{pendencia.desde ? ` · desde ${formatDateTime(pendencia.desde)}` : ''}
+    </p>
+  );
+};
+
 // ─── Fila de pre-preenchimento (cohort_jobs) ─────────────────────────────────
 
 export type CohortJobStatus = 'queued' | 'running' | 'done' | 'error' | 'needs_human';
@@ -97,8 +158,12 @@ export interface JobProgresso {
   atualizado_em?: string;
 }
 
-/** "Montando o bloco Mentor (3/7)" ou '' sem progresso. */
-export function progressoResumo(j: { progresso?: JobProgresso | null }): string {
+/** "Montando o bloco Mentor (3/7)" ou '' sem progresso; pendência: "Aguardando: campo A, campo B". */
+export function progressoResumo(j: { progresso?: JobProgresso | null; tipo?: string; payload?: any }): string {
+  if (j.tipo === 'pendencia') {
+    const nomes = nomesDosCampos(j.payload?.campos);
+    return nomes ? `Aguardando: ${nomes}` : 'Aguardando resposta do mentor';
+  }
   const p = j.progresso;
   if (!p || !p.rotulo) return '';
   const etapa = p.etapa_atual && p.etapas_total ? ` (${p.etapa_atual}/${p.etapas_total})` : '';
@@ -118,6 +183,7 @@ export const JOB_TIPO_LABEL: Record<string, string> = {
   script: 'Script',
   refinar: 'Refinar campo',
   revisar: 'Revisar script',
+  pendencia: 'Aguardando resposta do mentor',
 };
 
 /** Etiqueta do tipo do job (prefill / script / refinar + campo / revisar + versao base). */
@@ -387,6 +453,8 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
     comMateriais: rows.filter((r) => r.materials_status === 'submitted' || r.materiais_count > 0 || (r.links_count || 0) > 0).length,
     emRevisao: rows.filter((r) => r.ficha_status === 'em_revisao').length,
     confirmadas: rows.filter((r) => r.ficha_status === 'confirmada').length,
+    suficientes: rows.filter((r) => r.suficiencia?.resultado === 'suficiente').length,
+    aguardando: rows.filter((r) => !!r.pendencia).length,
   };
 
   return (
@@ -396,6 +464,7 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
           <h3 className="text-lg font-semibold text-white">Cohort · Script 7 Passos</h3>
           <p className="text-xs text-white/50">
             {totals.clubes} clubes ({totals.ativos} ativos) · {totals.comMateriais} com materiais · {totals.emRevisao} em revisão · {totals.confirmadas} confirmadas
+            {totals.suficientes ? ` · ${totals.suficientes} direto ao script` : ''}{totals.aguardando ? ` · ${totals.aguardando} aguardando resposta do mentor` : ''}
           </p>
         </div>
         <div className="flex gap-2">
@@ -470,6 +539,7 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                   <th className="px-4 py-3 text-left">Membros</th>
                   <th className="px-4 py-3 text-left">Materiais</th>
                   <th className="px-4 py-3 text-left">Ficha</th>
+                  <th className="px-4 py-3 text-left">Suficiência</th>
                   <th className="px-4 py-3 text-left">Última atividade</th>
                   <th className="px-4 py-3 text-left">Último login</th>
                 </tr>
@@ -499,8 +569,11 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                       <div className="flex items-center gap-2">
                         <FichaBadge status={r.ficha_status} />
                         <span className="text-xs text-white/50">{r.confirmados}/{r.obrigatorios}</span>
+                        {r.confirmada_por === 'automatica' && <span className="text-[10px] text-prosperus-gold">pelos materiais</span>}
                       </div>
+                      <PendenciaLinha pendencia={r.pendencia} />
                     </td>
+                    <td className="px-4 py-3"><SuficienciaBadge suficiencia={r.suficiencia} /></td>
                     <td className="px-4 py-3 text-xs text-white/60">{formatDateTime(r.ultima_atividade)}</td>
                     <td className="px-4 py-3 text-xs text-white/60">{formatDateTime(r.ultimo_login)}</td>
                   </tr>
@@ -524,7 +597,9 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                   <span className="text-[11px] text-white/40">{r.pessoas_enviaram || 0}/{r.membros.length} enviaram</span>
                   <FichaBadge status={r.ficha_status} />
                   <span className="text-xs text-white/50">{r.confirmados}/{r.obrigatorios}</span>
+                  <SuficienciaBadge suficiencia={r.suficiencia} />
                 </div>
+                <PendenciaLinha pendencia={r.pendencia} />
                 <p className="text-[11px] text-white/40 mt-2">atividade {formatDateTime(r.ultima_atividade)} · login {formatDateTime(r.ultimo_login)}</p>
               </div>
             ))}

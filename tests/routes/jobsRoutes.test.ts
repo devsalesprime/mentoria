@@ -464,7 +464,10 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
     expect(done.status).toBe(200);
     expect(done.data.job.status).toBe('done');
     expect(done.data.job.finished_at).toBeTruthy();
-    expect(done.data.job.result).toEqual({ imported: 32, skipped: 2 });
+    // O result do worker e mantido; o app acrescenta { suficiencia, mensagem_mentor } (gates de suficiencia, tests/routes/suficienciaRoutes.test.ts)
+    expect(done.data.job.result).toMatchObject({ imported: 32, skipped: 2 });
+    expect(done.data.job.result.suficiencia.resultado).toMatch(/^(suficiente|parcial|insuficiente)$/);
+    expect(typeof done.data.job.result.mensagem_mentor).toBe('string');
     const nh = await worker('PATCH', `/api/jobs/${jobB.id}`, { status: 'needs_human', error: 'sem materiais suficientes' });
     expect(nh.data.job).toMatchObject({ status: 'needs_human', error: 'sem materiais suficientes' });
     expect((await worker('PATCH', `/api/jobs/${jobB.id}`, { status: 'feito' })).status).toBe(400);

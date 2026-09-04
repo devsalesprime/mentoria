@@ -44,6 +44,22 @@ type Tela =
 /** Link para a prévia (fim da ficha e navegador). */
 export const COPY_VER_PREVIA = 'Ver a prévia do script';
 
+/**
+ * Modo "completar o que falta" (suficiência parcial): só os campos em `keys` entram no fluxo; `pendentes` são os que
+ * ainda precisam da resposta do mentor (um campo já decidido mas sinalizado conta até ele mexer). Os demais campos
+ * ficam recolhidos em "Preenchido pelos seus materiais" no navegador, editáveis sob demanda.
+ */
+export interface FocoWizard {
+  keys: string[];
+  pendentes: string[];
+}
+
+/** "Faltam N respostas suas para o seu script" (modo completar). */
+export function textoFaltamRespostas(n: number): string {
+  if (n <= 0) return 'Suas respostas estão completas';
+  return n === 1 ? 'Falta 1 resposta sua para o seu script' : `Faltam ${n} respostas suas para o seu script`;
+}
+
 /** Tempo do estado "Confirmado" (o valor recolhido numa linha) antes da próxima pergunta entrar. */
 export const CONFIRMADO_MS = 400;
 /** Duração do deslize entre perguntas. */
@@ -263,7 +279,7 @@ const CampoPasso: React.FC<CampoPassoProps> = ({
         {status !== 'aceito_vazio' && <FichaDisplay campo={campo} modo="atual" contexto={contexto} />}
         {status !== 'aceito_vazio' && <PreviaCampo campo={campo} modo="atual" contexto={contexto} />}
         <div className="flex flex-wrap items-center gap-3">
-          <StatusChip status={status} />
+          <StatusChip status={status} campo={campo} />
           {status === 'confirmado' && campo.fonte && <Fonte campo={campo} />}
           {status === 'aceito_vazio' && campo.obrigatorio && (
             <span className="text-xs text-prosperus-gold-light/80 font-sans">{COPY_EM_BRANCO}</span>
@@ -344,6 +360,8 @@ interface FichaWizardProps {
   fechandoFicha?: boolean;
   /** Recarrega a ficha (flush + GET) depois de pedir uma nova sugestão com contexto. */
   onRecarregar?: () => Promise<void> | void;
+  /** Modo "completar o que falta": só estes campos entram no fluxo; o resto fica recolhido e editável sob demanda. */
+  foco?: FocoWizard | null;
 }
 
 function editavel(alvo: EventTarget | null): boolean {
@@ -354,15 +372,28 @@ function editavel(alvo: EventTarget | null): boolean {
 
 const CARTAO = 'bg-prosperus-navy-mid border border-white/5 rounded-lg px-5 sm:px-8 pt-6 shadow-2xl space-y-6 overflow-x-clip';
 
-export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFecharFicha, fechandoFicha = false, onRecarregar }) => {
+export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFecharFicha, fechandoFicha = false, onRecarregar, foco = null }) => {
   const { data, decide } = ficha;
   const blocos = data?.blocos || [];
-  const passos = useMemo(() => montarPassos(blocos), [blocos]);
+  const focoKeys = useMemo(() => (foco ? new Set(foco.keys) : null), [foco]);
+  const focoPendentes = useMemo(() => new Set(foco ? foco.pendentes : []), [foco]);
+  // Modo completar: os passos do foco vêm primeiro (é o fluxo); os outros ficam depois, só alcançáveis pelo navegador
+  const { passos, limite } = useMemo(() => {
+    const todos = montarPassos(blocos);
+    if (!focoKeys) return { passos: todos, limite: todos.length };
+    const dentro = todos.filter((p) => p.campos.some((c) => focoKeys.has(c.key)));
+    const fora = todos.filter((p) => !p.campos.some((c) => focoKeys.has(c.key)));
+    return { passos: [...dentro, ...fora], limite: dentro.length };
+  }, [blocos, focoKeys]);
+  const focoIds = useMemo(() => (focoKeys ? passos.slice(0, limite).map((p) => p.id) : null), [focoKeys, passos, limite]);
+  /** Pendente: sem decisão (ficha inteira) ou, no modo completar, ainda esperando a resposta do mentor. */
+  const pendente = (p: Passo) => (focoKeys ? p.campos.some((c) => focoPendentes.has(c.key)) : pendenteNav(p));
+  const primeiroPendente = () => passos.slice(0, limite).findIndex(pendente);
 
   // Abre no primeiro campo sem decisão da ficha inteira; tudo decidido abre no fim
-  const [idx, setIdx] = useState(() => Math.max(0, passoInicial(passos)));
+  const [idx, setIdx] = useState(() => Math.max(0, primeiroPendente()));
   const [dir, setDir] = useState(1);
-  const [tela, setTela] = useState<Tela>(() => (passos.length && passoInicial(passos) < 0 ? { tipo: 'fim' } : { tipo: 'passo' }));
+  const [tela, setTela] = useState<Tela>(() => (passos.length && primeiroPendente() < 0 ? { tipo: 'fim' } : { tipo: 'passo' }));
   const [sheet, setSheet] = useState(false);
   const [feito, setFeito] = useState<Feito | null>(null);
   const feitoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -417,7 +448,8 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   const avancar = () => {
     limparFeito();
-    if (i >= passos.length - 1) { setTela({ tipo: 'fim' }); return; }
+    // Fim do fluxo (ou de um campo fora do foco, aberto pelo navegador): volta ao fim
+    if (i >= limite - 1 || i >= limite) { setTela({ tipo: 'fim' }); return; }
     const prox = passos[i + 1];
     if (prox.bloco !== passo.bloco) { setDir(1); setTela({ tipo: 'bloco', de: passo.bloco, para: prox.bloco }); return; }
     irPara(i + 1, 1);
@@ -440,7 +472,7 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
     if (i > 0) irPara(i - 1, -1);
   };
 
-  const continuar = () => { if (i < passos.length - 1) irPara(i + 1, 1); };
+  const continuar = () => { if (i < limite - 1) irPara(i + 1, 1); };
 
   const proximo = () => {
     if (feito) return;
@@ -452,7 +484,9 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   const irParaPasso = (j: number) => irPara(j, j >= i ? 1 : -1);
 
   const irParaObrigatorioPendente = () => {
-    const j = passos.findIndex((p) => p.campos.some((c) => c.obrigatorio && !c.decidido));
+    const j = focoKeys
+      ? primeiroPendente()
+      : passos.findIndex((p) => p.campos.some((c) => c.obrigatorio && !c.decidido));
     if (j >= 0) irParaPasso(j);
   };
 
@@ -466,16 +500,19 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
     if (j >= 0) irParaPasso(j);
   };
 
-  /** Próxima pergunta sem decisão depois da atual (dá a volta); sem nenhuma, vai ao fim. */
+  /** Próxima pergunta sem decisão depois da atual (dá a volta dentro do fluxo); sem nenhuma, vai ao fim. */
   const proximaPendente = () => {
-    const n = passos.length;
+    const n = limite;
+    const base = Math.min(i, Math.max(0, n - 1));
     for (let k = 1; k <= n; k++) {
-      const j = (i + k) % n;
+      const j = (base + k) % n;
       if (pendente(passos[j])) { irPara(j, j > i ? 1 : -1); return; }
     }
     limparFeito();
     setTela({ tipo: 'fim' });
   };
+  const pendentesNoFoco = focoKeys ? passos.slice(0, limite).filter(pendente).length : 0;
+  const foraDoFoco = !!focoKeys && i >= limite;
 
   // Posição dentro do bloco: "Pergunta 3 de 9" (o par conta as duas chaves)
   const camposDoBloco = bloco.campos;
@@ -495,8 +532,11 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           <span className="text-xs text-white/60 font-sans" aria-live="polite" aria-atomic="true" data-testid="wizard-posicao">{emPasso ? posLabel : ''}</span>
           {emPasso && <BadgeObrigatorio campo={passo.campos[0]} />}
           {emPasso && algumRefinando && <BadgeRefinando />}
+          {emPasso && foraDoFoco && <span className="text-[11px] text-prosperus-gold-light/80 font-sans" data-testid="chip-fora-do-foco">Preenchido pelos seus materiais</span>}
         </div>
-        <ContadorFaltam n={faltam} className="text-xs text-white/70" />
+        {focoKeys
+          ? <p className="text-xs text-white/70 font-sans" data-testid="contador-faltam" aria-live="polite">{textoFaltamRespostas(pendentesNoFoco)}</p>
+          : <ContadorFaltam n={faltam} className="text-xs text-white/70" />}
       </div>
       <div
         className="w-full bg-white/10 rounded-full h-0.5"
@@ -629,6 +669,30 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   /** Fim da ficha: quantos campos faltam para o script e um único link "Ver o que falta"; o mapa fica no navegador. */
   const renderFim = () => {
+    if (focoKeys) {
+      // Modo completar: sem botão de fechar (ao decidir a última resposta, o script é gerado sozinho)
+      return (
+        <div className={`${CARTAO} pb-6 text-center`} data-testid="wizard-fim">
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Suas respostas</p>
+            <h3 className="font-serif text-2xl sm:text-3xl text-white leading-snug" data-testid="wizard-faltam">
+              {pendentesNoFoco > 0 ? textoFaltamRespostas(pendentesNoFoco) : (isConfirmed ? 'Suas respostas completaram a ficha.' : 'Tudo respondido. Gerando o seu script.')}
+            </h3>
+            <p className="text-sm text-white/70 font-sans">
+              {pendentesNoFoco > 0
+                ? 'O resto a gente preencheu com os seus materiais. Ao responder a última, o script é gerado sozinho.'
+                : 'O script chega em alguns minutos, com aviso no WhatsApp. O que veio dos seus materiais continua editável.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-x-1">
+            {pendentesNoFoco > 0 && <Sec onClick={irParaObrigatorioPendente}>Ver o que falta</Sec>}
+            <Sec onClick={abrirPrevia}>{COPY_VER_PREVIA}</Sec>
+            <Sec onClick={voltar}>Voltar</Sec>
+            <Sec className="lg:hidden" onClick={abrirPerguntas}>Perguntas</Sec>
+          </div>
+        </div>
+      );
+    }
     const faltamObrig = faltam;
     const faltamTotal = progresso.total - progresso.decididos;
     const titulo = faltamObrig > 0
@@ -687,12 +751,13 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   const chave = tela.tipo === 'passo' ? passo.id : tela.tipo === 'bloco' ? `bloco-${tela.de}-${tela.para}` : tela.tipo;
   const emPrevia = tela.tipo === 'previa';
-  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso, onPrevia: abrirPrevia, previaAtiva: emPrevia };
+  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso, onPrevia: abrirPrevia, previaAtiva: emPrevia, focoIds };
+  const temPendente = focoKeys ? pendentesNoFoco > 0 : undefined;
 
   return (
-    <div className="ficha-scroll" data-testid="ficha-wizard">
+    <div className="ficha-scroll" data-testid="ficha-wizard" data-modo={focoKeys ? 'completar' : 'inteira'}>
       <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6 lg:items-start">
-        <NavegadorLateral {...nav} onProximaPendente={proximaPendente} />
+        <NavegadorLateral {...nav} onProximaPendente={proximaPendente} temPendente={temPendente} />
         <div className="w-full max-w-[720px] mx-auto min-w-0 space-y-4">
           {cabecalho}
           <AnimatePresence mode="wait" custom={dir} initial={false}>

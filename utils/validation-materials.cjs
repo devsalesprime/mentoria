@@ -84,7 +84,8 @@ function ensureCohortConfigTable(dbRun) {
 const JOB_STATUSES = ['queued', 'running', 'done', 'error', 'needs_human'];
 // prefill = pre-preenchimento da ficha; script = escrever o script do zero (ficha confirmada); refinar = nova sugestao para 1 campo (payload.field_key);
 // revisar = nova versao do script a partir de uma versao existente + comentarios dela (payload.versao, content_md, comentarios)
-const JOB_TIPOS = ['prefill', 'script', 'refinar', 'revisar'];
+// pendencia = o worker abriu uma pendencia com o mentor (WhatsApp) para os campos que faltaram (payload.campos); 1 ativa por clube
+const JOB_TIPOS = ['prefill', 'script', 'refinar', 'revisar', 'pendencia'];
 
 const COHORT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS cohort_jobs (
   id TEXT PRIMARY KEY,

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
-import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, formatDateTime, progressoResumo } from './CohortOverview';
-import type { CohortJob } from './CohortOverview';
+import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, SuficienciaBadge, PendenciaLinha, formatDateTime, progressoResumo, nomesDosCampos } from './CohortOverview';
+import type { CohortJob, SuficienciaResumo, PendenciaAberta } from './CohortOverview';
 import { renderMarkdown } from '../../utils/markdown';
 import { MATERIAL_CATEGORIA_LABEL } from '../script/materiais/categorias';
 import { maskSenha } from '../script/materiais/AcessosPlataforma';
@@ -65,6 +65,11 @@ interface ClubDetail {
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
   ficha_status: FichaStatus;
+  /** 'automatica' (os materiais bastaram) | 'mentor' | 'admin:<quem>' | null */
+  confirmada_por?: string | null;
+  /** Gates de suficiencia completos: resultado, faltam, motivos, forcado_por, script_job_id. */
+  suficiencia?: (SuficienciaResumo & { motivos?: string[]; job_id?: string | null; script_job_id?: string | null; resultado_original?: string | null }) | null;
+  pendencia?: PendenciaAberta | null;
   prefill_meta: any;
   prefilled_at: string | null;
   reviewed_at: string | null;
@@ -125,6 +130,8 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true });
+  // Gates de suficiencia: "Forçar revisão" / "Forçar script" (registram quem forçou em suficiencia.forcado_por)
+  const [forcando, setForcando] = useState<'revisao' | 'script' | null>(null);
   // Senhas de acesso a plataforma: mascaradas por padrao, "mostrar" por item (chave email:indice)
   const [senhaVisivel, setSenhaVisivel] = useState<Record<string, boolean>>({});
   // Resposta da IA por pessoa: fechada por padrao (texto longo)
@@ -211,6 +218,25 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   };
 
   const downloadUrl = (id: string) => `/api/admin/files/${id}?token=${encodeURIComponent(token)}`;
+
+  const forcar = async (acao: 'revisao' | 'script') => {
+    const pergunta = acao === 'revisao'
+      ? 'Forçar revisão: a ficha volta para "em revisão" e o mentor vê a ficha inteira. Continuar?'
+      : 'Forçar script: confirma o que os materiais trouxeram, fecha a ficha e coloca o script na fila. Continuar?';
+    if (!window.confirm(pergunta)) return;
+    setForcando(acao);
+    try {
+      const res = await axios.post(`/api/admin/clubs/${slug}/suficiencia/forcar-${acao}`, {}, { headers });
+      if (res.data.success) {
+        showToast(acao === 'revisao' ? 'Ficha de volta para revisão' : 'Script na fila', 'success');
+        await fetchDetail();
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Não deu para forçar agora', 'error');
+    } finally {
+      setForcando(null);
+    }
+  };
 
   const fetchVersao = async (n: number): Promise<string | null> => {
     if (conteudo[n] != null) return conteudo[n];
@@ -348,6 +374,41 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
 
       {tab === 'ficha' && (
         <div className="space-y-3">
+          {/* Gates de suficiencia: resultado, motivos, o que falta, quem forcou; botoes de intervencao */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2" data-testid="painel-suficiencia">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-semibold text-white">Suficiência dos materiais</h4>
+                <SuficienciaBadge suficiencia={detail.suficiencia} />
+                {detail.confirmada_por && <span className="text-[11px] text-white/50">fechada por {detail.confirmada_por === 'automatica' ? 'materiais (automática)' : detail.confirmada_por}</span>}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="xs" onClick={() => forcar('revisao')} loading={forcando === 'revisao'} disabled={!!forcando}>Forçar revisão</Button>
+                <Button variant="primary" size="xs" onClick={() => forcar('script')} loading={forcando === 'script'} disabled={!!forcando}>Forçar script</Button>
+              </div>
+            </div>
+            {!detail.suficiencia && <p className="text-xs text-white/40">Ainda sem avaliação: ela acontece quando o pré-preenchimento termina.</p>}
+            {detail.suficiencia && (
+              <>
+                {(detail.suficiencia.faltam || []).length > 0 && (
+                  <p className="text-xs text-white/70">Faltam ({detail.suficiencia.faltam.length}): {nomesDosCampos(detail.suficiencia.faltam)}</p>
+                )}
+                {(detail.suficiencia.motivos || []).length > 0 && (
+                  <ul className="text-xs text-white/60 list-disc pl-4 space-y-0.5" data-testid="suficiencia-motivos">
+                    {(detail.suficiencia.motivos || []).map((m, i) => <li key={i}>{m}</li>)}
+                  </ul>
+                )}
+                <p className="text-[11px] text-white/40">
+                  avaliada {formatDateTime(detail.suficiencia.avaliado_em)}
+                  {detail.suficiencia.fontes_distintas != null ? ` · ${detail.suficiencia.fontes_distintas} fonte(s) distinta(s) nos campos principais` : ''}
+                  {detail.suficiencia.criticos_ok != null ? ` · principais ${detail.suficiencia.criticos_ok ? 'ok' : 'incompletos'}` : ''}
+                  {detail.suficiencia.forcado_por ? ` · ${detail.suficiencia.forcado_por.acao === 'script' ? 'script forçado' : 'revisão forçada'} por ${detail.suficiencia.forcado_por.por} em ${formatDateTime(detail.suficiencia.forcado_por.em)}` : ''}
+                  {detail.suficiencia.resultado_original && detail.suficiencia.forcado_por ? ` (avaliação original: ${detail.suficiencia.resultado_original})` : ''}
+                </p>
+              </>
+            )}
+            <PendenciaLinha pendencia={detail.pendencia} />
+          </div>
           {detail.blocos.map((b) => (
             <div key={b.numero} className="border border-white/10 rounded-xl overflow-hidden">
               <button
