@@ -4,6 +4,8 @@ import { Logo } from './ui/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
+import { LoadingSpinner } from './ui/LoadingSpinner';
+import { decodeJwtPayload } from './routing/session';
 import { useDiagnosticPersistence } from '../hooks/useDiagnosticPersistence';
 import {
   isPreModuleComplete,
@@ -69,9 +71,11 @@ interface DashboardProps {
   onLogout: () => void;
   onUpdateProfile?: (data: { name: string; description: string }) => void;
   initialModule?: string;
+  /** JWT antigo sem a claim `cohort`: o Dashboard renova o token em silencio e avisa o App. */
+  onTokenRefresh?: (token: string) => void;
 }
 
-type MenuItem = { id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold' };
+type MenuItem ={ id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold' };
 type MenuSection = { id: string; title: string; items: MenuItem[] };
 type ScriptMenuState = {
   enabled: boolean;
@@ -274,24 +278,57 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   // O JWT ja carrega cohort/clubSlug desde o login: habilita a area do script no primeiro paint,
   // sem esperar o GET /api/diagnostic (que chegava depois e deixava o menu sem "Script 7 Passos").
   const cohortDoToken = useMemo(() => {
-    try {
-      const payload = JSON.parse(atob((token.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/')));
-      return typeof payload?.cohort === 'string' && payload.cohort ? payload.cohort : null;
-    } catch { return null; }
+    const payload = decodeJwtPayload(token);
+    return typeof payload?.cohort === 'string' && payload.cohort ? payload.cohort : null;
   }, [token]);
+  // Fonte efetiva do cohort: o GET /api/diagnostic (banco) manda; o JWT so adianta o primeiro paint.
   const cohortEfetivo = cohort ?? cohortDoToken;
   const scriptFicha = useScriptFicha(token, !!cohortEfetivo, resolvedEmail);
-  const scriptEnabled = !!cohortEfetivo && scriptFicha.enabled;
-  const scriptSummary = scriptFicha.data?.script;
-  const scriptMenu: ScriptMenuState = {
-    enabled: scriptEnabled,
-    fichaStatus: scriptFicha.data?.ficha_status ?? null,
-    materialsStatus: scriptFicha.data?.materials_status ?? null,
-    scriptState: scriptSummary?.aprovada ? 'aprovado'
-      : (scriptSummary?.versoes || 0) > 0 ? 'rascunho'
-      : scriptSummary?.job && (scriptSummary.job.status === 'queued' || scriptSummary.job.status === 'running') ? 'escrevendo'
-      : null,
-  };
+  const scriptMenu = useMemo<ScriptMenuState>(() => {
+    const s = scriptFicha.data?.script;
+    return {
+      enabled: !!cohortEfetivo && scriptFicha.enabled,
+      fichaStatus: scriptFicha.data?.ficha_status ?? null,
+      materialsStatus: scriptFicha.data?.materials_status ?? null,
+      scriptState: s?.aprovada ? 'aprovado'
+        : (s?.versoes || 0) > 0 ? 'rascunho'
+        : s?.job && (s.job.status === 'queued' || s.job.status === 'running') ? 'escrevendo'
+        : null,
+    };
+  }, [cohortEfetivo, scriptFicha.enabled, scriptFicha.data]);
+
+  // Primeiro paint deterministico: sem a claim `cohort` no JWT, a secao "Script 7 Passos" depende do
+  // GET /api/diagnostic. Segura o shell ate a resposta (o hook tem timeout de 15 s) em vez de pintar
+  // o menu sem a secao e encaixa-la depois.
+  const aguardandoCohort = !cohortDoToken && !diagnosticLoaded;
+
+  // JWT emitido antes da claim `cohort` (ate 03/09): o banco diz que a pessoa e do cohort, o token nao.
+  // Renova o token em silencio UMA vez por sessao (POST /auth/verify-member por e-mail), sem deslogar;
+  // o App troca o token em memoria e os hooks recarregam com ele.
+  const onTokenRefresh = props.onTokenRefresh;
+  useEffect(() => {
+    if (!token || !cohort || cohortDoToken || !resolvedEmail || !onTokenRefresh) return;
+    const chave = 'token-renovado-cohort';
+    try {
+      if (sessionStorage.getItem(chave)) return;
+      sessionStorage.setItem(chave, String(Date.now()));
+    } catch { return; }
+    let ativo = true;
+    (async () => {
+      try {
+        const res = await fetch('/auth/verify-member', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: resolvedEmail }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!ativo || !res.ok || !body?.allowed || typeof body.token !== 'string' || !body.token) return;
+        try { localStorage.setItem('memberToken', body.token); } catch { /* sem storage */ }
+        onTokenRefresh(body.token);
+      } catch { /* segue com o token atual: o menu ja vem do GET /api/diagnostic */ }
+    })();
+    return () => { ativo = false; };
+  }, [token, cohort, cohortDoToken, resolvedEmail, onTokenRefresh]);
 
   // PV-1.2/PV-3.1: Default route post-login — redirect to insights when submitted
   // or when admin has delivered feedback for an in_progress user.
@@ -618,6 +655,18 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       </div>
     );
   };
+
+  if (aguardandoCohort) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="min-h-screen bg-prosperus-navy flex items-center justify-center text-white font-sans"
+      >
+        <LoadingSpinner size="lg" label="Abrindo a plataforma" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-prosperus-navy flex text-white font-sans overflow-hidden relative">

@@ -204,9 +204,13 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       const r = await SF.importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, req.body, { importado_por: 'admin' });
       res.json({
         success: true,
-        message: `Importados ${r.imported.length} campos; ${r.skipped.length} mantidos (já decididos pelo mentor).`,
+        message: `Importados ${r.imported.length} campos; ${r.complementos.length} já decididos ganharam complemento; ${r.skipped.length} mantidos.`,
         imported: r.imported.length,
+        importados: r.imported,
+        complementos: r.complementos,
         skipped: r.skipped,
+        parcial: r.parcial,
+        blocos_importados: r.blocos_importados,
         warnings,
         ficha_status: r.ficha_status,
         resumo: r.resumo,

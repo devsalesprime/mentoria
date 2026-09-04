@@ -77,9 +77,32 @@ export interface CohortJob {
   /** { nome, submitted_at, notify } (prefill) · { nome, motivo } (script) · { field_key, nome, pedido } (refinar) · { versao, content_md, comentarios[], pedido? } (revisar) */
   payload?: any;
   error: string | null;
+  /** Marcos do prefill em blocos (PATCH /api/jobs/:id { progresso }); null ate o worker mandar o primeiro. */
+  progresso?: JobProgresso | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+}
+
+/** { fase, etapa_atual, etapas_total, rotulo, arquivos_lidos?, arquivos_total?, blocos_concluidos, blocos_com_erro?, atualizado_em } */
+export interface JobProgresso {
+  fase?: string;
+  etapa_atual?: number;
+  etapas_total?: number;
+  rotulo?: string;
+  arquivos_lidos?: number;
+  arquivos_total?: number;
+  blocos_concluidos?: number[];
+  blocos_com_erro?: number[];
+  atualizado_em?: string;
+}
+
+/** "Montando o bloco Mentor (3/7)" ou '' sem progresso. */
+export function progressoResumo(j: { progresso?: JobProgresso | null }): string {
+  const p = j.progresso;
+  if (!p || !p.rotulo) return '';
+  const etapa = p.etapa_atual && p.etapas_total ? ` (${p.etapa_atual}/${p.etapas_total})` : '';
+  return `${p.rotulo}${etapa}`;
 }
 
 const JOB_STATUS_LABEL: Record<CohortJobStatus, string> = {
@@ -210,6 +233,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
                       <th className="px-3 py-2 text-left">Clube</th>
                       <th className="px-3 py-2 text-left">Tipo</th>
                       <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">Andamento</th>
                       <th className="px-3 py-2 text-left">Tentativas</th>
                       <th className="px-3 py-2 text-left">Criado</th>
                       <th className="px-3 py-2 text-left">Erro</th>
@@ -226,6 +250,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
                         <td className="px-3 py-2 text-white/70">{j.club_nome || j.club_slug}</td>
                         <td className="px-3 py-2"><JobTipoBadge job={j} /></td>
                         <td className="px-3 py-2"><JobStatusBadge status={j.status} /></td>
+                        <td className="px-3 py-2 text-prosperus-gold-light/80 max-w-[220px] break-words">{progressoResumo(j)}</td>
                         <td className="px-3 py-2 text-white/70">{j.attempts}</td>
                         <td className="px-3 py-2 text-white/60">{formatDateTime(j.created_at)}{j.finished_at ? <span className="block text-white/40">fim {formatDateTime(j.finished_at)}</span> : null}</td>
                         <td className="px-3 py-2 text-red-300 max-w-[260px] break-words">{j.error || ''}</td>
@@ -254,6 +279,7 @@ export const CohortJobsPanel: React.FC<CohortOverviewProps> = ({ token, showToas
                     </div>
                     <p className="text-white/50">{j.email}{j.notify_phone ? ` · ${j.notify_phone}` : ''}</p>
                     <p className="text-white/60">{j.club_nome || j.club_slug} · {j.attempts} {j.attempts === 1 ? 'tentativa' : 'tentativas'} · {formatDateTime(j.created_at)}</p>
+                    {progressoResumo(j) && <p className="text-prosperus-gold-light/80 break-words">{progressoResumo(j)}</p>}
                     {j.error && <p className="text-red-300 break-words">{j.error}</p>}
                     {j.status !== 'queued' && j.status !== 'running' && (
                       <button

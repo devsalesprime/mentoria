@@ -11,6 +11,11 @@ module.exports = function createFilesRoutes({ db, dbGet, dbRun, dbAll, authMiddl
       cb(null, dir);
     },
     filename: (req, file, cb) => {
+      // multer entrega o nome como latin1: "reunião.pdf" chegava como "reuniÃ£o.pdf"
+      // (acentos dos mentores). Decodifica uma vez, so quando parece mal decodificado.
+      if (/[ÃÂ][-¿]/.test(file.originalname)) {
+        try { file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8'); } catch { /* mantem */ }
+      }
       cb(null, `${Date.now()}-${file.originalname}`);
     }
   });

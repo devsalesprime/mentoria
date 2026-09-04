@@ -519,6 +519,44 @@ app.use(require('./routes/admin-cohort.cjs')(deps));
 app.use(require('./routes/jobs.cjs')(deps));
 
 // ============================================
+// ERROS DO CLIENTE (ErrorBoundary / window.error do front)
+// ============================================
+// Sem auth (a tela pode ter caido antes do login), com limite proprio e truncamento de cada campo.
+// Uma linha JSON por relato em data/client-errors.log; leitura: tail -n 50 data/client-errors.log | jq .
+const CLIENT_ERRORS_LOG = path.join(DATA_DIR, 'client-errors.log');
+const clientErrorLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Limite de relatos de erro excedido. Tente novamente em 1 minuto.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const cortaTexto = (v, n) => (v == null ? '' : String(typeof v === 'string' ? v : JSON.stringify(v)).slice(0, n));
+app.post('/api/client-error', clientErrorLimiter, (req, res) => {
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  const authHeader = req.headers.authorization;
+  const decoded = authHeader ? validateToken(String(authHeader).replace('Bearer ', '')) : null;
+  const entry = {
+    ts: new Date().toISOString(),
+    timestamp: cortaTexto(b.timestamp, 40),
+    origem: cortaTexto(b.origem, 100),
+    message: cortaTexto(b.message, 500),
+    stack: cortaTexto(b.stack, 4096),
+    componentStack: cortaTexto(b.componentStack, 2048),
+    url: cortaTexto(b.url, 500),
+    userAgent: cortaTexto(b.userAgent, 300),
+    hasToken: b.hasToken === true,
+    user: decoded && decoded.user ? cortaTexto(decoded.user, 320) : null,
+    ip: req.ip || null,
+  };
+  fs.appendFile(CLIENT_ERRORS_LOG, JSON.stringify(entry) + '\n', (err) => {
+    if (err) console.error('⚠️ [CLIENT-ERROR] falha ao gravar client-errors.log:', err.message);
+  });
+  console.error(`🧯 [CLIENT-ERROR] ${entry.origem || '?'}: ${entry.message} @ ${entry.url}${entry.user ? ` (${entry.user})` : ''}`);
+  res.json({ success: true });
+});
+
+// ============================================
 // ⭐ ARQUIVOS ESTÁTICOS E FALLBACK
 // ============================================
 

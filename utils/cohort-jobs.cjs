@@ -17,6 +17,8 @@ const VM = require('./validation-materials.cjs');
 
 const TERMINAL = ['done', 'error', 'needs_human'];
 const ACTIVE = ['queued', 'running'];
+/** Tamanho maximo do JSON de `progresso` gravado pelo worker (PATCH /api/jobs/:id). */
+const PROGRESSO_MAX_BYTES = 4096;
 /** Tipos que escrevem a proxima versao do script do clube: dividem o mesmo escopo de deduplicacao. */
 const SCRIPT_FAMILY = ['script', 'revisar'];
 
@@ -52,6 +54,8 @@ function rowToJob(row) {
     payload: parseJson(row.payload, null),
     result: parseJson(row.result, null),
     error: row.error || null,
+    // Marcos do worker (prefill em blocos): null ate o primeiro PATCH running { progresso }
+    progresso: parseJson(row.progresso, null),
     created_at: row.created_at,
     started_at: row.started_at || null,
     finished_at: row.finished_at || null,
@@ -152,7 +156,8 @@ async function claimNextJob({ dbGet }, tipo = null) {
 
 /**
  * Atualiza o status pelo worker. Terminal grava finished_at; queued (devolver a fila) limpa started/finished.
- * @param {{status: string, result?: any, error?: string|null}} patch
+ * `progresso` (objeto, ate PROGRESSO_MAX_BYTES) e gravado como JSON com qualquer status; null limpa.
+ * @param {{status: string, result?: any, error?: string|null, progresso?: object|null}} patch
  */
 async function updateJobStatus({ dbGet, dbRun }, id, patch) {
   const status = patch.status;
@@ -161,6 +166,11 @@ async function updateJobStatus({ dbGet, dbRun }, id, patch) {
   const params = [status];
   if (patch.result !== undefined) { sets.push('result = ?'); params.push(patch.result == null ? null : JSON.stringify(patch.result)); }
   if (patch.error !== undefined) { sets.push('error = ?'); params.push(patch.error == null ? null : String(patch.error).slice(0, 4000)); }
+  if (patch.progresso !== undefined) {
+    const json = patch.progresso == null ? null : JSON.stringify(patch.progresso);
+    if (json && Buffer.byteLength(json, 'utf8') > PROGRESSO_MAX_BYTES) throw new Error('progresso acima de 4 KB');
+    sets.push('progresso = ?'); params.push(json);
+  }
   if (TERMINAL.includes(status)) sets.push('finished_at = CURRENT_TIMESTAMP');
   else if (status === 'queued') { sets.push('started_at = NULL'); sets.push('finished_at = NULL'); }
   else if (status === 'running') { sets.push('finished_at = NULL'); sets.push('started_at = COALESCE(started_at, CURRENT_TIMESTAMP)'); }
@@ -202,6 +212,7 @@ async function listPhones({ dbAll }) {
 module.exports = {
   TERMINAL,
   ACTIVE,
+  PROGRESSO_MAX_BYTES,
   SCRIPT_FAMILY,
   dedupeScope,
   scopeTipos,

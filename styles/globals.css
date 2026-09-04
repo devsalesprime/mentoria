@@ -370,3 +370,35 @@ body {
 .ficha-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Régua da ficha (components/script/widgets/ui.tsx Slider): o range nativo fica invisível por cima do trilho
+   desenhado. O polegar nativo tem 16 px = 2 x a folga do trilho (REGUA_FOLGA_PX): o centro dele coincide com
+   `left: pct%` do botão, do preenchido e das marcas em qualquer largura de tela. */
+input[type='range'].regua-nativa {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+input[type='range'].regua-nativa::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+input[type='range'].regua-nativa::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: transparent;
+}
+input[type='range'].regua-nativa::-moz-range-track {
+  height: 100%;
+  background: transparent;
+}
+input[type='range'].regua-nativa::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+}

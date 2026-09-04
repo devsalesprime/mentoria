@@ -190,7 +190,20 @@ export const Lacuna: React.FC<{ value: string; onChange: (v: string) => void; la
   />
 );
 
-/** Régua: range nativo em dourado com marcas tocáveis embaixo. */
+/** Posição (0 a 100) de um valor no trilho. A MESMA conta vale para o preenchido, o botão e as marcas. */
+export function posicaoNoTrilho(v: number, min: number, max: number): number {
+  return Math.max(0, Math.min(100, ((v - min) / Math.max(1, max - min)) * 100));
+}
+
+/** Metade do botão da régua (px): folga do trilho de cada lado; igual ao polegar nativo em globals.css (.regua-nativa). */
+export const REGUA_FOLGA_PX = 8;
+
+/**
+ * Régua: trilho desenhado aqui (preenchido dourado, botão redondo e marcas na posição real do valor) com o
+ * range nativo invisível por cima para arrastar, tocar e usar o teclado. O trilho tem 8 px de folga de cada
+ * lado (metade do botão): assim `left: pct%` do botão, do preenchido e das marcas coincide com o centro do
+ * polegar nativo de 16 px em qualquer largura de tela (390 px inclusive). Tudo centrado na mesma linha (top-1/2).
+ */
 export const Slider: React.FC<{
   value: number | null;
   min: number;
@@ -200,36 +213,69 @@ export const Slider: React.FC<{
   onChange: (n: number) => void;
   label: string;
   sufixo?: string;
-}> = ({ value, min, max, step = 1, marcas, onChange, label, sufixo = '' }) => (
-  <div className="space-y-0.5" data-testid="regua">
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value == null || Number.isNaN(value) ? min : Math.max(min, Math.min(max, value))}
-      onChange={(e) => onChange(Number(e.target.value))}
-      aria-label={label}
-      aria-valuetext={value != null ? `${value}${sufixo}` : undefined}
-      className="w-full h-11 accent-[#CA9A43] cursor-pointer"
-    />
-    {marcas && marcas.length > 0 && (
-      <div className="flex justify-between" aria-hidden="true">
-        {marcas.map((m) => (
-          <button
-            key={m}
-            type="button"
-            tabIndex={-1}
-            onClick={() => onChange(m)}
-            className={`min-h-[44px] min-w-[28px] text-[11px] font-sans transition ${value === m ? 'text-prosperus-gold-light font-semibold' : 'text-white/40 hover:text-white/80'}`}
-          >
-            {m}
-          </button>
-        ))}
+}> = ({ value, min, max, step = 1, marcas, onChange, label, sufixo = '' }) => {
+  const ok = value != null && !Number.isNaN(value);
+  const v = ok ? Math.max(min, Math.min(max, value as number)) : min;
+  const pct = posicaoNoTrilho(v, min, max);
+  const folga = { paddingLeft: REGUA_FOLGA_PX, paddingRight: REGUA_FOLGA_PX };
+  return (
+    <div className="space-y-0.5" data-testid="regua">
+      <div className="relative h-11" style={folga}>
+        <div className="relative h-full" data-testid="regua-trilho">
+          <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15" aria-hidden="true" />
+          <span
+            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-prosperus-gold-dark"
+            style={{ width: `${pct}%` }}
+            aria-hidden="true"
+            data-testid="regua-preenchido"
+          />
+          {marcas?.map((m) => (
+            <span
+              key={m}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-px h-3 bg-white/30"
+              style={{ left: `${posicaoNoTrilho(m, min, max)}%` }}
+              aria-hidden="true"
+              data-testid={`regua-marca-${m}`}
+            />
+          ))}
+          <span
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-2 border-prosperus-navy-mid shadow ${ok ? 'bg-prosperus-gold-dark' : 'bg-white/40'}`}
+            style={{ left: `${pct}%` }}
+            aria-hidden="true"
+            data-testid="regua-botao"
+          />
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={v}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={label}
+          aria-valuetext={ok ? `${value}${sufixo}` : undefined}
+          className="regua-nativa absolute inset-0 w-full h-full opacity-0 cursor-pointer m-0"
+        />
       </div>
-    )}
-  </div>
-);
+      {marcas && marcas.length > 0 && (
+        <div className="relative h-11" style={{ marginLeft: REGUA_FOLGA_PX, marginRight: REGUA_FOLGA_PX }} aria-hidden="true">
+          {marcas.map((m) => (
+            <button
+              key={m}
+              type="button"
+              tabIndex={-1}
+              onClick={() => onChange(m)}
+              style={{ left: `${posicaoNoTrilho(m, min, max)}%` }}
+              className={`absolute top-0 -translate-x-1/2 min-h-[44px] min-w-[28px] text-[11px] font-sans transition ${value === m ? 'text-prosperus-gold-light font-semibold' : 'text-white/40 hover:text-white/80'}`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /** Passo a passo numérico: menos · número · mais. */
 export const Stepper: React.FC<{ value: string; onChange: (v: string) => void; label: string; min?: number; max?: number; className?: string; placeholder?: string }> = ({ value, onChange, label, min = 0, max = 999, className = '', placeholder = 'N' }) => {
@@ -419,22 +465,24 @@ export const Etiqueta: React.FC<{ valor?: string; className?: string; testId?: s
 /** Régua só de leitura (dias, minutos): trilho com as marcas e o ponteiro dourado no valor. */
 export const ReguaLida: React.FC<{ value: number | null; min: number; max: number; marcas?: number[]; label: string; sufixo?: string; className?: string; testId?: string }> = ({ value, min, max, marcas = [], label, sufixo = '', className = '', testId = 'regua-lida' }) => {
   const ok = value != null && Number.isFinite(value);
-  const pct = ok ? Math.max(0, Math.min(100, ((value as number) - min) / Math.max(1, max - min) * 100)) : null;
+  // Mesma conta e mesma folga da régua editável (Slider): o ponteiro nunca sai do trilho nas pontas
+  const pct = ok ? posicaoNoTrilho(value as number, min, max) : null;
+  const folga = { marginLeft: REGUA_FOLGA_PX, marginRight: REGUA_FOLGA_PX };
   return (
     <div className={`space-y-1 ${className}`} role="img" aria-label={ok ? `${label}: ${value}${sufixo}` : `${label}: em branco`} data-testid={testId} data-valor={ok ? value : ''}>
-      <div className="relative h-6">
+      <div className="relative h-6" style={folga}>
         <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-white/15 rounded-full" aria-hidden="true" />
         {marcas.map((m) => (
-          <span key={m} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-px h-3 bg-white/25" style={{ left: `${((m - min) / Math.max(1, max - min)) * 100}%` }} aria-hidden="true" />
+          <span key={m} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-px h-3 bg-white/25" style={{ left: `${posicaoNoTrilho(m, min, max)}%` }} aria-hidden="true" />
         ))}
         {pct != null && (
-          <span className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-prosperus-gold-dark border-2 border-prosperus-navy-mid shadow ${ANIMA}`} style={{ left: `${pct}%` }} aria-hidden="true" />
+          <span className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-prosperus-gold-dark border-2 border-prosperus-navy-mid shadow ${ANIMA}`} style={{ left: `${pct}%` }} aria-hidden="true" data-testid={`${testId}-ponteiro`} />
         )}
       </div>
       {marcas.length > 0 && (
-        <div className="relative h-4 text-[10px] font-sans text-white/40" aria-hidden="true">
+        <div className="relative h-4 text-[10px] font-sans text-white/40" style={folga} aria-hidden="true">
           {marcas.map((m) => (
-            <span key={m} className={`absolute -translate-x-1/2 ${ok && value === m ? 'text-prosperus-gold-light font-semibold' : ''}`} style={{ left: `${((m - min) / Math.max(1, max - min)) * 100}%` }}>{m}</span>
+            <span key={m} className={`absolute -translate-x-1/2 ${ok && value === m ? 'text-prosperus-gold-light font-semibold' : ''}`} style={{ left: `${posicaoNoTrilho(m, min, max)}%` }}>{m}</span>
           ))}
         </div>
       )}

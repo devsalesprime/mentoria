@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './components/Dashboard';
 import { AdminPanel } from './components/AdminPanel';
@@ -7,6 +7,7 @@ import { AdminGuard } from './components/routing/AdminGuard';
 import { NotFound } from './components/routing/NotFound';
 import { LandingPage } from './components/routing/LandingPage';
 import { LoginPage } from './components/routing/LoginPage';
+import { lerSessaoAdmin, lerSessaoMembro } from './components/routing/session';
 
 interface UserData {
   name: string;
@@ -16,50 +17,15 @@ interface UserData {
 }
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminToken, setAdminToken] = useState<string>('');
-
-  // Restore member session from localStorage on mount
-  useEffect(() => {
-    const savedToken = localStorage.getItem('memberToken');
-    if (savedToken) {
-      try {
-        const payload = JSON.parse(atob(savedToken.split('.')[1]));
-        if (payload.exp && payload.exp * 1000 > Date.now()) {
-          setUserData({
-            name: payload.name || 'Membro',
-            email: payload.user || '',
-            description: '',
-            token: savedToken,
-          });
-          setIsAuthenticated(true);
-        } else {
-          localStorage.removeItem('memberToken');
-        }
-      } catch {
-        localStorage.removeItem('memberToken');
-      }
-    }
-
-    // Restore admin session from localStorage
-    const savedAdminToken = localStorage.getItem('adminToken');
-    if (savedAdminToken) {
-      try {
-        const payload = JSON.parse(atob(savedAdminToken.split('.')[1]));
-        if (payload.exp && payload.exp * 1000 > Date.now()) {
-          setAdminToken(savedAdminToken);
-          setIsAuthenticated(true);
-          setIsAdmin(true);
-        } else {
-          localStorage.removeItem('adminToken');
-        }
-      } catch {
-        localStorage.removeItem('adminToken');
-      }
-    }
-  }, []);
+  // Sessao restaurada de forma SINCRONA (lazy initializer): o PRIMEIRO render ja sai autenticado.
+  // Antes era um useEffect: o primeiro render de um acesso frio em /dashboard/... caia no AuthGuard
+  // (-> /login) e o LoginPage montava ja autenticado com navigate() durante o render (descartado
+  // pelo React Router 7) devolvendo null = tela em branco ate o F5, alem de perder a rota pedida.
+  const [sessaoInicial] = useState(() => ({ membro: lerSessaoMembro(), admin: lerSessaoAdmin() }));
+  const [isAuthenticated, setIsAuthenticated] = useState(!!sessaoInicial.membro || !!sessaoInicial.admin);
+  const [userData, setUserData] = useState<UserData | null>(sessaoInicial.membro);
+  const [isAdmin, setIsAdmin] = useState(!!sessaoInicial.admin);
+  const [adminToken, setAdminToken] = useState<string>(sessaoInicial.admin);
 
   const handleLoginSuccess = (data: UserData) => {
     setUserData({ ...data, description: '' });
@@ -88,6 +54,12 @@ function App() {
       setUserData({ ...userData, name: data.name, description: data.description });
     }
   };
+
+  // Token renovado em silencio pelo Dashboard (JWT antigo sem a claim `cohort`): troca so o token,
+  // a pessoa continua logada. O localStorage ja foi atualizado por quem renovou.
+  const handleTokenRefresh = useCallback((token: string) => {
+    setUserData((prev) => (prev ? { ...prev, token } : prev));
+  }, []);
 
   // Determine if member (non-admin) is authenticated
   const isMemberAuthenticated = isAuthenticated && !isAdmin && !!userData;
@@ -122,6 +94,7 @@ function App() {
               onUpdateProfile={handleUpdateProfile}
               onLogout={handleLogout}
               token={userData?.token || ''}
+              onTokenRefresh={handleTokenRefresh}
             />
           </AuthGuard>
         } />
@@ -134,6 +107,7 @@ function App() {
               onUpdateProfile={handleUpdateProfile}
               onLogout={handleLogout}
               token={userData?.token || ''}
+              onTokenRefresh={handleTokenRefresh}
             />
           </AuthGuard>
         } />
@@ -148,6 +122,7 @@ function App() {
               onUpdateProfile={handleUpdateProfile}
               onLogout={handleLogout}
               token={userData?.token || ''}
+              onTokenRefresh={handleTokenRefresh}
               initialModule="brand_brain_review"
             />
           </AuthGuard>
@@ -163,6 +138,7 @@ function App() {
               onUpdateProfile={handleUpdateProfile}
               onLogout={handleLogout}
               token={userData?.token || ''}
+              onTokenRefresh={handleTokenRefresh}
               initialModule="deliverables"
             />
           </AuthGuard>

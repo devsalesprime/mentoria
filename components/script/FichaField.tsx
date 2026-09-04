@@ -11,6 +11,7 @@ import type { FieldDecision } from '../../hooks/useScriptFicha';
 import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
 import { Button } from '../ui/Button';
 import { FieldEditor, useFieldEditor } from './widgets/editor';
+import { BadgeNovaSugestao } from './ProgressoPreenchimento';
 import { FichaDisplay, Fonte, TextoOriginal } from './widgets/FichaDisplay';
 import { PreviaCampo } from './widgets/PreviaScript';
 import { BadgeRefinando, ContextoCampo } from './contexto/ContextoCampo';
@@ -151,6 +152,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
           <span className="font-sans text-xs text-prosperus-gold-dark font-bold">{campo.key} · {campo.nome}</span>
           <BadgeObrigatorio campo={campo} />
           {refinando && <BadgeRefinando />}
+          {campo.nova_sugestao && <BadgeNovaSugestao />}
         </div>
         <h4 className="font-serif text-lg sm:text-xl text-white leading-snug">{campo.pergunta}</h4>
         <PorQueImporta campo={campo} />

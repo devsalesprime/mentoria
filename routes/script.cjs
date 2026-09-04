@@ -38,6 +38,11 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   });
   const uploadContext = multerLib({ storage: contextStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 
+  // POST /api/script/ficha/fields/:key/complemento
+  const complementoSchema = z.object({
+    acao: z.enum(['incorporar', 'dispensar']),
+  });
+
   const refinarSchema = z.object({
     field_key: z.string().trim().min(3).max(8),
     pedido: z.string().trim().max(2000).optional().default(''),
@@ -118,13 +123,35 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   }
 
-  /** Resumo do job da pessoa para o front (sem payload/result). */
+  /** Resumo do job da pessoa para o front (sem payload/result): inclui `progresso` (marcos do worker) e `error`. */
   function jobView(job) {
     if (!job) return null;
     return {
       id: job.id, tipo: job.tipo, status: job.status, attempts: job.attempts,
+      progresso: job.progresso || null, error: job.error || null,
       created_at: job.created_at, started_at: job.started_at, finished_at: job.finished_at,
     };
+  }
+
+  const PREFILL_DONE_VISIVEL_MS = 10 * 60 * 1000;
+
+  /** Timestamp do SQLite ('YYYY-MM-DD HH:MM:SS', UTC) ou ISO -> ms; NaN quando nao da para ler. */
+  function tsMs(s) {
+    if (!s) return NaN;
+    const str = String(s);
+    return Date.parse(/T|Z|[+-]\d\d:?\d\d$/.test(str) ? str : `${str.replace(' ', 'T')}Z`);
+  }
+
+  /**
+   * Job `prefill` que o membro ve na ficha: queued/running/needs_human/error sempre; done so por 10 minutos
+   * depois de finished_at (o painel "Pronto" some sozinho); depois disso, null.
+   */
+  function prefillJobParaMembro(job, agora = Date.now()) {
+    if (!job) return null;
+    if (job.status !== 'done') return job;
+    const fim = tsMs(job.finished_at);
+    if (Number.isNaN(fim)) return job;
+    return agora - fim <= PREFILL_DONE_VISIVEL_MS ? job : null;
   }
 
   function fichaPayload(ficha, user, files, config, job, extra = {}) {
@@ -188,7 +215,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, job, { contextoCounts, refinandoKeys, scriptSummary, scriptJob }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
@@ -254,6 +281,46 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       });
     } catch (error) {
       console.error('Error in PUT /api/script/ficha/fields:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/ficha/fields/:key/complemento  { acao: 'incorporar' | 'dispensar' }
+  // Achado do worker em cima de um campo JA decidido (campo.complemento). incorporar = anexa ao texto atual
+  // (linha em branco no meio), status `editado`, o mentor lapida depois; dispensar = so apaga. Sem complemento -> 400.
+  router.post('/api/script/ficha/fields/:key/complemento', authMiddleware, cohortGuard, validateBody(complementoSchema), async (req, res) => {
+    try {
+      const key = String(req.params.key || '');
+      if (!SF.FIELD_BY_KEY[key]) return res.status(400).json({ success: false, message: `Campo desconhecido: ${key}.` });
+      const r = SF.applyComplemento(safeJsonParse(req.ficha.fields, {}), key, req.body.acao, req.cohort.email);
+      if (!r.ok) {
+        return res.status(400).json({ success: false, message: r.motivo === 'sem complemento' ? 'Este campo não tem complemento.' : 'Ação inválida.' });
+      }
+      // Incorporar e decisao do mentor: a ficha vai para em_revisao (confirmada reabre); dispensar nao muda o status
+      const nextStatus = r.decidiu && ['vazia', 'pre_preenchida', 'confirmada'].includes(req.ficha.ficha_status) ? 'em_revisao' : req.ficha.ficha_status;
+      await dbRun(
+        `UPDATE script_fichas
+            SET fields = ?, ficha_status = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE club_slug = ?`,
+        [JSON.stringify(r.fields), nextStatus, req.cohort.club_slug]
+      );
+      const view = SF.buildFichaView(r.fields);
+      const campo = view.blocos.flatMap((b) => b.campos).find((c) => c.key === key);
+      res.json({
+        success: true,
+        field_key: key,
+        acao: req.body.acao,
+        campo,
+        ficha_status: nextStatus,
+        progresso: view.progresso,
+        hoje: view.hoje,
+        blocos: view.blocos.map((b) => ({
+          numero: b.numero, decididos: b.decididos, total: b.total,
+          obrigatorios: b.obrigatorios, obrigatorios_decididos: b.obrigatorios_decididos, fechado: b.fechado,
+        })),
+      });
+    } catch (error) {
+      console.error('Error in POST /api/script/ficha/fields/:key/complemento:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

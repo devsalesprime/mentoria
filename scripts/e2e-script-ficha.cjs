@@ -195,8 +195,8 @@ function step(msg) { console.log(`\n== ${msg}`); }
 
   step('11. Re-importar nao sobrescreve decididos');
   const reimp = await call('PUT', `/api/admin/clubs/${SLUG}/script-ficha`, adminToken, sample);
-  console.log(reimp.data.message, '| skipped:', reimp.data.skipped.length);
-  if (reimp.data.skipped.length !== 34) throw new Error('esperado 34 campos mantidos');
+  console.log(reimp.data.message, '| skipped:', reimp.data.skipped.length, '| complementos:', reimp.data.complementos.length);
+  if (reimp.data.imported !== 0 || (reimp.data.skipped.length + reimp.data.complementos.length) !== 34) throw new Error('esperado 34 campos mantidos (decididos nunca sao sobrescritos)');
 
   step('12. Materiais por pessoa: A salva links + observacoes (sem submit ainda)');
   const mat = await call('PUT', '/api/script/ficha/materials', memberToken, {
@@ -350,9 +350,50 @@ function step(msg) { console.log(`\n== ${msg}`); }
   if (wrongSlug.status !== 400) throw new Error('club_slug diferente do job deveria dar 400');
   const wp = await worker('PUT', `/api/jobs/${jobAId}/prefill`, sample);
   console.log('prefill pelo worker ->', wp.data.message, '| imported:', wp.data.imported, '| skipped:', wp.data.skipped.length);
-  if (wp.data.imported !== 0 || wp.data.skipped.length !== 34) throw new Error('prefill via job nao pode sobrescrever campo decidido');
+  if (wp.data.imported !== 0 || (wp.data.skipped.length + wp.data.complementos.length) !== 34) throw new Error('prefill via job nao pode sobrescrever campo decidido');
   const fichaAfterW = await call('GET', '/api/script/ficha', memberToken);
   if (fichaAfterW.data.data.ficha_status !== 'confirmada') throw new Error('ficha confirmada deveria continuar confirmada');
+
+  step('12k2. Worker em marcos: PATCH running { progresso } (membro ve job.progresso), PUT prefill { parcial: true } (subconjunto; decidido vira complemento) e o membro incorpora/dispensa');
+  const prog = { fase: 'bloco', etapa_atual: 3, etapas_total: 7, rotulo: 'Montando o bloco Mentor', arquivos_lidos: 2, arquivos_total: 2, blocos_concluidos: [1], atualizado_em: new Date().toISOString() };
+  const pp = await worker('PATCH', `/api/jobs/${jobAId}`, { status: 'running', progresso: prog });
+  if (!pp.data.job.progresso || pp.data.job.progresso.etapa_atual !== 3) throw new Error('PATCH running deveria gravar o progresso');
+  const fichaProg = await call('GET', '/api/script/ficha', memberToken);
+  console.log('job na ficha do membro ->', fichaProg.data.data.job.status, '|', fichaProg.data.data.job.progresso && fichaProg.data.data.job.progresso.rotulo);
+  if (!fichaProg.data.data.job.progresso || fichaProg.data.data.job.progresso.rotulo !== prog.rotulo) throw new Error('GET ficha deveria expor job.progresso');
+  const grande = await worker('PATCH', `/api/jobs/${jobAId}`, { status: 'running', progresso: { rotulo: 'x'.repeat(5000) } }, JOBS_TOKEN, false);
+  if (grande.status !== 400) throw new Error('progresso acima de 4 KB deveria dar 400');
+  const achado = `${sample.campos['2.1'].sugerido}\n\nAchado novo nos materiais (e2e).`;
+  const parcialCampos = { '2.1': { ...sample.campos['2.1'], sugerido: achado }, '2.2': sample.campos['2.2'] };
+  const wpp = await worker('PUT', `/api/jobs/${jobAId}/prefill`, { parcial: true, club_slug: SLUG, campos: parcialCampos });
+  console.log('prefill parcial ->', wpp.data.message, '| blocos_importados:', JSON.stringify(wpp.data.blocos_importados));
+  if (wpp.data.parcial !== true || wpp.data.imported !== 0) throw new Error('prefill parcial nao pode sobrescrever campo decidido');
+  if (!wpp.data.complementos.includes('2.1')) throw new Error('2.1 decidido deveria ganhar complemento');
+  if (!Array.isArray(wpp.data.blocos_importados) || wpp.data.blocos_importados[0] !== 2) throw new Error('blocos_importados deveria registrar o bloco 2');
+  const semParcial = await worker('PUT', `/api/jobs/${jobAId}/prefill`, { campos: parcialCampos }, JOBS_TOKEN, false);
+  if (semParcial.status !== 400) throw new Error('sem parcial, as 34 chaves continuam obrigatorias');
+  const fichaComp = await call('GET', '/api/script/ficha', memberToken);
+  const c21 = fichaComp.data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === '2.1');
+  if (!c21.complemento || c21.complemento.sugerido !== achado) throw new Error('GET ficha deveria expor campo.complemento');
+  const antes21 = c21.valor_efetivo;
+  const inc = await call('POST', '/api/script/ficha/fields/2.1/complemento', memberToken, { acao: 'incorporar' });
+  console.log('incorporar 2.1 ->', inc.data.campo.status, '| complemento:', inc.data.campo.complemento, '| ficha:', inc.data.ficha_status);
+  if (inc.data.campo.status !== 'editado' || inc.data.campo.valor !== `${antes21}\n\n${achado}` || inc.data.campo.complemento !== null) throw new Error('incorporar deveria anexar o complemento ao texto do mentor');
+  if (inc.data.ficha_status !== 'em_revisao') throw new Error('incorporar reabre a ficha confirmada (em_revisao)');
+  const semComp = await call('POST', '/api/script/ficha/fields/2.1/complemento', memberToken, { acao: 'dispensar' }, false);
+  if (semComp.status !== 400) throw new Error('dispensar sem complemento deveria dar 400');
+  const wpp2 = await worker('PUT', `/api/jobs/${jobAId}/prefill`, { parcial: true, campos: { '2.2': { ...sample.campos['2.2'], sugerido: 'Outro achado (e2e)' } } });
+  if (!wpp2.data.complementos.includes('2.2')) throw new Error('2.2 deveria ganhar complemento');
+  const disp = await call('POST', '/api/script/ficha/fields/2.2/complemento', memberToken, { acao: 'dispensar' });
+  if (disp.data.campo.complemento !== null) throw new Error('dispensar deveria apagar o complemento');
+  // decidir pelo WhatsApp: campo decidido no app nunca e sobrescrito (vira complemento); o membro dispensa
+  const dec = await worker('PUT', `/api/jobs/${jobAId}/campo`, { field_key: '2.2', sugerido: 'Resposta do mentor no WhatsApp (e2e)', classe: 'Fato', fonte: 'WhatsApp', decidir: true });
+  console.log('decidir 2.2 (ja decidido no app) ->', 'decidido:', dec.data.decidido, '| complemento:', dec.data.complemento);
+  if (dec.data.decidido !== false || dec.data.complemento !== true) throw new Error('decidir nao pode sobrescrever campo decidido no app');
+  await call('POST', '/api/script/ficha/fields/2.2/complemento', memberToken, { acao: 'dispensar' });
+  // Volta a ficha para confirmada (os passos seguintes esperam a ficha fechada)
+  const reconf = await call('POST', '/api/script/ficha/complete', memberToken, {});
+  if (reconf.data.ficha_status !== 'confirmada') throw new Error('ficha deveria voltar a confirmada');
 
   step('12l. Worker: PATCH done (A) e needs_human (B); lista por status; phones');
   const pd = await worker('PATCH', `/api/jobs/${jobAId}`, { status: 'done', result: { imported: 0, skipped: 34 } });

@@ -60,12 +60,30 @@ export interface ScriptConfig {
 
 export type ScriptJobStatus = 'queued' | 'running' | 'done' | 'error' | 'needs_human';
 
-/** Ultimo job de pre-preenchimento desta pessoa (queued/running = "ja estamos processando"). */
+/** Marcos do worker no pre-preenchimento (PATCH /api/jobs/:id { progresso }): etapa 1 = leitura, 2 a 7 = blocos 1 a 6. */
+export interface ScriptJobProgresso {
+  fase?: 'extracao' | 'bloco' | 'finalizando' | string;
+  etapa_atual?: number;
+  etapas_total?: number;
+  rotulo?: string;
+  arquivos_lidos?: number;
+  arquivos_total?: number;
+  blocos_concluidos?: number[];
+  blocos_com_erro?: number[];
+  atualizado_em?: string;
+}
+
+/**
+ * Ultimo job de pre-preenchimento desta pessoa (queued/running = "ja estamos processando").
+ * O servidor so manda `done` por 10 min depois de finished_at; depois vem null.
+ */
 export interface ScriptJobInfo {
   id: string;
   tipo: string;
   status: ScriptJobStatus;
   attempts: number;
+  progresso?: ScriptJobProgresso | null;
+  error?: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -239,6 +257,76 @@ function applyDecisionLocal(campo: ScriptFieldView, decision: FieldDecision, ema
   return { ...campo, status, valor, estrutura, valor_efetivo, decidido: isDecided(status), atualizado_por: email, atualizado_em: ts };
 }
 
+/**
+ * Editor daquele campo aberto na tela (o mentor esta escrevendo): a sugestao nova espera a proxima sincronizacao.
+ * Campo com sugestao: o editor (`editor-<key>` / `wizard-editor-<key>`) so aparece depois de "Editar".
+ * Campo vazio: o editor fica sempre na tela; conta como edicao se tem foco ou algo digitado.
+ */
+export function campoEmEdicaoNaTela(key: string, status: ScriptFieldStatus): boolean {
+  if (typeof document === 'undefined') return false;
+  const editores = Array.from(document.querySelectorAll(`[data-testid="editor-${key}"], [data-testid="wizard-editor-${key}"]`));
+  if (!editores.length) return false;
+  if (status !== 'vazio') return true;
+  const ativo = document.activeElement;
+  return editores.some((el) => (!!ativo && el.contains(ativo))
+    || Array.from(el.querySelectorAll('input, textarea, select')).some((i) => {
+      const inp = i as HTMLInputElement;
+      if (inp.type === 'checkbox' || inp.type === 'radio') return inp.checked;
+      return !!(inp.value || '').trim();
+    }));
+}
+
+export interface MergeFichaOptions {
+  /** Chaves que nao recebem sugestao nova agora (editor aberto, decisao ainda na fila). */
+  skip?: Iterable<string>;
+}
+
+function mesmaSugestao(a: ScriptFieldView, b: ScriptFieldView): boolean {
+  return a.sugerido === b.sugerido && a.fonte === b.fonte && a.classe === b.classe && a.status === b.status
+    && JSON.stringify(a.alternativas || []) === JSON.stringify(b.alternativas || []);
+}
+
+function mesmoComplemento(a: ScriptFieldView['complemento'], b: ScriptFieldView['complemento']): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.sugerido === b.sugerido && a.fonte === b.fonte && a.recebido_em === b.recebido_em;
+}
+
+/**
+ * Funde a ficha fresca do servidor na local SEM resetar o que o mentor esta fazendo:
+ * - campo decidido localmente: fica como esta (so recebe `complemento`, contexto_count e refinando);
+ * - campo em `skip` (editor aberto / decisao pendente): so os sinais laterais;
+ * - campo vazio/sugerido: recebe a sugestao nova (ou a decisao de um socio) e ganha `nova_sugestao`.
+ * Devolve tambem as chaves que mudaram (badge "Nova sugestão").
+ */
+export function mergeFichaData(prev: ScriptFichaData, fresh: ScriptFichaData, opts: MergeFichaOptions = {}): { data: ScriptFichaData; alteradas: string[] } {
+  const skip = new Set(opts.skip || []);
+  const freshByKey: Record<string, ScriptFieldView> = Object.fromEntries(fresh.blocos.flatMap((b) => b.campos.map((c) => [c.key, c])));
+  const alteradas: string[] = [];
+  const blocos = prev.blocos.map((b) => ({
+    ...b,
+    campos: b.campos.map((local) => {
+      const remoto = freshByKey[local.key];
+      if (!remoto) return local;
+      const lateral = { contexto_count: remoto.contexto_count, refinando: remoto.refinando };
+      if (local.decidido) {
+        const chegou = !!remoto.complemento && !mesmoComplemento(local.complemento || null, remoto.complemento);
+        if (chegou) alteradas.push(local.key);
+        return { ...local, ...lateral, complemento: remoto.complemento || null, nova_sugestao: chegou || (!!local.nova_sugestao && !!remoto.complemento) };
+      }
+      if (skip.has(local.key) || mesmaSugestao(local, remoto)) return { ...local, ...lateral };
+      const mudou = !remoto.decidido && remoto.sugerido !== local.sugerido && !!remoto.sugerido.trim();
+      if (mudou) alteradas.push(local.key);
+      return { ...local, ...remoto, ...lateral, nova_sugestao: mudou || (!!local.nova_sugestao && !remoto.decidido) };
+    }),
+  }));
+  const rec = recomputeView(blocos);
+  // O servidor manda; so nao rebaixa uma ficha que o mentor ja mexeu localmente
+  const ficha_status: FichaStatus = prev.ficha_status === 'em_revisao' && (fresh.ficha_status === 'vazia' || fresh.ficha_status === 'pre_preenchida')
+    ? prev.ficha_status : fresh.ficha_status;
+  return { data: { ...fresh, ...rec, ficha_status }, alteradas };
+}
+
 export const useScriptFicha = (token: string, enabled: boolean, userEmail: string = '') => {
   const [data, setData] = useState<ScriptFichaData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -246,8 +334,12 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   const [serverEnabled, setServerEnabled] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
+  /** Momento (ms) da ultima leitura bem-sucedida do servidor ("Atualizado há 20 s" no painel). */
+  const [ultimaSincronia, setUltimaSincronia] = useState<number | null>(null);
 
   const pendingRef = useRef<Record<string, FieldDecision>>({});
+  /** Campos com editor aberto, avisados pela tela (alem da leitura do DOM em campoEmEdicaoNaTela). */
+  const editingRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<ScriptFichaData | null>(null);
@@ -263,6 +355,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
         setData(res.data.data as ScriptFichaData);
         setServerEnabled(true);
         setError(null);
+        setUltimaSincronia(Date.now());
       }
     } catch (e: any) {
       if (e?.response?.status === 403) {
@@ -357,7 +450,8 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
       if (!prev) return prev;
       const blocos = prev.blocos.map((b) => ({
         ...b,
-        campos: b.campos.map((c) => (c.key === key ? applyDecisionLocal(c, decision, userEmail) : c)),
+        // Decidir apaga a etiqueta "Nova sugestão" do campo
+        campos: b.campos.map((c) => (c.key === key ? { ...applyDecisionLocal(c, decision, userEmail), nova_sugestao: false } : c)),
       }));
       const rec = recomputeView(blocos);
       const ficha_status: FichaStatus = prev.ficha_status === 'vazia' || prev.ficha_status === 'pre_preenchida' || prev.ficha_status === 'confirmada'
@@ -369,7 +463,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   }, [schedule, userEmail]);
 
   const toJobInfo = (j: any): ScriptJobInfo | null => (j
-    ? { id: j.id, tipo: j.tipo, status: j.status, attempts: j.attempts, created_at: j.created_at, started_at: j.started_at, finished_at: j.finished_at }
+    ? { id: j.id, tipo: j.tipo, status: j.status, attempts: j.attempts, progresso: j.progresso ?? null, error: j.error ?? null, created_at: j.created_at, started_at: j.started_at, finished_at: j.finished_at }
     : null);
 
   /** Fecha a ficha; o servidor enfileira o job `script` (1 ativo por clube) e devolve `job`. */
@@ -494,10 +588,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
       const res = await axios.post('/api/script/ficha/materials/submit', body, authHeaders(token));
       if (res.data?.success) {
         const at = res.data.materials_submitted_at || new Date().toISOString();
-        const job: ScriptJobInfo | null = res.data.job
-          ? { id: res.data.job.id, tipo: res.data.job.tipo, status: res.data.job.status, attempts: res.data.job.attempts,
-              created_at: res.data.job.created_at, started_at: res.data.job.started_at, finished_at: res.data.job.finished_at }
-          : null;
+        const job: ScriptJobInfo | null = toJobInfo(res.data.job);
         setData((prev) => (prev ? {
           ...prev,
           materials_status: 'submitted',
@@ -514,6 +605,66 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
       return { ok: false, message };
     }
   }, [token]);
+
+  /** A tela avisa que o editor de um campo abriu/fechou (o merge do poll deixa esse campo em paz). */
+  const setFieldEditing = useCallback((key: string, editing: boolean) => {
+    if (editing) editingRef.current.add(key); else editingRef.current.delete(key);
+  }, []);
+
+  /**
+   * Sincronizacao do pre-preenchimento em marcos (poll de 20 s): GET ficha e merge na local sem resetar o
+   * campo atual nem um editor aberto (mergeFichaData). Decidido nao muda; vazio/sugerido recebe sugestao nova.
+   * @returns true quando leu o servidor
+   */
+  const refreshMerge = useCallback(async (): Promise<boolean> => {
+    if (!token || !enabled) return false;
+    try {
+      const res = await axios.get('/api/script/ficha', authHeaders(token));
+      if (!(res.data?.success && res.data.data)) return false;
+      const fresh = res.data.data as ScriptFichaData;
+      setData((prev) => {
+        if (!prev) return fresh;
+        const skip = new Set<string>([...editingRef.current, ...Object.keys(pendingRef.current)]);
+        for (const b of prev.blocos) for (const c of b.campos) if (!skip.has(c.key) && campoEmEdicaoNaTela(c.key, c.status)) skip.add(c.key);
+        return mergeFichaData(prev, fresh, { skip }).data;
+      });
+      setServerEnabled(true);
+      setError(null);
+      setUltimaSincronia(Date.now());
+      return true;
+    } catch (e: any) {
+      if (e?.response?.status === 403) setServerEnabled(false);
+      return false;
+    }
+  }, [token, enabled]);
+
+  /**
+   * Complemento de um campo decidido (achado do worker em cima do texto do mentor):
+   * incorporar = o servidor anexa ao valor atual (status editado) e devolve o campo; dispensar = apaga.
+   */
+  const complemento = useCallback(async (key: string, acao: 'incorporar' | 'dispensar'): Promise<{ ok: boolean; campo?: ScriptFieldView; message?: string }> => {
+    await flush();
+    try {
+      const res = await axios.post(`/api/script/ficha/fields/${encodeURIComponent(key)}/complemento`, { acao }, authHeaders(token));
+      if (res.data?.success && res.data.campo) {
+        const campoNovo = res.data.campo as ScriptFieldView;
+        setData((prev) => {
+          if (!prev) return prev;
+          const blocos = prev.blocos.map((b) => ({
+            ...b,
+            campos: b.campos.map((c) => (c.key === key
+              ? { ...c, ...campoNovo, contexto_count: c.contexto_count, refinando: c.refinando, nova_sugestao: false }
+              : c)),
+          }));
+          return { ...prev, ...recomputeView(blocos), ficha_status: res.data.ficha_status || prev.ficha_status };
+        });
+        return { ok: true, campo: campoNovo };
+      }
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.message || e?.message };
+    }
+  }, [flush, token]);
 
   const setFiles = useCallback((files: ClubFile[]) => {
     setData((prev) => (prev ? { ...prev, files } : prev));
@@ -547,6 +698,10 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     setFiles,
     refreshFiles,
     refresh: load,
+    refreshMerge,
+    setFieldEditing,
+    complemento,
+    ultimaSincronia,
   };
 };
 

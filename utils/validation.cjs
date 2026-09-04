@@ -93,6 +93,8 @@ const scriptPrefillSchema = z.object({
     gerado_em: z.string().max(40).optional(),
     gerado_por: z.string().max(100).optional(),
     fontes_lidas: z.array(z.string().max(500)).optional().default([]),
+    // parcial: true -> `campos` pode ser um SUBCONJUNTO das 34 chaves (prefill em marcos, bloco a bloco)
+    parcial: z.boolean().optional().default(false),
     campos: z.record(z.string().max(8), scriptPrefillCampoSchema),
 });
 

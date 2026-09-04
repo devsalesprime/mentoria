@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { UseScriptFicha, ClubFile, MaterialLink } from '../../hooks/useScriptFicha';
+import { emitirToast } from './contexto/toast';
 import type { UploadedFile } from '../../types/audio';
 import { MATERIAL_CATEGORIAS, LINKS_DICA } from './materiais/categorias';
 import { ComoFunciona } from './materiais/ComoFunciona';
@@ -138,8 +140,15 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
     setConfirmOpen(true);
   };
 
-  const goToFicha = () => {
+  // Depois de "Confirmar e ir para a ficha": a Ficha mostra o painel de marcos e as sugestoes chegam bloco a bloco.
+  // O aviso fica guardado ate a pilha de toasts da Ficha montar (contexto/toast.ts).
+  const navigate = useNavigate();
+  const goToFicha = (existing?: boolean) => {
     setConfirmOpen(false);
+    emitirToast(existing
+      ? 'Já estamos lendo os seus materiais. Você já pode ir preenchendo; as sugestões aparecem aqui conforme ficam prontas.'
+      : 'Estamos lendo os seus materiais. Você já pode ir preenchendo; as sugestões aparecem aqui conforme ficam prontas.');
+    navigate('/dashboard/ficha');
     onNavigate?.('script_ficha');
   };
 
@@ -303,7 +312,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
           <p className="text-xs text-prosperus-gold-light font-sans">Já estamos processando o que você enviou. Você pode continuar enviando material e ir revisando a ficha.</p>
         )}
         {job && job.status === 'done' && (
-          <p className="text-xs text-green-400 font-sans">Pré-preenchimento concluído. A sua ficha está pronta para revisar.</p>
+          <p className="text-xs text-green-400 font-sans">Terminamos de ler os seus materiais. A sua ficha está pronta para revisar.</p>
         )}
       </div>
 

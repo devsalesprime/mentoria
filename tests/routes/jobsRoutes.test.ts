@@ -237,6 +237,34 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
     expect((await worker('GET', '/api/jobs?status=xyz')).status).toBe(400);
   });
 
+  it('PATCH running { progresso } persiste os marcos; GET ficha do membro expoe job.progresso; acima de 4 KB -> 400', async () => {
+    const progresso = {
+      fase: 'extracao', etapa_atual: 1, etapas_total: 7, rotulo: 'Lendo os materiais',
+      arquivos_lidos: 1, arquivos_total: 3, blocos_concluidos: [], atualizado_em: '2026-09-04T12:00:00.000Z',
+    };
+    const r = await worker('PATCH', `/api/jobs/${jobA.id}`, { status: 'running', progresso });
+    expect(r.status).toBe(200);
+    expect(r.data.job.status).toBe('running');
+    expect(r.data.job.progresso).toEqual(progresso);
+    expect(r.data.job.started_at).toBeTruthy();
+    expect((await worker('GET', `/api/jobs/${jobA.id}`)).data.job.progresso).toEqual(progresso);
+    const ficha = await api('GET', '/api/script/ficha', 'userA');
+    expect(ficha.data.data.job).toMatchObject({ id: jobA.id, status: 'running', progresso, error: null });
+
+    // Bloco 1 pronto: o marco seguinte substitui o anterior
+    const p2 = { ...progresso, fase: 'bloco', etapa_atual: 3, rotulo: 'Montando o bloco Mentor', blocos_concluidos: [1] };
+    expect((await worker('PATCH', `/api/jobs/${jobA.id}`, { status: 'running', progresso: p2 })).data.job.progresso.blocos_concluidos).toEqual([1]);
+    const grande = await worker('PATCH', `/api/jobs/${jobA.id}`, { status: 'running', progresso: { rotulo: 'x'.repeat(5000) } });
+    expect(grande.status).toBe(400);
+    expect((await worker('GET', `/api/jobs/${jobA.id}`)).data.job.progresso.etapa_atual).toBe(3);
+
+    // Admin: detalhe do clube e fila trazem o progresso do job
+    const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
+    expect(det.data.data.jobs.find((j) => j.id === jobA.id).progresso.rotulo).toBe('Montando o bloco Mentor');
+    const fila = await api('GET', '/api/admin/cohort/jobs', 'admin');
+    expect(fila.data.data.find((j) => j.id === jobA.id).progresso.etapa_atual).toBe(3);
+  });
+
   it('materials: TODO o clube por pessoa, com download_url, acessos e resposta_ia; nunca outro clube', async () => {
     const m = await worker('GET', `/api/jobs/${jobA.id}/materials`);
     expect(m.status).toBe(200);
@@ -293,7 +321,9 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
     const ok = await worker('PUT', `/api/jobs/${jobA.id}/prefill`, body);
     expect(ok.status).toBe(200);
     expect(ok.data.imported).toBe(32);
-    expect(ok.data.skipped).toEqual(['1.1', '1.2']);
+    // 1.1 editado pela Ana: o achado do worker vira complemento (o texto dela nao muda); 1.2 aceito_vazio e o worker tambem nao achou (VZ)
+    expect(ok.data.complementos).toEqual(['1.1']);
+    expect(ok.data.skipped).toEqual(['1.2']);
     expect(ok.data.ficha_status).toBe('em_revisao');
     expect(ok.data.resumo.total).toBe(34);
 
@@ -301,6 +331,9 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
     const a11 = after.data.data.blocos[0].campos.find((c) => c.key === '1.1');
     expect(a11.valor_efetivo).toBe('Mentoria decidida pela Ana');
     expect(a11.status).toBe('editado');
+    expect(a11.complemento).toMatchObject({ sugerido: sample.campos['1.1'].sugerido, fonte: sample.campos['1.1'].fonte, classe: 'Fato' });
+    expect(a11.complemento.recebido_em).toBeTruthy();
+    expect(after.data.data.blocos[0].campos.find((c) => c.key === '1.2').complemento).toBeNull();
     const a21 = after.data.data.blocos[1].campos.find((c) => c.key === '2.1');
     expect(a21.status).toBe('sugerido');
     expect(a21.sugerido).toBe(sample.campos['2.1'].sugerido);
@@ -308,6 +341,122 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
 
     const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
     expect(det.data.data.prefill_meta.job_id).toBe(jobA.id);
+  });
+
+  it('PUT prefill { parcial: true } importa so o subconjunto, preserva decididos e acumula blocos_importados', async () => {
+    const campos = {
+      '1.1': { sugerido: 'Tentativa de sobrescrever', classe: 'Fato', fonte: 'materiais' },
+      '2.1': { sugerido: 'Sou a Ana, nova versão em marcos', classe: 'Fato', fonte: 'transcrição da reunião' },
+      '2.2': { sugerido: '', classe: 'VZ', fonte: '' },
+    };
+    const r = await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { parcial: true, club_slug: 'clube-x', campos });
+    expect(r.status).toBe(200);
+    expect(r.data.parcial).toBe(true);
+    expect(r.data.importados).toEqual(['2.1', '2.2']);
+    expect(r.data.complementos).toEqual(['1.1']); // decidido: vira complemento, o texto da Ana fica
+    expect(r.data.skipped).toEqual([]);
+    expect(r.data.ficha_status).toBe('em_revisao'); // nunca rebaixa
+    // Acumula sobre o meta do prefill completo anterior (os 6 blocos) e registra os blocos deste marco
+    expect(r.data.blocos_importados).toEqual([1, 2, 3, 4, 5, 6]);
+
+    const after = await api('GET', '/api/script/ficha', 'userA');
+    const campo = (k) => after.data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === k);
+    expect(campo('1.1')).toMatchObject({ status: 'editado', valor_efetivo: 'Mentoria decidida pela Ana', complemento: { sugerido: 'Tentativa de sobrescrever', fonte: 'materiais' } });
+    expect(campo('2.1')).toMatchObject({ status: 'sugerido', sugerido: 'Sou a Ana, nova versão em marcos', fonte: 'transcrição da reunião' });
+    expect(campo('2.2')).toMatchObject({ status: 'vazio', sugerido: '' });
+    // Os outros campos seguem como o prefill completo deixou
+    const outra = Object.keys(sample.campos).find((k) => !['1.1', '1.2', '2.1', '2.2'].includes(k) && sample.campos[k].classe !== 'VZ');
+    expect(campo(outra).sugerido).toBe(sample.campos[outra].sugerido);
+    const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
+    expect(det.data.data.prefill_meta).toMatchObject({ job_id: jobA.id, parcial: true, blocos_importados: [1, 2, 3, 4, 5, 6] });
+
+    // Validacao por campo continua: fonte obrigatoria fora de VZ; chave desconhecida; parcial vazio; sem parcial as 34 sao obrigatorias
+    expect((await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { parcial: true, campos: { '2.1': { sugerido: 'x', classe: 'DER', fonte: '' } } })).status).toBe(400);
+    expect((await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { parcial: true, campos: { '9.9': { sugerido: 'x', classe: 'Fato', fonte: 'f' } } })).status).toBe(400);
+    expect((await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { parcial: true, campos: {} })).status).toBe(400);
+    expect((await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { campos: { '2.1': campos['2.1'] } })).status).toBe(400);
+
+    // Ficha vazia (clube Z): o primeiro bloco parcial ja vira pre_preenchida
+    const subZ = await api('POST', '/api/script/ficha/materials/submit', 'userZ', {});
+    const nextZ = await worker('POST', '/api/jobs/next', { tipo: 'prefill' });
+    expect(nextZ.data.job.id).toBe(subZ.data.job.id);
+    const pz = await worker('PUT', `/api/jobs/${nextZ.data.job.id}/prefill`, { parcial: true, campos: { '2.1': campos['2.1'] } });
+    expect(pz.data.ficha_status).toBe('pre_preenchida');
+    expect(pz.data.blocos_importados).toEqual([2]);
+    expect((await api('GET', '/api/script/ficha', 'userZ')).data.data.ficha_status).toBe('pre_preenchida');
+    await worker('PATCH', `/api/jobs/${nextZ.data.job.id}`, { status: 'error', error: 'teste: encerrado' });
+  });
+
+  it('complemento: incorporar anexa ao texto do mentor (editado) e dispensar apaga; sem complemento -> 400', async () => {
+    const campoDe = async (k) => (await api('GET', '/api/script/ficha', 'userA')).data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === k);
+    expect((await campoDe('1.1')).complemento.sugerido).toBe('Tentativa de sobrescrever');
+
+    const inc = await api('POST', '/api/script/ficha/fields/1.1/complemento', 'userA', { acao: 'incorporar' });
+    expect(inc.status).toBe(200);
+    expect(inc.data.campo).toMatchObject({ key: '1.1', status: 'editado', valor: 'Mentoria decidida pela Ana\n\nTentativa de sobrescrever', complemento: null, decidido: true });
+    expect(inc.data.ficha_status).toBe('em_revisao');
+    expect(inc.data.progresso.total).toBe(34);
+    expect(await campoDe('1.1')).toMatchObject({ status: 'editado', valor_efetivo: 'Mentoria decidida pela Ana\n\nTentativa de sobrescrever', complemento: null });
+
+    expect((await api('POST', '/api/script/ficha/fields/1.1/complemento', 'userA', { acao: 'dispensar' })).status).toBe(400);
+    expect((await api('POST', '/api/script/ficha/fields/1.1/complemento', 'userA', { acao: 'outra' })).status).toBe(400);
+    expect((await api('POST', '/api/script/ficha/fields/9.9/complemento', 'userA', { acao: 'dispensar' })).status).toBe(400);
+
+    // Novo achado em 1.1 (parcial) substitui o complemento; dispensar apaga sem mexer no texto
+    const again = await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { parcial: true, campos: { '1.1': { sugerido: 'Outro achado', classe: 'DER', fonte: 'site' } } });
+    expect(again.data.complementos).toEqual(['1.1']);
+    expect((await campoDe('1.1')).complemento).toMatchObject({ sugerido: 'Outro achado', classe: 'DER', fonte: 'site' });
+    const disp = await api('POST', '/api/script/ficha/fields/1.1/complemento', 'userA', { acao: 'dispensar' });
+    expect(disp.status).toBe(200);
+    expect(disp.data.campo).toMatchObject({ status: 'editado', valor: 'Mentoria decidida pela Ana\n\nTentativa de sobrescrever', complemento: null });
+    // O mesmo texto que o mentor ja tem nao vira complemento
+    const igual = await worker('PUT', `/api/jobs/${jobA.id}/prefill`, { parcial: true, campos: { '1.1': { sugerido: 'Mentoria decidida pela Ana\n\nTentativa de sobrescrever', classe: 'Fato', fonte: 'site' } } });
+    expect(igual.data.complementos).toEqual([]);
+    expect(igual.data.skipped).toEqual(['1.1']);
+    // Admin e worker veem o mesmo campo
+    const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
+    expect(det.data.data.blocos[0].campos.find((c) => c.key === '1.1')).toHaveProperty('complemento', null);
+    expect((await worker('GET', `/api/jobs/${jobA.id}/ficha`)).data.blocos[0].campos.find((c) => c.key === '1.1')).toHaveProperty('complemento', null);
+  });
+
+  it('PUT campo { decidir: true }: decide em nome do mentor (editado, autor WhatsApp); campo decidido no app vira complemento', async () => {
+    // 2.2 esta `vazio` depois do parcial: decidir preenche em nome do mentor
+    const d = await worker('PUT', `/api/jobs/${jobA.id}/campo`, { field_key: '2.2', sugerido: 'Vinte anos de clínica, dito no WhatsApp', classe: 'Fato', fonte: 'WhatsApp', decidir: true });
+    expect(d.status).toBe(200);
+    expect(d.data.decidido).toBe(true);
+    expect(d.data.complemento).toBe(false);
+    expect(d.data.campo).toMatchObject({
+      status: 'editado', valor: 'Vinte anos de clínica, dito no WhatsApp', valor_efetivo: 'Vinte anos de clínica, dito no WhatsApp',
+      sugerido: 'Vinte anos de clínica, dito no WhatsApp', fonte: 'WhatsApp', decidido: true, autor: 'WhatsApp do mentor', complemento: null,
+    });
+    expect(d.data.ficha_status).toBe('em_revisao');
+    const m = (await api('GET', '/api/script/ficha', 'userA')).data.data.blocos.flatMap((b) => b.campos).find((c) => c.key === '2.2');
+    expect(m).toMatchObject({ status: 'editado', valor_efetivo: 'Vinte anos de clínica, dito no WhatsApp', autor: 'WhatsApp do mentor' });
+
+    // Respondeu de novo pelo WhatsApp: pode trocar (nao foi o app que decidiu)
+    const d2 = await worker('PUT', `/api/jobs/${jobA.id}/campo`, { field_key: '2.2', sugerido: 'Corrigindo: vinte e um anos', classe: 'Fato', fonte: 'WhatsApp', decidir: true });
+    expect(d2.data.decidido).toBe(true);
+    expect(d2.data.campo.valor).toBe('Corrigindo: vinte e um anos');
+
+    // 1.1 decidido pelo mentor NO APP: nunca sobrescreve; a resposta vira complemento
+    const c = await worker('PUT', `/api/jobs/${jobA.id}/campo`, { field_key: '1.1', sugerido: 'Resposta pelo WhatsApp', classe: 'Fato', fonte: 'WhatsApp', decidir: true });
+    expect(c.data.decidido).toBe(false);
+    expect(c.data.complemento).toBe(true);
+    expect(c.data.warnings.some((w) => /complemento/.test(w))).toBe(true);
+    expect(c.data.campo).toMatchObject({ status: 'editado', valor_efetivo: 'Mentoria decidida pela Ana\n\nTentativa de sobrescrever', complemento: { sugerido: 'Resposta pelo WhatsApp', fonte: 'WhatsApp' } });
+
+    // O mentor edita 2.2 no app: o campo passa a ser dele; um novo decidir vira complemento
+    await api('PUT', '/api/script/ficha/fields', 'userA', { updates: { '2.2': { status: 'editado', valor: 'Editado no app' } } });
+    const c2 = await worker('PUT', `/api/jobs/${jobA.id}/campo`, { field_key: '2.2', sugerido: 'De novo pelo WhatsApp', classe: 'Fato', fonte: 'WhatsApp', decidir: true });
+    expect(c2.data.decidido).toBe(false);
+    expect(c2.data.campo).toMatchObject({ valor: 'Editado no app', autor: null, complemento: { sugerido: 'De novo pelo WhatsApp' } });
+    // Sugestao vazia com decidir: nada a decidir, comportamento normal (campo continua do mentor)
+    const vz = await worker('PUT', `/api/jobs/${jobA.id}/campo`, { field_key: '2.2', sugerido: '', classe: 'VZ', fonte: '', decidir: true });
+    expect(vz.data.decidido).toBe(false);
+
+    // Limpa os complementos para os testes seguintes
+    await api('POST', '/api/script/ficha/fields/2.2/complemento', 'userA', { acao: 'dispensar' });
+    await api('POST', '/api/script/ficha/fields/1.1/complemento', 'userA', { acao: 'dispensar' });
   });
 
   it('PATCH done/needs_human grava finished_at; queued limpa', async () => {
@@ -322,6 +471,32 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
     expect((await worker('GET', '/api/jobs?status=done')).data.data.map((j) => j.id)).toEqual([jobA.id]);
     const fichaA = await api('GET', '/api/script/ficha', 'userA');
     expect(fichaA.data.data.job.status).toBe('done');
+    expect(fichaA.data.data.job.progresso.etapa_atual).toBe(3);
+    // done fica visivel para o membro por 10 minutos depois de finished_at; depois some (o painel "Pronto" nao fica para sempre)
+    await dbRun(`UPDATE cohort_jobs SET finished_at = datetime('now', '-11 minutes') WHERE id = ?`, [jobA.id]);
+    expect((await api('GET', '/api/script/ficha', 'userA')).data.data.job).toBeNull();
+    // needs_human continua visivel (o membro precisa saber que a equipe esta olhando)
+    expect((await api('GET', '/api/script/ficha', 'userB')).data.data.job).toMatchObject({ id: jobB.id, status: 'needs_human', error: 'sem materiais suficientes' });
+  });
+
+  it('PATCH queued reinicia job em needs_human ou error (started/finished zerados, attempts mantido) e o worker pega de novo', async () => {
+    const q = await worker('PATCH', `/api/jobs/${jobB.id}`, { status: 'queued' });
+    expect(q.status).toBe(200);
+    expect(q.data.job).toMatchObject({ status: 'queued', started_at: null, finished_at: null, attempts: 1, error: 'sem materiais suficientes' });
+    expect((await worker('GET', '/api/jobs?status=queued')).data.data.map((j) => j.id)).toEqual([jobB.id]);
+    // volta ao estado anterior (os testes do admin esperam B em needs_human)
+    await worker('PATCH', `/api/jobs/${jobB.id}`, { status: 'needs_human', error: 'sem materiais suficientes' });
+
+    // job em error (clube Z): reinicia limpando o erro, o worker reivindica (attempts + 1) e fecha de novo
+    const z = (await worker('GET', '/api/jobs?status=error')).data.data.find((j) => j.club_slug === 'clube-z');
+    expect(z).toBeTruthy();
+    const qz = await worker('PATCH', `/api/jobs/${z.id}`, { status: 'queued', error: null });
+    expect(qz.data.job).toMatchObject({ status: 'queued', started_at: null, finished_at: null, attempts: 1, error: null });
+    const next = await worker('POST', '/api/jobs/next', { tipo: 'prefill' });
+    expect(next.data.job.id).toBe(z.id);
+    expect(next.data.job.attempts).toBe(2);
+    expect(next.data.job.started_at).toBeTruthy();
+    await worker('PATCH', `/api/jobs/${z.id}`, { status: 'error', error: 'teste: encerrado de novo' });
   });
 
   it('phones: distintos, sem nulos', async () => {

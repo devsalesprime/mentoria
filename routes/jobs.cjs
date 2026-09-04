@@ -21,10 +21,15 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
 
+  // progresso (opcional, com qualquer status): marcos do prefill em blocos, objeto de ate 4 KB; null limpa.
+  // Forma esperada do worker: { fase: 'extracao'|'bloco'|'finalizando', etapa_atual, etapas_total: 7, rotulo,
+  //   arquivos_lidos?, arquivos_total?, blocos_concluidos: number[], blocos_com_erro?: number[], atualizado_em }
   const jobPatchSchema = z.object({
     status: z.enum(['queued', 'running', 'done', 'error', 'needs_human']),
     result: z.any().optional(),
     error: z.string().max(4000).nullable().optional(),
+    progresso: z.record(z.string(), z.unknown()).nullable().optional()
+      .refine((v) => v == null || Buffer.byteLength(JSON.stringify(v), 'utf8') <= JOBS.PROGRESSO_MAX_BYTES, { message: 'progresso acima de 4 KB.' }),
   });
 
   // tipo ausente ou 'any' = o mais antigo de qualquer tipo
@@ -40,6 +45,9 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     fonte: z.string().max(1000).optional().default(''),
     alternativas: z.array(z.object({ sugerido: z.string().max(20000), fonte: z.string().max(1000).optional().default('') })).max(2).optional().default([]),
     nota_interna: z.string().max(5000).optional().default(''),
+    // decidir: o mentor respondeu pelo WhatsApp; o worker decide em nome dele (editado, autor "WhatsApp do mentor").
+    // Campo decidido no app nunca e sobrescrito: vira complemento (resposta { decidido: false, complemento: true }).
+    decidir: z.boolean().optional().default(false),
   });
 
   function currentToken() {
@@ -266,9 +274,13 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
       const key = req.body.field_key;
       if (!SF.FIELD_BY_KEY[key]) return res.status(400).json({ success: false, message: `Campo desconhecido: ${key}.` });
       const ficha = await SF.ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
-      const r = SF.applyWorkerSuggestion(safeJsonParse(ficha.fields, {}), key, req.body, { job_id: req.job.id });
-      // Campo decidido reaberto numa ficha confirmada: a ficha volta para em_revisao (o mentor precisa olhar de novo)
-      const nextStatus = r.reaberto && ficha.ficha_status === 'confirmada' ? 'em_revisao' : (ficha.ficha_status === 'vazia' ? 'pre_preenchida' : ficha.ficha_status);
+      const r = SF.applyWorkerSuggestion(safeJsonParse(ficha.fields, {}), key, req.body, { job_id: req.job.id, decidir: !!req.body.decidir });
+      // Campo decidido reaberto numa ficha confirmada: a ficha volta para em_revisao (o mentor precisa olhar de novo).
+      // decidir em ficha vazia/pre_preenchida: e uma decisao do mentor, vai para em_revisao.
+      let nextStatus = ficha.ficha_status;
+      if (r.reaberto && ficha.ficha_status === 'confirmada') nextStatus = 'em_revisao';
+      else if (r.decidido && ['vazia', 'pre_preenchida'].includes(ficha.ficha_status)) nextStatus = 'em_revisao';
+      else if (ficha.ficha_status === 'vazia') nextStatus = 'pre_preenchida';
       await dbRun(
         `UPDATE script_fichas SET fields = ?, ficha_status = ?, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
         [JSON.stringify(r.fields), nextStatus, slug]
@@ -277,8 +289,17 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
       const campo = view.blocos.flatMap((b) => b.campos).find((c) => c.key === key);
       const warnings = [];
       if (r.limpo) warnings.push(`${key}: a sugestão era um "a definir"; o campo ficou vazio e o texto foi para nota_interna.`);
+      if (req.body.decidir && !r.decidido) {
+        warnings.push(r.complemento
+          ? `${key}: já decidido pelo mentor no app; a resposta ficou como complemento.`
+          : `${key}: nada a decidir (sugestão vazia ou igual ao que o mentor já tem).`);
+      }
       if (String(req.body.sugerido || '').includes('—')) warnings.push(`${key}: contém travessão.`);
-      res.json({ success: true, field_key: key, reaberto: r.reaberto, limpo: r.limpo, ficha_status: nextStatus, campo, warnings });
+      res.json({
+        success: true, field_key: key, reaberto: r.reaberto, limpo: r.limpo,
+        decidido: !!r.decidido, complemento: !!r.complemento,
+        ficha_status: nextStatus, campo, warnings,
+      });
     } catch (error) {
       console.error('Error in PUT /api/jobs/:id/campo:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
@@ -367,6 +388,8 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
   });
 
   // PUT /api/jobs/:id/prefill  -> mesmo JSON/validacao/semantica de PUT /api/admin/clubs/:slug/script-ficha
+  // { parcial: true } aceita um SUBCONJUNTO das 34 chaves (prefill em marcos, bloco a bloco): importa so essas,
+  // nunca sobrescreve campo decidido, acumula prefill_meta.blocos_importados e nunca rebaixa em_revisao/confirmada.
   router.put('/api/jobs/:id/prefill', loadJob, validateBody(scriptPrefillSchema), async (req, res) => {
     try {
       const slug = req.job.club_slug;
@@ -380,9 +403,15 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
       const r = await SF.importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, req.body, { job_id: req.job.id });
       res.json({
         success: true,
-        message: `Importados ${r.imported.length} campos; ${r.skipped.length} mantidos (já decididos pelo mentor).`,
+        message: `Importados ${r.imported.length} campos; ${r.complementos.length} já decididos ganharam complemento; ${r.skipped.length} mantidos.`,
         imported: r.imported.length,
+        importados: r.imported,
+        // Decididos pelo mentor: o achado do worker fica em campo.complemento (o texto dele nao muda)
+        complementos: r.complementos,
+        // Decididos sem nada a acrescentar (VZ ou o mesmo texto)
         skipped: r.skipped,
+        parcial: r.parcial,
+        blocos_importados: r.blocos_importados,
         warnings,
         ficha_status: r.ficha_status,
         resumo: r.resumo,

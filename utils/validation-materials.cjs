@@ -97,17 +97,27 @@ const COHORT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS cohort_jobs (
   payload JSON,
   result JSON,
   error TEXT,
+  progresso TEXT,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   started_at DATETIME,
   finished_at DATETIME,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 const COHORT_JOBS_INDEX_DDL = `CREATE INDEX IF NOT EXISTS idx_cohort_jobs_status_created ON cohort_jobs(status, created_at)`;
+// Progresso do worker em marcos (JSON): { fase: 'extracao'|'bloco'|'finalizando', etapa_atual, etapas_total, rotulo,
+// arquivos_lidos?, arquivos_total?, blocos_concluidos: number[], blocos_com_erro?: number[], atualizado_em }.
+// ALTER idempotente para bancos criados antes da coluna ("duplicate column" e ignorado). Registro: migrations/019_cohort_jobs_progresso.sql
+const COHORT_JOBS_PROGRESSO_DDL = `ALTER TABLE cohort_jobs ADD COLUMN progresso TEXT`;
 
 /** Idempotente; chamado pelos routers (script, admin-cohort, jobs). Registro: migrations/017_cohort_jobs.sql */
 async function ensureCohortJobsTable(dbRun) {
     await dbRun(COHORT_JOBS_DDL);
     await dbRun(COHORT_JOBS_INDEX_DDL);
+    try {
+        await dbRun(COHORT_JOBS_PROGRESSO_DDL);
+    } catch (e) {
+        if (!/duplicate column/i.test(String(e && e.message))) throw e;
+    }
 }
 
 async function readCohortConfig(dbAll) {

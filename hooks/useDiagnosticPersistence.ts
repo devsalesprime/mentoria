@@ -190,8 +190,11 @@ export const useDiagnosticPersistence = (token: string) => {
 
   const loadDiagnostic = async () => {
     try {
+      // Timeout: o Dashboard segura o primeiro paint em diagnosticLoaded quando o JWT nao traz `cohort`;
+      // uma requisicao pendurada nao pode virar tela de espera infinita.
       const response = await axios.get('/api/diagnostic', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 15000,
       });
 
       if (response.data.success && response.data.data) {

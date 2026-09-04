@@ -263,7 +263,11 @@ describe('complete -> job script; worker any; PUT campo; PUT script', () => {
     expect(n.data.job.id).toBe(scriptJob.id);
     const r = await worker('PUT', `/api/jobs/${scriptJob.id}/prefill`, body);
     expect(r.status).toBe(200);
-    expect(r.data.skipped.length).toBe(33); // so 3.5 estava sem decisao (reaberto e limpo pelo PUT campo)
+    // so 3.5 estava sem decisao (reaberto e limpo pelo PUT campo); os 33 decididos nunca sao sobrescritos:
+    // 3.3 (editado pelo mentor com outro texto) ganha complemento, os demais ficam como estao
+    expect(r.data.imported).toBe(1);
+    expect(r.data.skipped.length + r.data.complementos.length).toBe(33);
+    expect(r.data.complementos).toContain('3.3');
     const f = await worker('GET', `/api/jobs/${scriptJob.id}/ficha`);
     const c35 = f.data.blocos[2].campos.find((c) => c.key === '3.5');
     expect(c35).toMatchObject({ status: 'vazio', sugerido: '', classe: 'VZ' });

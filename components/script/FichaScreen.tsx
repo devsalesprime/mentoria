@@ -8,6 +8,8 @@ import { FichaWizard } from './FichaWizard';
 import { BLOCK_INTRO } from './FichaNavegador';
 import { ToastStack } from './contexto/ToastStack';
 import { emitirToast } from './contexto/toast';
+import { ProgressoPreenchimento } from './ProgressoPreenchimento';
+import { ComplementoCampo } from './ComplementoCampo';
 import { AccordionSection } from '../shared/AccordionSection';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
@@ -22,6 +24,11 @@ const MODO_KEY = 'ficha-script-modo';
 type Modo = 'passo' | 'tudo';
 
 const POLL_REFINANDO_MS = 30000;
+// Pre-preenchimento em marcos: enquanto o job da pessoa esta na fila/rodando, sincroniza a cada 20 s
+const POLL_PREFILL_MS = 20000;
+// "Pronto: N sugestões chegaram" some sozinho depois de 60 s (ou quando o mentor interage)
+const PRONTO_MS = 60000;
+const INDISPONIVEL = { ok: false, message: 'Indisponível agora.' };
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return '';
@@ -49,7 +56,7 @@ const SaveIndicator: React.FC<{ state: UseScriptFicha['saveState'] }> = ({ state
 };
 
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
-  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh } = ficha;
+  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento } = ficha;
   const [openBlock, setOpenBlock] = useState<number | null>(null);
   const [modo, setModo] = useState<Modo>(() => {
     try { return window.localStorage.getItem(MODO_KEY) === 'tudo' ? 'tudo' : 'passo'; } catch { return 'passo'; }
@@ -134,6 +141,42 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     return () => clearInterval(t);
   }, [algumRefinando, recarregar]);
 
+  // Pre-preenchimento em marcos: job da pessoa na fila/rodando -> sincroniza a cada 20 s (fila salva antes, depois
+  // GET + merge no hook: nao reseta o passo atual nem um editor aberto). O painel no topo mostra os marcos.
+  const job = data?.job ?? null;
+  const jobAtivo = job?.status === 'queued' || job?.status === 'running';
+  const [painelDispensado, setPainelDispensado] = useState<string | null>(null);
+  const prevJobStatusRef = useRef<string | null>(null);
+  const sincronizar = useCallback(async () => {
+    try { await flush?.(); } catch { /* fila fica para a proxima */ }
+    try { await refreshMerge?.(); } catch { /* proximo ciclo */ }
+  }, [flush, refreshMerge]);
+  useEffect(() => {
+    if (!jobAtivo) return;
+    const t = setInterval(() => { void sincronizar(); }, POLL_PREFILL_MS);
+    return () => clearInterval(t);
+  }, [jobAtivo, sincronizar]);
+  useEffect(() => {
+    const antes = prevJobStatusRef.current;
+    if ((antes === 'queued' || antes === 'running') && job?.status === 'done') emitirToast('Terminamos de ler os seus materiais. As sugestões estão na ficha.');
+    prevJobStatusRef.current = job?.status ?? null;
+  }, [job?.status]);
+  useEffect(() => {
+    if (job?.status !== 'done' || painelDispensado === job.id) return;
+    const t = setTimeout(() => setPainelDispensado(job.id), PRONTO_MS);
+    return () => clearTimeout(t);
+  }, [job?.status, job?.id, painelDispensado]);
+  const dispensarSePronto = useCallback(() => { if (job?.status === 'done') setPainelDispensado(job.id); }, [job?.status, job?.id]);
+  const mostrarPainel = !!job && !(job.status === 'done' && painelDispensado === job.id);
+  const camposTodos = useMemo(() => (data?.blocos || []).flatMap((b) => b.campos), [data]);
+  const sugestoesTotal = useMemo(() => camposTodos.filter((c) => c.sugerido && c.sugerido.trim()).length, [camposTodos]);
+  const novas = useMemo(() => camposTodos.filter((c) => c.nova_sugestao).map((c) => `${c.key} · ${c.nome}`), [camposTodos]);
+  // Campos decididos com achado do worker por cima ("Encontramos mais nos seus materiais")
+  const comComplemento = useMemo(() => camposTodos.filter((c) => !!c.complemento), [camposTodos]);
+  const incorporar = useCallback((key: string) => (complemento ? complemento(key, 'incorporar') : Promise.resolve(INDISPONIVEL)), [complemento]);
+  const dispensar = useCallback((key: string) => (complemento ? complemento(key, 'dispensar') : Promise.resolve(INDISPONIVEL)), [complemento]);
+  const salvarAjuste = useCallback((key: string, valor: string) => decide(key, { status: 'editado', valor }), [decide]);
+
   const handleClose = async () => {
     setClosingFicha(true);
     setCloseError(null);
@@ -190,6 +233,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
               {[c, outro].map((f) => (
                 <div key={f.key} className="space-y-2 min-w-0">
                   <FichaField campo={f} onDecide={decide} contexto={contexto} onRecarregar={recarregar} />
+                  {f.complemento && <ComplementoCampo campo={f} onIncorporar={incorporar} onDispensar={dispensar} onSalvarAjuste={salvarAjuste} />}
                 </div>
               ))}
             </div>
@@ -197,7 +241,12 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         );
         continue;
       }
-      out.push(<FichaField key={c.key} campo={c} onDecide={decide} contexto={contexto} onRecarregar={recarregar} />);
+      out.push(
+        <React.Fragment key={c.key}>
+          <FichaField campo={c} onDecide={decide} contexto={contexto} onRecarregar={recarregar} />
+          {c.complemento && <ComplementoCampo campo={c} onIncorporar={incorporar} onDispensar={dispensar} onSalvarAjuste={salvarAjuste} />}
+        </React.Fragment>,
+      );
     }
     return out;
   };
@@ -246,7 +295,11 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   );
 
   return (
-    <div ref={rootRef} className={`ficha-scroll space-y-4 sm:space-y-6 mx-auto ${modo === 'passo' ? 'max-w-3xl lg:max-w-[1040px]' : 'max-w-3xl'}`}>
+    <div
+      ref={rootRef}
+      className={`ficha-scroll space-y-4 sm:space-y-6 mx-auto ${modo === 'passo' ? 'max-w-3xl lg:max-w-[1040px]' : 'max-w-3xl'}`}
+      onPointerDownCapture={dispensarSePronto}
+    >
       {/* Cabecalho */}
       <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -268,6 +321,26 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
           </p>
         )}
       </div>
+
+      {/* Pre-preenchimento em marcos: na fila, em andamento (trilha de 7 etapas), pronto, em conferencia, erro */}
+      {mostrarPainel && (
+        <ProgressoPreenchimento
+          job={job}
+          sugestoes={sugestoesTotal}
+          novas={novas}
+          atualizadoEm={ultimaSincronia ?? null}
+          onDispensar={dispensarSePronto}
+        />
+      )}
+
+      {/* Achados em cima de campos decididos: no passo a passo ficam listados aqui (no "Ver tudo", sob cada campo) */}
+      {modo === 'passo' && comComplemento.length > 0 && (
+        <section className="space-y-2" data-testid="complementos-topo" aria-label="Encontramos mais nos seus materiais">
+          {comComplemento.map((c) => (
+            <ComplementoCampo key={c.key} campo={c} mostrarNome onIncorporar={incorporar} onDispensar={dispensar} onSalvarAjuste={salvarAjuste} />
+          ))}
+        </section>
+      )}
 
       {/* Fechamento: papel creme, sem confete */}
       <AnimatePresence>

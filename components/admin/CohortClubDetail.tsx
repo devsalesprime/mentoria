@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
-import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, formatDateTime } from './CohortOverview';
+import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, formatDateTime, progressoResumo } from './CohortOverview';
 import type { CohortJob } from './CohortOverview';
 import { renderMarkdown } from '../../utils/markdown';
 import { MATERIAL_CATEGORIA_LABEL } from '../script/materiais/categorias';
@@ -501,11 +501,28 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
           {(detail.jobs || []).length > 0 && (
             <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
               <h4 className="text-sm font-semibold text-white">Fila do worker deste clube</h4>
+              {(() => {
+                // Job em andamento agora (queued/running) com marcos do worker: leitura, blocos prontos, arquivos
+                const atual = (detail.jobs || []).find((j) => j.status === 'queued' || j.status === 'running');
+                const p = atual?.progresso;
+                if (!atual || !p) return null;
+                const blocos = (p.blocos_concluidos || []).join(', ');
+                return (
+                  <p className="text-xs text-prosperus-gold-light/90" data-testid="job-progresso-atual">
+                    Agora: {p.rotulo || atual.status}
+                    {p.etapa_atual && p.etapas_total ? ` · etapa ${p.etapa_atual} de ${p.etapas_total}` : ''}
+                    {blocos ? ` · blocos prontos: ${blocos}` : ''}
+                    {p.arquivos_total ? ` · arquivos ${p.arquivos_lidos ?? 0} de ${p.arquivos_total}` : ''}
+                    {p.atualizado_em ? ` · atualizado ${formatDateTime(p.atualizado_em)}` : ''}
+                  </p>
+                );
+              })()}
               <ul className="space-y-1">
                 {(detail.jobs || []).map((j) => (
                   <li key={j.id} className="flex flex-wrap items-center gap-2 text-xs border-b border-white/5 py-1.5">
                     <JobTipoBadge job={j} />
                     <JobStatusBadge status={j.status} />
+                    {progressoResumo(j) && <span className="text-prosperus-gold-light/80">{progressoResumo(j)}</span>}
                     <span className="text-white/80">{j.email}</span>
                     {j.notify_phone && <span className="font-mono text-white/50">{j.notify_phone}</span>}
                     <span className="text-white/40">tentativas {j.attempts} · criado {formatDateTime(j.created_at)}{j.finished_at ? ` · fim ${formatDateTime(j.finished_at)}` : ''}</span>

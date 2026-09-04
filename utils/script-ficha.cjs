@@ -20,6 +20,8 @@ const DAYS = DEFS.dias;
 const FIELD_STATUSES = ['sugerido', 'confirmado', 'editado', 'vazio', 'aceito_vazio'];
 const DECIDED_STATUSES = ['confirmado', 'editado', 'aceito_vazio'];
 const CLASSES = ['Fato', 'DER', 'VZ'];
+/** `autor` do campo quando o worker decidiu em nome do mentor a partir da resposta dele no WhatsApp (PUT :id/campo { decidir }). */
+const AUTOR_WHATSAPP = 'WhatsApp do mentor';
 const MAX_ALTERNATIVAS = 3; // contrato de prefill aceita 2; a 3a vaga e "sua versao anterior" (PUT /api/jobs/:id/campo)
 
 /**
@@ -64,6 +66,9 @@ function emptyFieldState() {
     status: 'vazio',
     valor: '',
     estrutura: null,
+    // Achado do worker em cima de um campo JA decidido (o texto do mentor pesa mais; isto e aprofundamento):
+    // { sugerido, fonte, classe, alternativas, recebido_em } | null. Some ao incorporar/dispensar.
+    complemento: null,
     atualizado_por: null,
     atualizado_em: null,
   };
@@ -74,10 +79,25 @@ function normalizeEstrutura(raw) {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
 }
 
+/** Complemento valido = objeto com `sugerido` nao vazio; classe nunca VZ; ate 2 alternativas limpas. O resto vira null. */
+function normalizeComplemento(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const sugerido = typeof raw.sugerido === 'string' ? raw.sugerido.trim() : '';
+  if (!sugerido) return null;
+  return {
+    sugerido,
+    fonte: typeof raw.fonte === 'string' ? raw.fonte : '',
+    classe: CLASSES.includes(raw.classe) && raw.classe !== 'VZ' ? raw.classe : 'Fato',
+    alternativas: cleanAlternativas(raw.alternativas, 2),
+    recebido_em: typeof raw.recebido_em === 'string' ? raw.recebido_em : null,
+  };
+}
+
 function normalizeFieldState(raw) {
   const base = emptyFieldState();
   if (!raw || typeof raw !== 'object') return base;
   const out = { ...base, ...raw };
+  out.complemento = normalizeComplemento(out.complemento);
   if (typeof out.sugerido !== 'string') out.sugerido = out.sugerido == null ? '' : String(out.sugerido);
   if (!CLASSES.includes(out.classe)) out.classe = out.sugerido ? 'Fato' : 'VZ';
   if (typeof out.fonte !== 'string') out.fonte = '';
@@ -154,6 +174,8 @@ function applyUpdates(fields, updates, email) {
       rejected.push({ key, motivo: 'status invalido' });
       continue;
     }
+    // Decisao no app: o campo passa a ser do mentor (um `decidir` do WhatsApp nao sobrescreve mais)
+    if (next[key].autor) next[key] = { ...next[key], autor: null };
     applied.push(key);
   }
 
@@ -163,18 +185,34 @@ function applyUpdates(fields, updates, email) {
 /**
  * Importa o JSON de pre-preenchimento (contrato). Nao sobrescreve campo ja decidido.
  * campos = { "1.1": { sugerido, classe, fonte, alternativas, nota_interna } }
+ * parcial: so as chaves presentes em `campos` (subconjunto das 34, na ordem da ficha); as demais ficam como estao.
  */
-function applyPrefill(fields, campos) {
+function applyPrefill(fields, campos, { parcial = false } = {}) {
   const next = normalizeFields(fields);
   const imported = [];
   const skipped = [];
+  const complementos = [];
   const limpos = [];
+  const keys = parcial ? FIELD_KEYS.filter((k) => campos[k]) : FIELD_KEYS;
 
-  for (const key of FIELD_KEYS) {
+  for (const key of keys) {
     const cur = next[key];
     const inc = campos[key];
-    if (isDecided(cur)) { skipped.push(key); continue; }
     const san = sanitizeSugestao(inc);
+    if (isDecided(cur)) {
+      // Campo decidido: o texto do mentor pesa mais e fica intacto; o achado do worker vira `complemento`
+      // (aprofundamento que ele incorpora ou dispensa). Nada a acrescentar (VZ ou o mesmo texto) = mantido.
+      if (san.sugerido && san.sugerido !== effectiveValue(cur).trim()) {
+        next[key] = {
+          ...cur,
+          complemento: normalizeComplemento({ sugerido: san.sugerido, fonte: san.fonte, classe: san.classe, alternativas: inc.alternativas, recebido_em: nowIso() }),
+        };
+        complementos.push(key);
+      } else {
+        skipped.push(key);
+      }
+      continue;
+    }
     if (san.limpo) limpos.push(key);
     next[key] = {
       ...cur,
@@ -186,11 +224,34 @@ function applyPrefill(fields, campos) {
       status: san.sugerido ? 'sugerido' : 'vazio',
       valor: '',
       estrutura: null,
+      complemento: null,
     };
     imported.push(key);
   }
 
-  return { fields: next, imported, skipped, limpos };
+  return { fields: next, imported, skipped, complementos, limpos };
+}
+
+/**
+ * Complemento de um campo decidido (achado do worker em cima do que o mentor ja escreveu).
+ * incorporar: valor = valor atual + linha em branco + texto do complemento; status `editado`; complemento some.
+ * dispensar : so apaga o complemento. Sem complemento -> { ok: false, motivo: 'sem complemento' }.
+ * @returns {{ ok: boolean, motivo?: string, fields?: object, field?: object, decidiu?: boolean }}
+ */
+function applyComplemento(fields, key, acao, email) {
+  if (!FIELD_BY_KEY[key]) return { ok: false, motivo: 'campo desconhecido' };
+  const next = normalizeFields(fields);
+  const cur = next[key];
+  if (!cur.complemento) return { ok: false, motivo: 'sem complemento' };
+  if (acao === 'dispensar') {
+    next[key] = { ...cur, complemento: null };
+    return { ok: true, fields: next, field: next[key], decidiu: false };
+  }
+  if (acao !== 'incorporar') return { ok: false, motivo: 'acao invalida' };
+  const atual = effectiveValue(cur).trim();
+  const valor = atual ? `${atual}\n\n${cur.complemento.sugerido}` : cur.complemento.sugerido;
+  next[key] = { ...cur, status: 'editado', valor, estrutura: null, complemento: null, autor: null, atualizado_por: email, atualizado_em: nowIso() };
+  return { ok: true, fields: next, field: next[key], decidiu: true };
 }
 
 /** Alternativas limpas (sem placeholder, sem vazias), no maximo `max`. */
@@ -209,12 +270,47 @@ function cleanAlternativas(list, max = 2) {
  * Aplica a regra "sem a definir": placeholder vira vazio e o texto vai para nota_interna.
  * @returns {{ fields, field, reaberto: boolean, limpo: boolean }}
  */
-function applyWorkerSuggestion(fields, key, inc, { job_id = null } = {}) {
+function applyWorkerSuggestion(fields, key, inc, { job_id = null, decidir = false } = {}) {
   if (!FIELD_BY_KEY[key]) throw new Error(`campo desconhecido: ${key}`);
   const next = normalizeFields(fields);
   const cur = next[key];
-  const reaberto = isDecided(cur);
   const san = sanitizeSugestao(inc);
+
+  // decidir: o mentor respondeu pelo WhatsApp e o worker decide em nome dele (editado, autor "WhatsApp do mentor").
+  // Campo decidido NO APP nunca e sobrescrito: a resposta vira complemento. Decidido antes pelo WhatsApp pode ser trocado.
+  if (decidir) {
+    // Nada para decidir (VZ ou "a definir"): o campo fica exatamente como esta
+    if (!san.sugerido) return { fields: next, field: cur, reaberto: false, limpo: san.limpo, decidido: false, complemento: false };
+    const ts = nowIso();
+    if (isDecided(cur) && cur.autor !== AUTOR_WHATSAPP) {
+      const igual = san.sugerido === effectiveValue(cur).trim();
+      if (!igual) {
+        next[key] = {
+          ...cur,
+          complemento: normalizeComplemento({ sugerido: san.sugerido, fonte: san.fonte, classe: san.classe, alternativas: inc.alternativas, recebido_em: ts }),
+        };
+      }
+      return { fields: next, field: next[key], reaberto: false, limpo: false, decidido: false, complemento: !igual };
+    }
+    next[key] = {
+      ...cur,
+      sugerido: san.sugerido,
+      classe: san.classe,
+      fonte: san.fonte,
+      alternativas: cleanAlternativas(inc.alternativas, 2),
+      nota_interna: san.nota_interna,
+      status: 'editado',
+      valor: san.sugerido,
+      estrutura: null,
+      complemento: null,
+      autor: AUTOR_WHATSAPP,
+      atualizado_por: job_id ? `worker:${job_id}` : 'worker',
+      atualizado_em: ts,
+    };
+    return { fields: next, field: next[key], reaberto: false, limpo: false, decidido: true, complemento: false };
+  }
+
+  const reaberto = isDecided(cur);
   const anterior = reaberto ? effectiveValue(cur) : '';
   const alts = [];
   if (anterior && anterior !== san.sugerido) alts.push({ sugerido: anterior, fonte: 'sua versão anterior' });
@@ -238,7 +334,7 @@ function applyWorkerSuggestion(fields, key, inc, { job_id = null } = {}) {
     atualizado_por: job_id ? `worker:${job_id}` : 'worker',
     atualizado_em: ts,
   };
-  return { fields: next, field: next[key], reaberto, limpo: san.limpo };
+  return { fields: next, field: next[key], reaberto, limpo: san.limpo, decidido: false, complemento: false };
 }
 
 /**
@@ -277,6 +373,8 @@ function validatePrefillBody(body, slug) {
   const errors = [];
   const warnings = [];
   const campos = (body && body.campos) || {};
+  // parcial: subconjunto das 34 chaves (prefill em marcos); cada campo presente segue as mesmas regras
+  const parcial = !!(body && body.parcial);
 
   if (body && body.club_slug && slug && body.club_slug !== slug) {
     errors.push(`club_slug do JSON ("${body.club_slug}") difere do clube alvo ("${slug}").`);
@@ -285,7 +383,11 @@ function validatePrefillBody(body, slug) {
   const keys = Object.keys(campos);
   const missing = FIELD_KEYS.filter((k) => !keys.includes(k));
   const extra = keys.filter((k) => !FIELD_BY_KEY[k]);
-  if (missing.length) errors.push(`Faltam ${missing.length} campos: ${missing.join(', ')}.`);
+  if (parcial) {
+    if (!keys.length) errors.push('parcial sem campos: envie ao menos 1 campo.');
+  } else if (missing.length) {
+    errors.push(`Faltam ${missing.length} campos: ${missing.join(', ')}.`);
+  }
   if (extra.length) errors.push(`Chaves desconhecidas: ${extra.join(', ')}.`);
 
   for (const k of keys) {
@@ -322,16 +424,26 @@ async function ensureFichaRow({ dbGet, dbRun, uuidv4 }, clubSlug) {
  */
 async function importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, body, extraMeta = {}) {
   const parse = safeJsonParse || ((s, fb) => { try { return s ? JSON.parse(s) : fb; } catch { return fb; } });
+  const parcial = !!body.parcial;
   const ficha = await ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
-  const { fields, imported, skipped, limpos } = applyPrefill(parse(ficha.fields, {}), body.campos);
+  const { fields, imported, skipped, complementos, limpos } = applyPrefill(parse(ficha.fields, {}), body.campos, { parcial });
+  // vazia -> pre_preenchida; em_revisao / confirmada nunca rebaixam (o mentor ja mexeu)
   const nextStatus = ficha.ficha_status === 'vazia' ? 'pre_preenchida' : ficha.ficha_status;
+  // Parcial acumula sobre o meta anterior (mesmo job em marcos): blocos_importados cresce a cada bloco
+  const prevMeta = parcial ? (parse(ficha.prefill_meta, null) || {}) : {};
+  const blocosAntes = Array.isArray(prevMeta.blocos_importados) ? prevMeta.blocos_importados : [];
+  const blocosAgora = [...imported, ...skipped, ...complementos].map((k) => FIELD_BY_KEY[k].bloco);
+  const blocos_importados = [...new Set([...blocosAntes, ...blocosAgora].map(Number).filter((n) => Number.isInteger(n)))].sort((a, b) => a - b);
   const meta = {
-    club_nome: body.club_nome || null,
-    membros: body.membros || [],
-    gerado_em: body.gerado_em || null,
-    gerado_por: body.gerado_por || null,
-    fontes_lidas: body.fontes_lidas || [],
+    ...prevMeta,
+    club_nome: body.club_nome || prevMeta.club_nome || null,
+    membros: (body.membros && body.membros.length ? body.membros : prevMeta.membros) || [],
+    gerado_em: body.gerado_em || prevMeta.gerado_em || null,
+    gerado_por: body.gerado_por || prevMeta.gerado_por || null,
+    fontes_lidas: (body.fontes_lidas && body.fontes_lidas.length ? body.fontes_lidas : prevMeta.fontes_lidas) || [],
     importado_em: new Date().toISOString(),
+    parcial,
+    blocos_importados,
     ...extraMeta,
   };
   await dbRun(
@@ -340,7 +452,7 @@ async function importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, body
       WHERE club_slug = ?`,
     [JSON.stringify(fields), nextStatus, JSON.stringify(meta), slug]
   );
-  return { fields, imported, skipped, limpos, ficha_status: nextStatus, resumo: summarize(fields), meta };
+  return { fields, imported, skipped, complementos, limpos, parcial, blocos_importados, ficha_status: nextStatus, resumo: summarize(fields), meta };
 }
 
 /** Chaves obrigatorias ainda sem decisao. */
@@ -385,6 +497,10 @@ function buildFichaView(fieldsRaw, { includeInternal = false } = {}) {
         estrutura: st.estrutura || null,
         valor_efetivo: effectiveValue(st),
         decidido: isDecided(st),
+        // Achado do worker em cima de um campo decidido (o mentor incorpora ou dispensa)
+        complemento: st.complemento || null,
+        // "WhatsApp do mentor" quando o worker decidiu em nome dele; null quando foi o app
+        autor: st.autor || null,
         atualizado_por: st.atualizado_por,
         atualizado_em: st.atualizado_em,
       };
@@ -475,6 +591,7 @@ module.exports = {
   DECIDED_STATUSES,
   CLASSES,
   MAX_ALTERNATIVAS,
+  AUTOR_WHATSAPP,
   PLACEHOLDER_RE,
   isPlaceholder,
   sanitizeSugestao,
@@ -483,12 +600,14 @@ module.exports = {
   limparADefinir,
   emptyFieldState,
   normalizeEstrutura,
+  normalizeComplemento,
   normalizeFieldState,
   normalizeFields,
   isDecided,
   effectiveValue,
   applyUpdates,
   applyPrefill,
+  applyComplemento,
   validatePrefillBody,
   ensureFichaRow,
   importPrefill,

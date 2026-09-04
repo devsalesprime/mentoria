@@ -52,6 +52,15 @@ export interface ScriptAlternativa {
 }
 
 /** Campo como vem do GET /api/script/ficha: definicao + estado. */
+/** Achado do worker em cima de um campo já decidido (aprofundamento): o mentor incorpora ou dispensa. */
+export interface ScriptComplemento {
+  sugerido: string;
+  fonte: string;
+  classe: ScriptFieldClass;
+  alternativas: ScriptAlternativa[];
+  recebido_em: string | null;
+}
+
 export interface ScriptFieldView {
   key: string;
   bloco: number;
@@ -86,6 +95,10 @@ export interface ScriptFieldView {
   contexto_count?: number;
   /** true enquanto ha job `refinar` na fila para este campo. */
   refinando?: boolean;
+  /** Achado do worker em cima de um campo já decidido (o texto do mentor pesa mais). */
+  complemento?: ScriptComplemento | null;
+  /** Só no front: chegou sugestão ou complemento novo desde a última sincronização; some ao decidir. */
+  nova_sugestao?: boolean;
 }
 
 export interface ScriptBlockView {
