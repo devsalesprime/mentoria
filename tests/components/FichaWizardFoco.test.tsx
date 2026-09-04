@@ -114,7 +114,7 @@ describe('FichaWizard: modo "completar o que falta" (suficiência parcial)', () 
     const fim = screen.getByTestId('wizard-fim');
     expect(within(fim).getByTestId('wizard-faltam')).toHaveTextContent('Faltam 3 respostas suas para o seu script');
     expect(within(fim).queryByRole('button', { name: /Fechar ficha/ })).not.toBeInTheDocument();
-    expect(within(fim).getByText(/o script é gerado sozinho/)).toBeInTheDocument();
+    expect(within(fim).getByText(/a gente já começa a escrever o seu script/)).toBeInTheDocument();
     fireEvent.click(within(fim).getByRole('button', { name: 'Ver o que falta' }));
     expect(titulo()).toBe(P('3.3'));
   }, 20000); // 5 telas do wizard renderizadas em sequência: passa dos 5 s quando a suíte inteira roda em paralelo

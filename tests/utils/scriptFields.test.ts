@@ -151,7 +151,7 @@ describe('widgets da ficha: definição por campo', () => {
       expect(f.ajuda).not.toContain('—');
       expect((f.ajuda || '').toLowerCase()).not.toContain('diagnóstico');
     }
-    expect(SCRIPT_FIELD_BY_KEY['6.2'].ajuda).toBe('Isso define em que voz o seu script será escrito.');
+    expect(SCRIPT_FIELD_BY_KEY['6.2'].ajuda).toBe('Define em que voz o script é escrito: na sua ou na de quem vende por você.');
   });
 
   it('mapa de widgets por campo segue o combinado', () => {

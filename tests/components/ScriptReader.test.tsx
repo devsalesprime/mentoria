@@ -266,7 +266,7 @@ describe('telas e grifos (helpers)', () => {
     expect(lerTelaLembrada('elos', 1)).toBeNull();
     guardarTela('elos', 1, 4);
     expect(lerTelaLembrada('elos', 1)).toBe(4);
-    localStorage.clear();
+    localStorage.clear(); sessionStorage.clear();
   });
 
   it('grifo -> comentario nos 3 formatos; resumo; e-mail do token', () => {
@@ -311,7 +311,7 @@ describe('telas e grifos (helpers)', () => {
 describe('ScriptScreen · leitor em telas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
+    localStorage.clear(); sessionStorage.clear();
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
   });
 
@@ -360,7 +360,11 @@ describe('ScriptScreen · leitor em telas', () => {
     // anatomia: trechos sublinhados + etiquetas; tocar na etiqueta destaca o trecho; fallback em lista
     const anatomias = within(reader).getAllByTestId('anatomia');
     expect(anatomias.length).toBe(2);
-    const chips = within(anatomias[0]).getAllByRole('button');
+    // fechada por padrao ("Por que funciona"); abre nas duas
+    expect(reader.querySelectorAll('mark.script-anatomia-trecho')).toHaveLength(0);
+    fireEvent.click(within(anatomias[0]).getByRole('button', { name: 'Por que funciona' }));
+    fireEvent.click(within(anatomias[1]).getByRole('button', { name: 'Por que funciona' }));
+    const chips = within(anatomias[0]).getAllByRole('button').filter((b) => b.hasAttribute('aria-pressed'));
     expect(chips.map((c) => c.textContent)).toEqual(['Conexão · a pessoa antes da empresa', 'Permissão · entrega o controle']);
     expect(reader.querySelectorAll('mark.script-anatomia-trecho')).toHaveLength(2);
     fireEvent.click(chips[1]);

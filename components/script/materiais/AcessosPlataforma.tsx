@@ -34,7 +34,7 @@ export const AcessosPlataforma: React.FC<AcessosPlataformaProps> = ({ acessos, o
     const u = url.trim();
     if (!u) return;
     if (!/^https?:\/\//i.test(u)) {
-      setErro('O endereço precisa começar com https:// ou http://');
+      setErro('Cole o endereço completo, começando com https://');
       return;
     }
     setErro('');
@@ -107,8 +107,8 @@ export const AcessosPlataforma: React.FC<AcessosPlataformaProps> = ({ acessos, o
             type="url"
             value={url}
             onChange={(e) => { setUrl(e.target.value); setErro(''); }}
-            placeholder="URL da plataforma (https://...)"
-            aria-label="URL da plataforma"
+            placeholder="Endereço da plataforma (https://...)"
+            aria-label="Endereço da plataforma"
             className={inputClass}
             disabled={disabled}
           />

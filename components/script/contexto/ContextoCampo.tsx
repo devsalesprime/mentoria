@@ -12,7 +12,7 @@ import {
 import { emitirToast } from './toast';
 import { ICONE_TIPO, IconeLixeira, IconeNota } from './icones';
 
-export const MSG_REVISAO = 'A IA vai revisar este campo com o seu contexto. Aviso na tela quando a nova sugestão chegar.';
+export const MSG_REVISAO = 'Vamos refazer a sugestão deste campo com o que você mandou. Avisamos aqui quando ficar pronta.';
 export const MAX_AUDIO_S = 120;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
@@ -25,6 +25,7 @@ const ACOES: { tipo: ContextoTipo; rotulo: string }[] = [
 ];
 
 const TIPO_ROTULO: Record<ContextoTipo, string> = { audio: 'Áudio', imagem: 'Imagem', video: 'Vídeo', link: 'Link', nota: 'Nota' };
+const TIPO_SALVO: Record<ContextoTipo, string> = { audio: 'Áudio salvo', imagem: 'Imagem salva', video: 'Vídeo salvo', link: 'Link salvo', nota: 'Nota salva' };
 
 const INPUT = 'w-full bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 font-sans outline-none min-h-[44px]';
 const TAP = 'min-h-[44px]';
@@ -61,7 +62,7 @@ export const BadgeRefinando: React.FC<{ className?: string }> = ({ className = '
     data-testid="badge-refinando"
   >
     <span className="w-1.5 h-1.5 rounded-full bg-prosperus-gold-light animate-pulse" aria-hidden="true" />
-    Em revisão pela IA
+    Nova sugestão a caminho
   </span>
 );
 
@@ -133,7 +134,7 @@ const GravadorAudio: React.FC<{ onGravado: (blob: Blob, segundos: number) => voi
             {enviando ? 'Enviando e transcrevendo' : 'Começar a gravar'}
           </Button>
         ) : (
-          <Button variant="danger-soft" size="md" className={TAP} onClick={parar}>Parar</Button>
+          <Button variant="danger-soft" size="md" className={TAP} onClick={parar}>Parar a gravação</Button>
         )}
         {gravando && (
           <span className="inline-flex items-center text-sm font-sans text-white tabular-nums" aria-live="polite" data-testid="gravador-timer">
@@ -202,7 +203,7 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
         setUltimoAudio(r.item || null);
       } else {
         setAcao(null);
-        setSalvoAgora(`${TIPO_ROTULO[novo.tipo]} salvo. Quando terminar, peça a sugestão.`);
+        setSalvoAgora(`${TIPO_SALVO[novo.tipo]}. Quando terminar, peça a nova sugestão.`);
       }
     }
     return r;
@@ -240,7 +241,7 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
               <div className="w-full bg-prosperus-navy-mid border border-white/10 rounded-lg px-3 py-2 text-sm text-white/90 font-sans whitespace-pre-line min-h-[44px]">
                 {ultimoAudio.transcricao?.trim() || 'Áudio enviado. A transcrição aparece em instantes.'}
               </div>
-              <p className="text-[11px] text-white/50 font-sans">A IA vai usar isto. Gravou errado? Exclua o item embaixo e grave de novo.</p>
+              <p className="text-[11px] text-white/50 font-sans">A gente usa este texto na nova sugestão. Gravou errado? Exclua o item embaixo e grave de novo.</p>
               <div className="flex flex-wrap gap-2">
                 {onUsarTexto && !!ultimoAudio.transcricao?.trim() && (
                   <Button variant="secondary" size="sm" className={TAP} onClick={() => { onUsarTexto(ultimoAudio.transcricao!.trim()); setUltimoAudio(null); setAcao(null); }}>Usar como resposta</Button>
@@ -296,7 +297,7 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
       return (
         <div className="space-y-2">
           <input type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." aria-label="Endereço do link" className={INPUT} />
-          <input type="text" value={rotulo} onChange={(e) => setRotulo(e.target.value)} placeholder="Rótulo: o que tem nesse link" aria-label="Rótulo do link" className={INPUT} />
+          <input type="text" value={rotulo} onChange={(e) => setRotulo(e.target.value)} placeholder="O que tem nesse link (opcional)" aria-label="Rótulo do link" className={INPUT} />
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" size="md" className={TAP} onClick={() => enviar({ tipo: 'link', url: comEsquema(url), texto: rotulo })} disabled={!url.trim() || ctx.enviando} loading={ctx.enviando}>Salvar link</Button>
             <Button variant="ghost" size="md" className={TAP} onClick={() => setAcao(null)}>Cancelar</Button>
@@ -307,7 +308,7 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
     if (acao === 'nota') {
       return (
         <div className="space-y-2">
-          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} placeholder="Escreva o que a IA precisa saber sobre esta pergunta" aria-label="Nota" className={`${INPUT} resize-y`} />
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} placeholder="Escreva o que a gente precisa saber para acertar esta resposta" aria-label="Nota" className={`${INPUT} resize-y`} />
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" size="md" className={TAP} onClick={() => enviar({ tipo: 'nota', texto })} disabled={!texto.trim() || ctx.enviando} loading={ctx.enviando}>Salvar nota</Button>
             {onUsarTexto && (
@@ -351,7 +352,7 @@ export const ContextoCampo: React.FC<ContextoCampoProps> = ({ campo, onRecarrega
         })}
       </div>
       {!acao && ctx.total === 0 && !salvoAgora && (
-        <p className="text-[11px] text-white/40 font-sans">Faltou algo na sugestão? Anexe o que ajuda a IA a acertar e peça uma nova.</p>
+        <p className="text-[11px] text-white/40 font-sans">Faltou algo na sugestão? Grave um áudio, mande uma foto ou escreva uma nota e peça uma nova.</p>
       )}
 
       {acao && (

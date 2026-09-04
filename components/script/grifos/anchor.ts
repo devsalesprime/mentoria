@@ -21,6 +21,8 @@ export interface Captura {
   rect: { top: number; left: number; bottom: number; right: number; width: number; height: number };
   curto: boolean;
   longo: boolean;
+  /** Copia do Range lido na hora da selecao: pinta o grifo pendente mesmo depois de a selecao nativa sumir. */
+  range?: Range | null;
 }
 
 export function normalizarTexto(s: string): string {
@@ -147,6 +149,7 @@ export function capturarSelecao(root: HTMLElement, sel: Selection | null): Captu
     rect: { top: r.top, left: r.left, bottom: r.bottom, right: r.right, width: r.width, height: r.height },
     curto: texto.length < GRIFO_TEXTO_MIN,
     longo: texto.length > GRIFO_TEXTO_MAX,
+    range: typeof range.cloneRange === 'function' ? range.cloneRange() : range,
   };
 }
 
@@ -156,6 +159,8 @@ const NOME_POR_COR: Record<GrifoCor, string> = {
   vermelho: 'script-grifo-vermelho',
 };
 const NOME_FOCO = 'script-grifo-foco';
+/** Selecao capturada e ainda nao salva (o balao "Grifar" esta aberto): dourado suave ate salvar ou cancelar. */
+export const NOME_PENDENTE = 'script-grifo-pendente';
 
 type HighlightCtor = new (...ranges: Range[]) => unknown;
 interface Registro { set(nome: string, h: unknown): void; delete(nome: string): void; }
@@ -195,6 +200,24 @@ export function limparPintura(): void {
   if (!api) return;
   for (const nome of Object.values(NOME_POR_COR)) api.reg.delete(nome);
   api.reg.delete(NOME_FOCO);
+}
+
+/**
+ * Pinta o trecho capturado (balao aberto) com `script-grifo-pendente`; a pintura nao depende da selecao nativa, entao
+ * o trecho continua marcado quando o toque no balao (ou o foco na nota) recolhe a selecao. `null` apaga.
+ * Sem a Highlight API nao pinta nada (o balao continua funcionando).
+ */
+export function pintarPendente(range: Range | null): void {
+  const api = registro();
+  if (!api) return;
+  if (!range || range.collapsed) { api.reg.delete(NOME_PENDENTE); return; }
+  api.reg.set(NOME_PENDENTE, new api.H(range));
+}
+
+export function limparPendente(): void {
+  const api = registro();
+  if (!api) return;
+  api.reg.delete(NOME_PENDENTE);
 }
 
 /** Rola ate o trecho (o elemento pai do inicio do Range). */

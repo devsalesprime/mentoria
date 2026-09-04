@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import axios from 'axios';
 
@@ -164,10 +164,14 @@ describe('Dashboard', () => {
     renderDashboard();
     // Enquanto o diagnostic nao responde, nem o menu e pintado (nada de secao entrando depois)
     expect(screen.queryByRole('heading', { name: 'Visão Geral' })).toBeNull();
-    expect(await screen.findByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
-    expect(screen.getByText('Materiais')).toBeInTheDocument();
-    expect(screen.getByText('Ficha do Script')).toBeInTheDocument();
-    expect(screen.getByText('Seu script')).toBeInTheDocument();
+    await screen.findByText('SCRIPT 7 PASSOS');
+    // Re-consulta dentro do nav: o mock de framer-motion remonta o aside a cada render (o elemento do findBy fica
+    // destacado) e, depois do redirecionamento para a Ficha, o h1 tambem diz "Ficha do Script"
+    const nav = within(screen.getByRole('navigation', { name: 'Navegação do diagnóstico' }));
+    expect(nav.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
+    expect(nav.getByText('Materiais')).toBeInTheDocument();
+    expect(nav.getByText('Ficha do Script')).toBeInTheDocument();
+    expect(nav.getByText('Seu script')).toBeInTheDocument();
     // O hook buscou a ficha quando enabled virou true (false -> true)
     expect(axios.get).toHaveBeenCalledWith('/api/script/ficha', expect.anything());
   });

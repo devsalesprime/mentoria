@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import type { MaterialRespostaIA } from '../../../hooks/useScriptFicha';
 import { Button } from '../../ui/Button';
-import { PROMPT_IA_INTRO } from './categorias';
+import { PROMPT_IA_GANHO, PROMPT_IA_INTRO, PROMPT_IA_PASSOS } from './categorias';
 
 interface PromptIAProps {
   token: string;
@@ -65,7 +65,7 @@ export const PromptIA: React.FC<PromptIAProps> = ({ token, resposta, onSave }) =
     let alive = true;
     axios.get('/api/script/prompt-ia', { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => { if (alive && res.data?.success) setPrompt(res.data.prompt || ''); })
-      .catch((e: any) => { if (alive) setPromptError(e?.response?.data?.message || 'Não deu para carregar o prompt agora.'); });
+      .catch((e: any) => { if (alive) setPromptError(e?.response?.data?.message || 'Não deu para carregar o prompt agora. Atualize a página e tente de novo.'); });
     return () => { alive = false; };
   }, [token]);
 
@@ -98,8 +98,17 @@ export const PromptIA: React.FC<PromptIAProps> = ({ token, resposta, onSave }) =
 
   return (
     <div className="bg-prosperus-navy-panel border border-white/5 rounded-lg p-4 sm:p-6 space-y-3">
-      <h3 className="font-serif text-xl text-white">Peça para a sua IA preencher</h3>
+      <h3 className="font-serif text-xl text-white">Peça ajuda à IA que você já usa</h3>
       <p className="text-sm text-white/60 font-sans leading-relaxed">{PROMPT_IA_INTRO}</p>
+      <ol className="space-y-1.5">
+        {PROMPT_IA_PASSOS.map((p, i) => (
+          <li key={i} className="flex gap-2 text-sm text-white/80 font-sans leading-relaxed">
+            <span className="text-prosperus-gold-dark font-semibold flex-shrink-0">{i + 1}.</span>
+            <span>{p}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="text-sm text-white/60 font-sans leading-relaxed">{PROMPT_IA_GANHO}</p>
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -110,7 +119,7 @@ export const PromptIA: React.FC<PromptIAProps> = ({ token, resposta, onSave }) =
           disabled={!prompt}
           aria-live="polite"
         >
-          {copyState === 'copied' ? 'Prompt copiado' : copyState === 'error' ? 'Copie manualmente abaixo' : 'Copiar prompt'}
+          {copyState === 'copied' ? 'Prompt copiado' : copyState === 'error' ? 'Copie o texto abaixo' : 'Copiar prompt'}
         </Button>
         <Button
           variant="outline"
@@ -144,7 +153,7 @@ export const PromptIA: React.FC<PromptIAProps> = ({ token, resposta, onSave }) =
           value={texto}
           onChange={(e) => { editedRef.current = true; setTexto(e.target.value); setSaveMsg(null); }}
           rows={8}
-          placeholder="### 1.1 [CERTO]&#10;..."
+          placeholder="Cole aqui a resposta inteira, do jeito que veio."
           className="w-full bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 font-mono outline-none resize-y"
         />
         <div className="flex flex-wrap items-center gap-3">

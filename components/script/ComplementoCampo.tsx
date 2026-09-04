@@ -51,7 +51,7 @@ export const ComplementoCampo: React.FC<ComplementoCampoProps> = ({ campo, onInc
           <Button variant="primary" size="md" className={TAP} disabled={!ajuste.trim()} onClick={() => { onSalvarAjuste(campo.key, ajuste.trim()); setAjuste(null); }}>
             Salvar ajustes
           </Button>
-          <Button variant="ghost" size="md" className={TAP} onClick={() => setAjuste(null)}>Está bom assim</Button>
+          <Button variant="ghost" size="md" className={TAP} onClick={() => setAjuste(null)}>Manter como está</Button>
         </div>
       </div>
     );
@@ -93,7 +93,7 @@ export const ComplementoCampo: React.FC<ComplementoCampoProps> = ({ campo, onInc
           ))}
         </ul>
       )}
-      <p className="text-xs text-white/50 font-sans">O que você escreveu continua valendo; isto é aprofundamento. Incorporar anexa este texto ao seu para você ajustar.</p>
+      <p className="text-xs text-white/50 font-sans">O que você escreveu continua valendo. Este trecho só aprofunda. Se incorporar, ele entra no fim do seu texto e você ajusta como quiser.</p>
       {erro && <p className="text-xs text-red-400 font-sans">{erro}</p>}
       <div className="flex flex-wrap gap-2">
         <Button variant="primary" size="md" className={TAP} onClick={incorporar} loading={ocupado === 'incorporar'} disabled={ocupado !== null}>

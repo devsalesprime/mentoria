@@ -116,7 +116,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
     const url = linkUrl.trim();
     if (!url) return;
     if (!/^https?:\/\//i.test(url)) {
-      setLinkError('O link precisa começar com https:// ou http://');
+      setLinkError('Cole o link completo, começando com https://');
       return;
     }
     setLinkError('');
@@ -159,8 +159,8 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Script 7 Passos · {data.club.nome}</p>
         <h2 className="font-serif text-2xl sm:text-3xl text-white">Materiais</h2>
         <p className="text-sm text-white/70 font-sans leading-relaxed">
-          Mande o que você já tem sobre como vende hoje. Quanto mais real, melhor fica o script.
-          O que você envia aqui só você e o Danilo veem.
+          Mande o que você já usa para vender hoje. Quanto mais real, mais o script sai na sua voz.
+          Só você e o Danilo veem o que você envia aqui.
         </p>
         {isSubmitted && (
           <p className="text-xs text-green-400 font-sans">
@@ -205,7 +205,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
                   accept={SCRIPT_ACCEPT}
                   allowedMimePrefixes={SCRIPT_MIME_PREFIXES}
                   allowedExtensions={SCRIPT_EXTENSIONS}
-                  hint="Máx. 50MB por arquivo · PDF, Word, PowerPoint, Excel, CSV, TXT ou imagem"
+                  hint="Até 50 MB por arquivo. Aceita PDF, Word, PowerPoint, Excel, CSV, TXT ou imagem."
                 />
               </div>
             </AccordionSection>
@@ -213,7 +213,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         })}
         <SectionWarning
           variant="info"
-          message="Áudio e vídeo não sobem por aqui: mande o link do Drive (abaixo) ou pelo WhatsApp."
+          message="Áudio e vídeo não sobem por aqui. Cole o link do Drive na seção Links, logo abaixo, ou mande pelo WhatsApp."
         />
       </div>
 
@@ -254,7 +254,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
             aria-label="Nome do link"
             className="sm:w-48 bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 font-sans outline-none"
           />
-          <Button variant="secondary" size="md" onClick={addLink} disabled={!linkUrl.trim()}>Adicionar</Button>
+          <Button variant="secondary" size="md" onClick={addLink} disabled={!linkUrl.trim()}>Adicionar link</Button>
         </div>
         {linkError && <p className="text-xs text-red-400 font-sans">{linkError}</p>}
         {links.length > 0 && (
@@ -296,7 +296,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-white/70 font-sans">
             {totalItems === 0
-              ? 'Nada enviado ainda. Sem material também dá: a ficha vem do que já temos.'
+              ? 'Nada enviado ainda. Sem material também dá: a gente monta a ficha com o que já sabemos de você.'
               : `Você enviou ${plural(files.length, 'arquivo', 'arquivos')}, ${plural(links.length, 'link', 'links')} e ${plural(acessos.length, 'acesso', 'acessos')}.`}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -309,7 +309,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
           </div>
         </div>
         {processing && (
-          <p className="text-xs text-prosperus-gold-light font-sans">Já estamos processando o que você enviou. Você pode continuar enviando material e ir revisando a ficha.</p>
+          <p className="text-xs text-prosperus-gold-light font-sans">Já estamos lendo o que você enviou. Pode continuar mandando material e ir revisando a ficha.</p>
         )}
         {job && job.status === 'done' && (
           <p className="text-xs text-green-400 font-sans">Terminamos de ler os seus materiais. A sua ficha está pronta para revisar.</p>

@@ -3,6 +3,7 @@ import type { Bloco, Documento, Fala, PassoDoc, Premissa, ScriptDoc } from './pa
 import { falaParaCopiar, segmentar } from './parseScript';
 import { AnatomiaLegenda, textoComAnatomia } from './AnatomiaFala';
 import { renderMarkdown as renderMd } from '../../../utils/markdown';
+import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
 
 /**
  * A folha do script: papel creme, bloco de titulo, cabecalho, "Como usar", os documentos (treinamento e campo),
@@ -80,21 +81,39 @@ export function comTags(texto: string): React.ReactNode {
   });
 }
 
+/**
+ * Cartao de uma fala: a citacao grande e legivel; a "Anatomia da fala" (treinamento) fica fechada atras de
+ * "Por que funciona" (sao dezenas de anatomias por script; abertas, atrapalham a leitura).
+ */
 const FalaCard: React.FC<{ fala: Fala; passo: number }> = ({ fala, passo }) => {
   const [ativo, setAtivo] = useState<number | null>(null);
+  const [porque, setPorque] = useState(false);
   const temAnatomia = fala.anatomia.length > 0 || fala.anatomiaBruta.length > 0;
   return (
     <figure className="script-fala">
       <div className="flex items-start justify-between gap-3">
         <figcaption className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] font-semibold text-prosperus-gold-dark">
-          {fala.n != null && <span>Fala {fala.n}</span>}
+          {fala.n != null && <span className="inline-flex items-center"><span className="script-fala-num" aria-hidden="true">{fala.n}</span>Fala {fala.n}</span>}
           {fala.voz && <span className={`script-tag${fala.voz === 'mentor' ? ' script-tag-acionar' : ''}`}>{fala.vozRotulo || (fala.voz === 'mentor' ? 'Mentor' : 'Vendedor')}</span>}
         </figcaption>
         <CopyButton texto={falaParaCopiar(fala)} rotulo="copiar" ariaLabel={`Copiar fala${fala.n != null ? ` ${fala.n}` : ''} do passo ${passo}`} />
       </div>
-      <blockquote className="script-fala-texto mt-1">{temAnatomia ? textoComAnatomia(fala, ativo, comTags) : comTags(fala.texto)}</blockquote>
+      <blockquote className="script-fala-texto mt-1">{temAnatomia && porque ? textoComAnatomia(fala, ativo, comTags) : comTags(fala.texto)}</blockquote>
       {fala.direcao && <p className="script-fala-direcao">{comTags(fala.direcao)}</p>}
-      {temAnatomia && <AnatomiaLegenda fala={fala} ativo={ativo} onAtivo={setAtivo} />}
+      {temAnatomia && (
+        <div data-testid="anatomia">
+          <button
+            type="button"
+            className="script-porque script-no-print"
+            aria-expanded={porque}
+            onClick={() => { setPorque((v) => !v); if (porque) setAtivo(null); }}
+          >
+            <span className="script-porque-seta" aria-hidden="true">&#x25B6;</span>
+            {porque ? 'Fechar a anatomia' : 'Por que funciona'}
+          </button>
+          {porque && <AnatomiaLegenda fala={fala} ativo={ativo} onAtivo={setAtivo} />}
+        </div>
+      )}
     </figure>
   );
 };
@@ -110,17 +129,22 @@ export const PremissaBox: React.FC<{ premissa: Premissa }> = ({ premissa }) => (
 );
 
 /** Cartao de bolso (navy): o que cabe numa folha dobrada. `acoes` = botoes extras (imprimir). */
+/** Valores em reais no cartao (investimento, total) ganham destaque dourado. */
+export function destacarValores(html: string): string {
+  return html.replace(/(R\$\s?\d[\d.,]*(?:\s?(?:mil|milh[oõ]es|milh[aã]o))?)/g, '<strong class="script-cartao-valor">$1</strong>');
+}
+
 export const CartaoView: React.FC<{ cartao: NonNullable<ScriptDoc['cartao']>; montado?: boolean; acoes?: React.ReactNode; id?: string }> = ({ cartao, montado, acoes, id }) => (
   <section id={id || 'script-cartao'} className="script-cartao scroll-mt-20 lg:scroll-mt-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <h2 className="font-serif text-2xl text-prosperus-gold-light leading-tight">Cartão de bolso</h2>
-      <div className="flex flex-wrap gap-2">
+      <h2 className="font-serif text-2xl sm:text-[1.7rem] text-prosperus-gold-light leading-tight">Cartão de bolso</h2>
+      <div className="script-cartao-acoes">
         <CopyButton texto={cartao.texto} rotulo="Copiar cartão" ariaLabel="Copiar cartão de bolso" className="script-copiar-claro" />
         {acoes}
       </div>
     </div>
-    {montado && <p className="text-xs text-prosperus-gold-light/80 mt-1">Montado a partir do script de campo: a primeira fala de cada passo.</p>}
-    <div className="script-cartao-corpo mt-2" dangerouslySetInnerHTML={{ __html: cartao.html }} />
+    {montado && <p className="text-sm text-prosperus-gold-light/80 mt-2">Montado a partir do script de campo: a primeira fala de cada passo.</p>}
+    <div className="script-cartao-corpo mt-2" dangerouslySetInnerHTML={{ __html: destacarValores(cartao.html) }} />
   </section>
 );
 
@@ -131,6 +155,7 @@ const Rotulo: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 function classeNota(tipo: Bloco['tipo']): string {
   if (tipo === 'erro' || tipo === 'alerta') return 'script-nota script-nota-erro';
   if (tipo === 'proximo') return 'script-nota script-nota-proximo';
+  if (tipo === 'transicao') return 'script-nota script-nota-transicao';
   if (tipo === 'observar') return 'script-nota script-nota-observar';
   return 'script-nota';
 }
@@ -192,18 +217,24 @@ const Generico: React.FC<{ bloco: Bloco }> = ({ bloco }) => (
   </div>
 );
 
-const NOTAS_CURTAS = new Set<Bloco['tipo']>(['estado', 'principio', 'avancar', 'silencio', 'erro', 'sucesso', 'transicao', 'alerta', 'proximo', 'observar']);
+const NOTAS_CURTAS = new Set<Bloco['tipo']>(['estado', 'principio', 'avancar', 'silencio', 'erro', 'sucesso', 'observar']);
 
-/** Agrupa blocos curtos consecutivos numa grade de duas colunas (Sinais e Erro a evitar lado a lado no desktop). */
-function agrupa(blocos: Bloco[]): (Bloco | Bloco[])[] {
+/**
+ * Agrupa blocos curtos consecutivos numa grade de duas colunas (Sinais e Erro a evitar lado a lado no desktop).
+ * Transicao e alerta ficam sozinhos (callouts inteiros); "Proximo passo obrigatorio" vai sempre para o fim do passo.
+ */
+export function agrupa(blocos: Bloco[]): (Bloco | Bloco[])[] {
   const out: (Bloco | Bloco[])[] = [];
   let grupo: Bloco[] = [];
   const fecha = () => { if (grupo.length === 1) out.push(grupo[0]); else if (grupo.length > 1) out.push(grupo); grupo = []; };
+  const proximos = blocos.filter((b) => b.tipo === 'proximo');
   for (const b of blocos) {
+    if (b.tipo === 'proximo') continue;
     if (NOTAS_CURTAS.has(b.tipo)) grupo.push(b);
     else { fecha(); out.push(b); }
   }
   fecha();
+  for (const b of proximos) out.push(b);
   return out;
 }
 
@@ -312,6 +343,10 @@ export const ScriptPaper: React.FC<{
           {versao != null ? `Versão ${versao}` : ''}
           {escritoEm ? ` · escrito em ${escritoEm}` : ''}
           {aprovadoEm ? ` · aprovado em ${aprovadoEm}` : ''}
+        </p>
+        {/* Na folha impressa a aula nao vai embutida: so a referencia e o link */}
+        <p className="script-aula-ref text-xs text-prosperus-navy-panel/70 mt-1" data-testid="aula-referencia">
+          Aula de referência: {AULA_7_PASSOS.titulo} (<a href={AULA_7_PASSOS.embedUrl} className="underline break-all">{AULA_7_PASSOS.embedUrl}</a>)
         </p>
         <div className="script-rule mt-4" aria-hidden="true" />
       </header>

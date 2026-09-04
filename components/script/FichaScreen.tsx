@@ -50,15 +50,15 @@ const SaveIndicator: React.FC<{ state: UseScriptFicha['saveState'] }> = ({ state
     return <span className="text-xs text-green-400 font-sans">Salvo</span>;
   }
   if (state === 'error') {
-    return <span className="text-xs text-red-400 font-sans">Não salvou. Tentamos de novo na próxima alteração.</span>;
+    return <span className="text-xs text-red-400 font-sans">Não salvou. Vamos tentar de novo na próxima alteração.</span>;
   }
   return <span className="text-xs text-white/30 font-sans">Salva sozinha</span>;
 };
 
 /** Copy dos três resultados dos gates de suficiência (GATES-suficiencia.md), na voz do app. */
 export const COPY_INSUFICIENTE = 'Precisamos de mais material ou das suas respostas';
-export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já está sendo gerado. Se editar algum campo, a ficha reabre e você pode pedir uma nova versão.';
-export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo gerado.';
+export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já está sendo escrito. Se editar algum campo, a ficha reabre e você pode pedir uma nova versão.';
+export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo escrito.';
 
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
   const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento, pedirRevisao } = ficha;
@@ -190,7 +190,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     if (r.ok) {
       setClosedNow(true);
     } else {
-      setCloseError(r.message || 'Não foi possível fechar a ficha agora.');
+      setCloseError(r.message || 'Não deu para fechar a ficha agora. Tente de novo.');
     }
   };
 
@@ -237,7 +237,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     setPedindoVersao(false);
     emitirToast(r.ok
       ? (r.existing ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp.' : 'Pedido feito: a nova versão parte da ficha atualizada. Você recebe um aviso no WhatsApp.')
-      : (r.message || 'Não deu para pedir agora.'));
+      : (r.message || 'Não deu para pedir agora. Tente de novo.'));
   };
 
   if (loading && !data) {
@@ -361,9 +361,9 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
           <SaveIndicator state={saveState} />
         </div>
         <p className="text-sm text-white/70 font-sans leading-relaxed">
-          Revise o que já encontramos sobre a sua mentoria: confirme, edite ou preencha. Cada campo mostra de onde veio.
-          Faltou algo? Adicione contexto (áudio, foto, vídeo, link ou nota) e peça uma nova sugestão.
-          Com a ficha fechada, a gente monta o script dos 7 passos da sua venda.
+          Revise o que já encontramos sobre a sua mentoria. Confirme, edite ou preencha. Cada resposta mostra de onde veio.
+          Faltou algo? Grave um áudio, mande uma foto ou escreva uma nota e peça uma nova sugestão.
+          Com a ficha fechada, a gente escreve o seu script dos 7 passos, na sua voz.
         </p>
 
         {isConfirmed && !closedNow && (
@@ -389,7 +389,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
           <h3 className="font-serif text-xl sm:text-2xl text-prosperus-navy leading-snug">{textoFaltamRespostas(pendentesFoco.length)}</h3>
           <p className="text-sm text-prosperus-navy/75 font-sans leading-relaxed">
             O resto a gente preencheu com os seus materiais: está recolhido em "Preenchido pelos seus materiais" e você pode ajustar quando quiser.
-            Ao responder a última, o script é gerado sozinho.
+            Ao responder a última, a gente já começa a escrever o seu script.
           </p>
         </div>
       )}
@@ -443,7 +443,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             <p className="text-sm text-prosperus-navy/80 font-sans leading-relaxed">
               {autoFechouRef.current
                 ? 'Suas respostas completaram a ficha. O script chega em alguns minutos, com aviso no WhatsApp; ele aparece em "Seu script".'
-                : 'Agora a gente monta o script v1 dos 7 passos. Você recebe para ler e ajustar.'}
+                : 'Agora a gente escreve a primeira versão do seu script dos 7 passos. Você recebe para ler e ajustar.'}
             </p>
             <div className="flex flex-wrap gap-2">
               {autoFechouRef.current && onNavigate && (
@@ -497,7 +497,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
               </p>
             )}
             {modoCompletar ? (
-              <p className="text-xs text-white/50 font-sans mt-1">Ao responder a última, o script é gerado sozinho: não precisa fechar a ficha.</p>
+              <p className="text-xs text-white/50 font-sans mt-1">Ao responder a última, a gente já começa a escrever o seu script. Não precisa fechar a ficha.</p>
             ) : !allRequiredDone && (
               <p className="text-xs text-white/50 font-sans mt-1">
                 Para fechar, cada campo obrigatório precisa de uma decisão: confirmar, editar ou deixar em branco por enquanto.

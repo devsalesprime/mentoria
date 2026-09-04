@@ -83,7 +83,7 @@ export const AnatomiaLegenda: React.FC<{
   if (fala.anatomia.length === 0 && fala.anatomiaBruta.length === 0) return null;
   const simples = fala.anatomia.length === 0 || encontrados === 0;
   return (
-    <div className="script-anatomia" data-testid="anatomia">
+    <div className="script-anatomia">
       <p className="script-nota-rotulo !mb-1">Anatomia da fala</p>
       {simples ? (
         <ul className="script-anatomia-lista">

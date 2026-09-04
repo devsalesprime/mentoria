@@ -154,7 +154,7 @@ describe('parseScript', () => {
 describe('ScriptScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
+    localStorage.clear(); sessionStorage.clear();
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
   });
 
@@ -163,7 +163,7 @@ describe('ScriptScreen', () => {
     render(<ScriptScreen ficha={fichaMock()} token="t" />);
     expect(await screen.findByText('Seu script está sendo escrito.')).toBeInTheDocument();
     expect(screen.getByText('Sendo escrito agora.')).toBeInTheDocument();
-    expect(screen.queryByText('Baixar (.md)')).toBeNull();
+    expect(screen.queryByText('Baixar o texto')).toBeNull();
   });
 
   it('sem versao e ficha aberta: manda para a ficha', async () => {
@@ -252,7 +252,8 @@ describe('ScriptScreen', () => {
     expect(texto).not.toContain('\u2014');
 
     // acoes; o PDF abre a pagina de impressao (fora do Dashboard) com o documento escolhido
-    expect(screen.getByText('Baixar (.md)')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Mais'));
+    expect(screen.getByText('Baixar o texto')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Imprimir ou salvar em PDF' })).toBeInTheDocument();
     const open = vi.fn().mockReturnValue({});
     Object.defineProperty(window, 'open', { value: open, configurable: true, writable: true });
@@ -262,7 +263,7 @@ describe('ScriptScreen', () => {
     expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=treinamento&versao=1$/), '_blank', 'noopener');
     fireEvent.click(screen.getByTestId('pdf-ambos'));
     expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=ambos&versao=1$/), '_blank', 'noopener');
-    expect(screen.getByText('Aprovar')).toBeInTheDocument();
+    expect(screen.getByText('Aprovar o script')).toBeInTheDocument();
     expect(screen.getByText('Pedir nova versão')).toBeInTheDocument();
     expect(screen.queryByTestId('pedir-com-grifos')).toBeNull();
   }, 30000);
@@ -286,7 +287,7 @@ describe('ScriptScreen', () => {
     expect(screen.getByPlaceholderText('O que achou do script como um todo?')).toBeInTheDocument();
 
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(screen.getByText('Aprovar'));
+    fireEvent.click(screen.getByText('Aprovar o script'));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/aprovar', {}, expect.anything()));
     expect(await screen.findByText('aprovado')).toBeInTheDocument();
     expect(ficha.refresh).toHaveBeenCalled();
@@ -294,24 +295,24 @@ describe('ScriptScreen', () => {
     fireEvent.click(screen.getByText('Pedir nova versão'));
     await waitFor(() => expect(ficha.pedirRevisao).toHaveBeenCalledWith(1));
     expect(ficha.gerarScript).not.toHaveBeenCalled();
-    expect(await screen.findByText(/Pedido feito: a próxima versão parte da v1 e dos comentários dela/)).toBeInTheDocument();
+    expect(await screen.findByText(/Pedido feito: a próxima versão parte desta e dos seus comentários/)).toBeInTheDocument();
     expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
   }, 30000);
 
-  it('"Gerar do zero" chama gerarScript (job script), separado de "Pedir nova versão"; com job ativo os dois travam', async () => {
+  it('"Escrever do zero" chama gerarScript (job script), separado de "Pedir nova versão"; com job ativo os dois travam', async () => {
     mockVersao(MD_V1);
     const ficha = fichaMock();
     render(<ScriptScreen ficha={ficha} token="t" />);
     // espera a versao carregar antes de clicar: o mock do framer-motion remonta o <button> a cada render
     await screen.findByTestId('script-reader');
-    expect(screen.getByText(/Selecione um trecho para grifar/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Gerar do zero'));
+    expect(screen.getByText(/Marque um trecho para grifar/)).toBeInTheDocument();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByText('Escrever do zero'));
     await waitFor(() => expect(ficha.gerarScript).toHaveBeenCalled());
     expect(ficha.pedirRevisao).not.toHaveBeenCalled();
     expect(await screen.findByText(/^Pedido feito\. Você recebe/)).toBeInTheDocument();
     expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
-    expect(screen.getByText('Gerar do zero').closest('button')).toBeDisabled();
-    expect(screen.queryByText(/Selecione um trecho para grifar/)).toBeNull();
+    expect(screen.getByText('Escrever do zero').closest('button')).toBeDisabled();
   });
 
   it('com job revisar na fila: estado do job aparece e os botoes ficam travados', async () => {
@@ -326,7 +327,7 @@ describe('ScriptScreen', () => {
     await screen.findByTestId('script-reader');
     expect(await screen.findByText(/Uma nova versão está sendo escrita a partir dos seus comentários e grifos\./)).toBeInTheDocument();
     expect(screen.getByText('Nova versão a caminho').closest('button')).toBeDisabled();
-    expect(screen.getByText('Gerar do zero').closest('button')).toBeDisabled();
+    expect(screen.getByText('Escrever do zero').closest('button')).toBeDisabled();
   });
 
   it('versao v1 antiga (um documento, com marcas) tambem renderiza limpa, sem abas de documento', async () => {

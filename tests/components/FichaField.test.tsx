@@ -138,14 +138,14 @@ describe('FichaField', () => {
     // selo no cabeçalho do campo e na linha de contexto
     const selos = screen.getAllByTestId('badge-refinando');
     expect(selos.length).toBe(2);
-    expect(selos[0]).toHaveTextContent('Em revisão pela IA');
+    expect(selos[0]).toHaveTextContent('Nova sugestão a caminho');
     expect(screen.getByTestId('contexto-2.1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Gravar áudio' })).toBeInTheDocument();
   });
 
-  it('campo vazio opcional oferece "Não se aplica / deixar vazio"', () => {
+  it('campo vazio opcional oferece "Não se aplica, deixar em branco"', () => {
     render(<FichaField campo={{ ...base, obrigatorio: false, sugerido: '', classe: 'VZ', fonte: '', alternativas: [], status: 'vazio' }} onDecide={vi.fn()} />);
-    expect(screen.getByText('Não se aplica / deixar vazio')).toBeInTheDocument();
+    expect(screen.getByText('Não se aplica, deixar em branco')).toBeInTheDocument();
   });
 
   it('campo confirmado mostra o valor e permite desfazer', () => {
@@ -370,7 +370,7 @@ describe('FichaField widgets (sugestão dentro do widget)', () => {
 
   it('6.2 quem_vende: a ajuda diz que a resposta define a voz do script', () => {
     render(<FichaField campo={campoDe('6.2', 'Eu mesma; leads por indicação.')} onDecide={vi.fn()} />);
-    expect(screen.getByTestId('ajuda-6.2')).toHaveTextContent('Isso define em que voz o seu script será escrito.');
+    expect(screen.getByTestId('ajuda-6.2')).toHaveTextContent('Define em que voz o script é escrito: na sua ou na de quem vende por você.');
     expect(screen.getByText('Eu mesmo(a)').closest('[data-selected]')).toHaveAttribute('data-selected', 'true');
   });
 

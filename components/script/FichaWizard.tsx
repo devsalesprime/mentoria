@@ -644,7 +644,7 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-widest text-prosperus-navy/50 font-sans">No alto do script</p>
               <PreviaMeta contexto={contexto} />
-              {!de.decididos && <p className="text-sm text-prosperus-navy/60 font-sans">A meta entra no alto do script quando você decidir a oferta e a cadência.</p>}
+              {!de.decididos && <p className="text-sm text-prosperus-navy/60 font-sans">A meta entra no alto do script quando você decidir a oferta e o ritmo de reuniões.</p>}
             </div>
           ) : (
             passosRevelados.map((p) => <PreviaPasso key={p.n} passo={p} contexto={contexto} fechado={de.fechado} />)
@@ -676,11 +676,11 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           <div className="space-y-2">
             <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Suas respostas</p>
             <h3 className="font-serif text-2xl sm:text-3xl text-white leading-snug" data-testid="wizard-faltam">
-              {pendentesNoFoco > 0 ? textoFaltamRespostas(pendentesNoFoco) : (isConfirmed ? 'Suas respostas completaram a ficha.' : 'Tudo respondido. Gerando o seu script.')}
+              {pendentesNoFoco > 0 ? textoFaltamRespostas(pendentesNoFoco) : (isConfirmed ? 'Suas respostas completaram a ficha.' : 'Tudo respondido. Estamos escrevendo o seu script.')}
             </h3>
             <p className="text-sm text-white/70 font-sans">
               {pendentesNoFoco > 0
-                ? 'O resto a gente preencheu com os seus materiais. Ao responder a última, o script é gerado sozinho.'
+                ? 'O resto a gente preencheu com os seus materiais. Ao responder a última, a gente já começa a escrever o seu script.'
                 : 'O script chega em alguns minutos, com aviso no WhatsApp. O que veio dos seus materiais continua editável.'}
             </p>
           </div>

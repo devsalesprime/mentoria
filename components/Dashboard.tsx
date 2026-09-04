@@ -56,6 +56,18 @@ const ID_TO_SLUG: Record<string, string> = Object.fromEntries(
   Object.entries(SLUG_TO_ID).map(([slug, id]) => [id, slug])
 );
 
+/** Telas da versao anterior (antes do Script 7 Passos). Quem e do clube e nunca concluiu aquela versao nao as ve. */
+const TELAS_ANTERIORES = new Set([
+  'overview', 'pre_module', 'mentor', 'mentee', 'method', 'offer', 'diagnostic_complete',
+  'insights', 'suggestions', 'brand_brain_review', 'deliverables',
+]);
+/** Item do menu que mostra/oculta a versao anterior (nao e uma tela). */
+const ITEM_ALTERNAR_ANTERIOR = 'alternar_anterior';
+const chaveVersaoAnterior = (email: string) => `versao-anterior:${email}`;
+const lerVersaoAnterior = (email: string): boolean => {
+  try { return localStorage.getItem(chaveVersaoAnterior(email)) === '1'; } catch { return false; }
+};
+
 interface UserDataShape {
   name?: string;
   email?: string;
@@ -75,7 +87,7 @@ interface DashboardProps {
   onTokenRefresh?: (token: string) => void;
 }
 
-type MenuItem ={ id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold'; /** item secundario (opcao, nao etapa): menor, sem ponto */ secondary?: boolean };
+type MenuItem ={ id: string; label: string; statusDot?: 'green' | 'yellow' | 'gray' | 'gold'; /** item secundario (opcao, nao etapa): menor, sem ponto */ secondary?: boolean; /** legenda de uma linha abaixo do rotulo */ caption?: string };
 type MenuSection = { id: string; title: string; items: MenuItem[] };
 type ScriptMenuState = {
   enabled: boolean;
@@ -311,6 +323,17 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   // o menu sem a secao e encaixa-la depois.
   const aguardandoCohort = !cohortDoToken && !diagnosticLoaded;
 
+  // Versao anterior x Script 7 Passos (pedido do Danilo, 04/09): quem e do clube e ja concluiu a versao anterior
+  // (enviou ou foi marcado como concluido pelo admin) ainda a acessa, mas por um item discreto abaixo do script.
+  // Quem e do clube e nunca concluiu so ve o Script 7 Passos. Fora do clube nada muda.
+  const anteriorConcluido = diagnosticStatus === 'submitted' || isLegacy;
+  const soFluxoNovo = !!cohortEfetivo && !anteriorConcluido;
+  const [mostrarAnterior, setMostrarAnterior] = useState<boolean>(() => lerVersaoAnterior(resolvedEmail));
+  const definirMostrarAnterior = (valor: boolean) => {
+    setMostrarAnterior(valor);
+    try { localStorage.setItem(chaveVersaoAnterior(resolvedEmail), valor ? '1' : '0'); } catch { /* sem storage */ }
+  };
+
   // JWT emitido antes da claim `cohort` (ate 03/09): o banco diz que a pessoa e do cohort, o token nao.
   // Renova o token em silencio UMA vez por sessao (POST /auth/verify-member por e-mail), sem deslogar;
   // o App troca o token em memoria e os hooks recarregam com ele.
@@ -361,6 +384,29 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     }
   }, [diagnosticStatus, feedbackStatus, hasRedirected, urlModule, diagnosticLoaded, cohort, scriptFicha.loaded, scriptFicha.enabled, scriptFicha.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clube sem a versao anterior concluida: qualquer tela antiga (URL direta, /dashboard, /brand-brain, /assets)
+  // cai na tela inicial do clube. Antes de saber (GET /api/diagnostic e a ficha), a tela mostra o esqueleto.
+  useEffect(() => {
+    if (!soFluxoNovo || !diagnosticLoaded || !scriptFicha.loaded) return;
+    if (!TELAS_ANTERIORES.has(activeItem)) return;
+    if (!urlModule && !hasRedirected && scriptFicha.enabled && scriptFicha.data) return; // /dashboard: o efeito acima ja leva ao script
+    navigateTo(rotaInicialDoClube(scriptFicha.data));
+  }, [soFluxoNovo, diagnosticLoaded, scriptFicha.loaded, scriptFicha.enabled, scriptFicha.data, activeItem, urlModule, hasRedirected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clube com a versao anterior concluida: abrir uma tela antiga por URL revela a versao anterior no menu.
+  useEffect(() => {
+    if (!cohortEfetivo || !anteriorConcluido || mostrarAnterior) return;
+    if (!TELAS_ANTERIORES.has(activeItem)) return;
+    if (activeItem === 'overview' && urlModule !== 'overview') return; // /dashboard vai para o script, nao revela
+    definirMostrarAnterior(true);
+  }, [cohortEfetivo, anteriorConcluido, mostrarAnterior, activeItem, urlModule]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const alternarAnterior = () => {
+    const proximo = !mostrarAnterior;
+    definirMostrarAnterior(proximo);
+    if (!proximo && TELAS_ANTERIORES.has(activeItem)) navigateTo(rotaInicialDoClube(scriptFicha.data));
+  };
+
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
   const mentorComplete    = isLegacy || isMentorComplete(mentor);
   const menteeComplete    = isLegacy || isMenteeComplete(mentee);
@@ -373,7 +419,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     pointB: { internal: mentee.afterInternal, external: mentee.afterExternal },
   };
 
-  const menuStructure = getSidebarMenu(
+  const menuCompleto = getSidebarMenu(
     diagnosticStatus,
     pipelineStatus,
     brandBrainStatus,
@@ -389,6 +435,27 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     hasEducationalSuggestions,
     scriptMenu,
   );
+  const secaoScript = menuCompleto.filter((s) => s.id === 'script');
+  const secoesAnteriores = menuCompleto.filter((s) => s.id !== 'script');
+  const menuStructure: MenuSection[] = !cohortEfetivo
+    ? menuCompleto
+    : (soFluxoNovo || !diagnosticLoaded)
+      ? secaoScript
+      : [
+        ...secaoScript,
+        {
+          id: 'anterior',
+          title: '',
+          items: [{
+            id: ITEM_ALTERNAR_ANTERIOR,
+            label: mostrarAnterior ? 'Ocultar versão anterior' : 'Versão anterior',
+            caption: 'O que você respondeu antes, com os insights',
+            secondary: true,
+          }],
+        },
+        ...(mostrarAnterior ? secoesAnteriores : []),
+      ];
+  const primeiraSecaoAnterior = cohortEfetivo && anteriorConcluido && mostrarAnterior ? secoesAnteriores[0]?.id : undefined;
 
   // Ensure newly visible sections are open automatically
   useEffect(() => {
@@ -458,12 +525,24 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       const item = section.items.find(i => i.id === activeItem);
       if (item) return item.label;
     }
-    return 'Visão Geral';
+    return cohortEfetivo ? 'Script 7 Passos' : 'Visão Geral';
   };
 
   // ─── Content rendering ─────────────────────────────────────────────────────
 
   const renderContent = () => {
+    // Clube: tela antiga nunca pinta enquanto nao se sabe se a versao anterior foi concluida, nem para quem
+    // nunca a concluiu (o redirecionamento acima leva para o script); /dashboard tambem espera a ficha.
+    const telaAnterior = TELAS_ANTERIORES.has(activeItem);
+    const aguardandoHomeDoClube = activeItem === 'overview' && !urlModule && !hasRedirected && !scriptFicha.loaded;
+    if (cohortEfetivo && telaAnterior && (!diagnosticLoaded || soFluxoNovo || aguardandoHomeDoClube)) {
+      return (
+        <div aria-busy="true" className="min-h-[300px] flex items-center justify-center">
+          <LoadingSpinner size="lg" label="Abrindo o seu script" />
+        </div>
+      );
+    }
+
     if (activeItem === 'diagnostic_complete') {
       const alreadySubmitted = diagnosticStatus === 'submitted';
       return (
@@ -700,10 +779,22 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
         }`}
       >
         <div className="mb-6 sm:mb-8">
-          <Logo className="w-full h-auto" />
+          {cohortEfetivo ? (
+            <button
+              type="button"
+              aria-label="Início"
+              onClick={() => { navigateTo(rotaInicialDoClube(scriptFicha.data)); setIsMobileMenuOpen(false); }}
+              className="w-full block"
+            >
+              <Logo className="w-full h-auto" />
+            </button>
+          ) : (
+            <Logo className="w-full h-auto" />
+          )}
         </div>
 
-        {/* Progress in sidebar */}
+        {/* Progress in sidebar (versao anterior; o clube nao ve) */}
+        {!cohortEfetivo && (
         <div className="mb-4 px-2">
           <div className="flex justify-between items-center mb-1">
             <span className="text-[10px] sm:text-xs text-gray-400">Progresso</span>
@@ -716,10 +807,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             />
           </div>
         </div>
+        )}
 
         <nav aria-label="Navegação do diagnóstico">
           {menuStructure.map(section => (
             <div key={section.id} className="mb-4 sm:mb-6">
+              {section.id === primeiraSecaoAnterior && (
+                <div data-testid="divisor-versao-anterior" className="border-t border-white/10 mb-4 sm:mb-6" />
+              )}
               {/* Section header — hide for sections with empty title */}
               {section.title ? (
                 <button
@@ -740,16 +835,26 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                       <button
                         key={item.id}
                         onClick={() => {
+                          if (item.id === ITEM_ALTERNAR_ANTERIOR) { alternarAnterior(); return; }
                           navigateTo(item.id);
                           setIsMobileMenuOpen(false);
                         }}
                         data-secondary={item.secondary ? 'true' : undefined}
+                        data-testid={item.id === ITEM_ALTERNAR_ANTERIOR ? 'versao-anterior' : undefined}
+                        aria-pressed={item.id === ITEM_ALTERNAR_ANTERIOR ? mostrarAnterior : undefined}
                         className={`flex items-center gap-2 w-full text-left px-3 sm:px-4 rounded transition
                           ${item.secondary ? 'py-1 text-[11px] sm:text-xs italic pl-6 sm:pl-7' : 'py-1.5 sm:py-2 text-xs sm:text-sm'}
                           ${isCurrent ? 'bg-prosperus-gold-dark text-black font-semibold' : item.secondary ? 'text-gray-500 hover:text-white hover:bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'}
                         `}
                       >
-                        <span className="truncate flex-1">{item.label}</span>
+                        {item.caption ? (
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate">{item.label}</span>
+                            <span className="block truncate text-[10px] not-italic text-gray-600">{item.caption}</span>
+                          </span>
+                        ) : (
+                          <span className="truncate flex-1">{item.label}</span>
+                        )}
                         {!isCurrent && !item.secondary && <DotIndicator dot={item.statusDot} />}
                       </button>
                     );

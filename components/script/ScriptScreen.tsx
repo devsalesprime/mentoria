@@ -10,7 +10,7 @@ import { useGrifos } from './grifos/useGrifos';
 import { GrifoBubble } from './grifos/GrifoBubble';
 import { GrifosPanel } from './grifos/GrifosPanel';
 import { PedirComGrifosModal } from './grifos/PedirComGrifosModal';
-import { capturarSelecao, limparPintura, pintarGrifos, rolarParaRange, type Captura } from './grifos/anchor';
+import { capturarSelecao, limparPendente, limparPintura, localizarGrifo, pintarGrifos, pintarPendente, rolarParaRange, type Captura } from './grifos/anchor';
 import { grifoParaComentario, resumoGrifos, type Grifo, type GrifoCor } from './grifos/types';
 
 export { splitScript };
@@ -43,8 +43,8 @@ function jobStatusLabel(job: ScriptJobInfo | null | undefined): string | null {
   switch (job.status) {
     case 'queued': return 'Na fila para ser escrito.';
     case 'running': return 'Sendo escrito agora.';
-    case 'needs_human': return 'Precisa de uma olhada do time. Já avisamos por aqui.';
-    case 'error': return 'Deu um erro na escrita. O time já foi avisado; se quiser, peça uma nova versão.';
+    case 'needs_human': return 'Nossa equipe está conferindo. Você não precisa fazer nada.';
+    case 'error': return 'Deu um erro na escrita. Nossa equipe já foi avisada. Se quiser, peça uma nova versão.';
     case 'done': return null;
     default: return null;
   }
@@ -129,7 +129,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         }
       }
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || 'Erro ao carregar o script');
+      setError(e?.response?.data?.message || e?.message || 'Não deu para carregar o script. Tente de novo.');
     } finally {
       setLoading(false);
     }
@@ -143,7 +143,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         setComentarios(res.data.comentarios || []);
       }
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || 'Erro ao abrir a versão');
+      setError(e?.response?.data?.message || e?.message || 'Não deu para abrir esta versão. Tente de novo.');
     }
   }, [headers]);
 
@@ -184,6 +184,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   // Setas do teclado (desktop), fora de campos de texto e sem balao/modal aberto
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Esc fecha o balao "Grifar" (e apaga a marca pendente do trecho)
+      if (captura && !modalGrifos && e.key === 'Escape') { e.preventDefault(); setCaptura(null); return; }
       if (modalGrifos || captura || !parsed) return;
       const alvo = e.target as HTMLElement | null;
       if (alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA' || alvo.tagName === 'SELECT' || alvo.isContentEditable)) return;
@@ -203,8 +205,11 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       const root = readerRef.current;
       if (!root) return;
       const c = capturarSelecao(root, window.getSelection ? window.getSelection() : null);
+      // selecao recolhida (toque no balao, foco na nota, celular) devolve null e NAO derruba a captura: o trecho fica pintado
+      // como pendente e o balao aberto. So pointerdown fora do balao, Esc, "Cancelar" ou salvar fecham.
+      if (!c) return;
       // a mesma selecao lida de novo nao vira uma captura nova (o balao nao perde a cor e a nota ja escolhidas)
-      if (c) setCaptura((prev) => (prev && prev.texto === c.texto && prev.tela === c.tela && prev.documento === c.documento ? prev : c));
+      setCaptura((prev) => (prev && prev.texto === c.texto && prev.tela === c.tela && prev.documento === c.documento ? prev : c));
     };
     const onSel = () => {
       if (arrastando) return;
@@ -250,6 +255,16 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }
     return () => limparPintura();
   }, [grifosDaTela, parsed, foco, tela, docAtivo]);
+
+  // Trecho capturado (balao "Grifar" aberto) com marca propria (`script-grifo-pendente`): sobrevive a selecao nativa recolher.
+  // Some quando o balao fecha (salvar, cancelar, Esc, toque fora) ou outra selecao substitui a captura. Sem Highlight API, so o balao.
+  useEffect(() => {
+    if (!captura) { limparPendente(); return; }
+    const root = readerRef.current;
+    const vivo = captura.range && !captura.range.collapsed ? captura.range : null;
+    pintarPendente(vivo || (root ? localizarGrifo(root, captura) : null));
+    return () => limparPendente();
+  }, [captura]);
 
   const encontrado = useCallback((g: Grifo) => {
     if (!parsed) return false;
@@ -338,7 +353,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         setVersoes((prev) => (prev ? prev.map((v) => (v.versao === versao.versao ? { ...v, comentarios_count: (v.comentarios_count || 0) + 1 } : v)) : prev));
       }
     } catch (e: any) {
-      setAviso(e?.response?.data?.errors?.join('; ') || e?.response?.data?.message || 'Não deu para enviar o comentário.');
+      setAviso(e?.response?.data?.errors?.join('; ') || e?.response?.data?.message || 'Não deu para enviar o comentário. Tente de novo.');
     } finally {
       setSending(null);
     }
@@ -346,7 +361,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   const aprovar = async () => {
     if (!versao) return;
-    if (typeof window !== 'undefined' && !window.confirm(`Aprovar o script v${versao.versao}? Você continua podendo comentar e pedir outra versão.`)) return;
+    if (typeof window !== 'undefined' && !window.confirm('Aprovar esta versão do script? Você continua podendo comentar e pedir outra versão.')) return;
     setAprovando(true);
     try {
       const res = await axios.post(`/api/script/versoes/${versao.versao}/aprovar`, {}, headers);
@@ -357,7 +372,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         ficha.refresh();
       }
     } catch (e: any) {
-      setAviso(e?.response?.data?.message || 'Não deu para aprovar agora.');
+      setAviso(e?.response?.data?.message || 'Não deu para aprovar agora. Tente de novo.');
     } finally {
       setAprovando(false);
     }
@@ -372,7 +387,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       setJob(r.job || null);
       setAviso(r.existing ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.' : 'Pedido feito. Você recebe um aviso no WhatsApp quando a nova versão ficar pronta.');
     } else {
-      setAviso(r.message || 'Não deu para pedir agora.');
+      setAviso(r.message || 'Não deu para pedir agora. Tente de novo.');
     }
   };
 
@@ -386,9 +401,9 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       setJob(r.job || null);
       setAviso(r.existing
         ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.'
-        : `Pedido feito: a próxima versão parte da v${versao.versao} e dos comentários dela. Você recebe um aviso no WhatsApp quando ficar pronta.`);
+        : 'Pedido feito: a próxima versão parte desta e dos seus comentários. Você recebe um aviso no WhatsApp quando ficar pronta.');
     } else {
-      setAviso(r.message || 'Não deu para pedir agora.');
+      setAviso(r.message || 'Não deu para pedir agora. Tente de novo.');
     }
   };
 
@@ -403,10 +418,10 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       const resumo = resumoGrifos(pendentes);
       setAviso(r.existing
         ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.'
-        : `Pedido feito com ${resumo.total} ${resumo.total === 1 ? 'grifo' : 'grifos'}: a próxima versão parte da v${versao.versao}. Você recebe um aviso no WhatsApp quando ficar pronta.`);
+        : `Pedido feito com ${resumo.total} ${resumo.total === 1 ? 'grifo' : 'grifos'}: a próxima versão parte desta. Você recebe um aviso no WhatsApp quando ficar pronta.`);
       await loadVersao(versao.versao);
     } else {
-      setAviso(r.message || 'Não deu para pedir agora.');
+      setAviso(r.message || 'Não deu para pedir agora. Tente de novo.');
     }
   };
 
@@ -426,7 +441,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       if (typeof window !== 'undefined' && window.getSelection) window.getSelection()?.removeAllRanges();
       return true;
     }
-    setAviso(r.message || 'Não deu para salvar o grifo.');
+    setAviso(r.message || 'Não deu para salvar o grifo. Tente de novo.');
     return false;
   };
 
@@ -568,66 +583,108 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   return (
     <div className="space-y-4 script-screen">
-      {/* Cabecalho e acoes */}
+      {/* Cabecalho e acoes: pilula da versao (com a troca num menu), "O que mudou", Aprovar, Pedir nova versao e o menu "Mais" */}
       <div className="script-no-print flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-[0.2em] text-prosperus-gold-dark font-semibold">Seu script</p>
             <h2 className="font-serif text-2xl sm:text-3xl text-white leading-tight">
               Script v{versao?.versao ?? selected}
               {aprovado && <span className="ml-3 align-middle text-[11px] font-sans font-semibold px-2 py-0.5 rounded-full bg-green-600/20 text-green-400">aprovado</span>}
             </h2>
-            <p className="text-xs text-white/50 mt-1">
-              {versao?.created_at ? `escrito em ${formatDate(versao.created_at)}` : ''}
-              {versao?.resumo ? ` · ${versao.resumo}` : ''}
-            </p>
-          </div>
-          {versoes.length > 1 && (
-            <label className="text-xs text-white/60 flex items-center gap-2">
-              Versão
-              <select
-                value={selected ?? ''}
-                onChange={(e) => setSelected(Number(e.target.value))}
-                className="bg-prosperus-navy border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white outline-none min-h-[44px]"
-              >
-                {versoes.map((v) => (
-                  <option key={v.id} value={v.versao}>v{v.versao}{v.status === 'aprovado' ? ' (aprovado)' : ''}</option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="md" onClick={download} disabled={!versao?.content_md}>Baixar (.md)</Button>
-          {multiplos ? (
-            <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-white/20 px-2 py-1" role="group" aria-label="Imprimir ou salvar em PDF">
-              <span className="text-xs text-white/70 px-1">Imprimir ou salvar em PDF:</span>
-              <Button variant="link" size="sm" className="!px-2 min-h-[36px]" onClick={() => abrirImpressao('treinamento')} disabled={!versao?.content_md} data-testid="pdf-treinamento">Treinamento</Button>
-              <Button variant="link" size="sm" className="!px-2 min-h-[36px]" onClick={() => abrirImpressao('campo')} disabled={!versao?.content_md} data-testid="pdf-campo">Campo</Button>
-              <Button variant="link" size="sm" className="!px-2 min-h-[36px]" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Os dois</Button>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <details className="script-versao-menu">
+                <summary className="script-versao-pilula" aria-label="Trocar a versão do script" data-testid="versao-pilula">
+                  <span className="font-semibold text-prosperus-gold-light">v{versao?.versao ?? selected}</span>
+                  {versao?.created_at && <span className="text-white/60">{formatDate(versao.created_at)}</span>}
+                  {versoes.length > 1 && <span aria-hidden="true" className="text-white/50">&#x25BE;</span>}
+                </summary>
+                {versoes.length > 1 && (
+                  <div className="script-versao-lista" role="menu" aria-label="Versões do script">
+                    {versoes.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        role="menuitem"
+                        className={`script-menu-item ${v.versao === selected ? 'script-menu-item-atual' : ''}`}
+                        onClick={(e) => { setSelected(v.versao); e.currentTarget.closest('details')?.removeAttribute('open'); }}
+                      >
+                        <span>Versão {v.versao}{v.status === 'aprovado' ? ' · aprovada' : ''}</span>
+                        <span className="text-xs text-white/50">{formatDate(v.created_at)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </details>
+              {versao?.resumo && (
+                <details className="script-mudou">
+                  <summary>O que mudou nesta versão</summary>
+                  <p className="script-mudou-texto">{versao.resumo}</p>
+                </details>
+              )}
             </div>
-          ) : (
-            <Button variant="outline" size="md" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Imprimir ou salvar em PDF</Button>
-          )}
-          {!aprovado && <Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar</Button>}
-          {totalPendentes > 0 && (
-            <Button variant="primary" size="md" onClick={() => setModalGrifos(true)} disabled={pedindo || scriptJobAtivo || !versao} data-testid="pedir-com-grifos">
-              {scriptJobAtivo ? 'Nova versão a caminho' : `Pedir nova versão com os grifos (${totalPendentes})`}
+          </div>
+
+          <div className="script-acoes">
+            {!aprovado ? (
+              <span className="script-acoes-primaria"><Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar o script</Button></span>
+            ) : (
+              <span className="script-acoes-primaria inline-flex min-h-[44px] items-center justify-center rounded-lg border border-green-500/40 px-4 text-sm font-semibold text-green-300">
+                Aprovado{versao?.aprovado_em ? ` em ${formatDate(versao.aprovado_em)}` : ''}
+              </span>
+            )}
+            {totalPendentes > 0 && (
+              <Button variant="primary" size="md" onClick={() => setModalGrifos(true)} disabled={pedindo || scriptJobAtivo || !versao} data-testid="pedir-com-grifos">
+                {scriptJobAtivo ? 'Nova versão a caminho' : `Pedir nova versão com os grifos (${totalPendentes})`}
+              </Button>
+            )}
+            <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || scriptJobAtivo || !versao}>
+              {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
             </Button>
-          )}
-          <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || scriptJobAtivo || !versao}>
-            {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
-          </Button>
-          <Button variant="outline" size="md" onClick={gerarDoZero} disabled={pedindo || scriptJobAtivo}>Gerar do zero</Button>
-          {onNavigate && (
-            <Button variant="link" size="md" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">Revisar ficha</Button>
-          )}
-          {parsed && (
-            <Button variant="outline" size="md" className="lg:hidden" onClick={() => setPainelAberto(true)} aria-label="Abrir a lista de grifos">
-              Grifos{grifos.length ? ` (${grifos.length})` : ''}
-            </Button>
-          )}
+            <details className="script-mais">
+              <summary className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-white/20 px-4 text-sm font-semibold text-white/85 hover:bg-white/10" aria-label="Mais ações">
+                Mais <span aria-hidden="true" className="text-white/50">&#x25BE;</span>
+              </summary>
+              <div className="script-mais-menu">
+                <div role="group" aria-label="Imprimir ou salvar em PDF">
+                  <span className="script-menu-rotulo">Imprimir ou salvar em PDF</span>
+                  {multiplos ? (
+                    <>
+                      <button type="button" className="script-menu-item" onClick={() => abrirImpressao('treinamento')} disabled={!versao?.content_md} data-testid="pdf-treinamento">Treinamento</button>
+                      <button type="button" className="script-menu-item" onClick={() => abrirImpressao('campo')} disabled={!versao?.content_md} data-testid="pdf-campo">Campo</button>
+                      <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Os dois</button>
+                    </>
+                  ) : (
+                    <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Imprimir o script</button>
+                  )}
+                </div>
+                <div className="script-menu-sep" />
+                <button type="button" className="script-menu-item" onClick={download} disabled={!versao?.content_md}>Baixar o texto</button>
+                {onNavigate && (
+                  <button type="button" className="script-menu-item" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">Revisar a ficha</button>
+                )}
+                <div className="script-menu-sep" />
+                <button
+                  type="button"
+                  className="script-menu-item script-menu-item-perigo"
+                  onClick={(e) => {
+                    e.currentTarget.closest('details')?.removeAttribute('open');
+                    if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm('Escrever o script do zero? Isso ignora os grifos e os comentários desta versão e escreve de novo a partir da ficha.')) return;
+                    gerarDoZero();
+                  }}
+                  disabled={pedindo || scriptJobAtivo}
+                >
+                  Escrever do zero
+                </button>
+                <button type="button" className="script-menu-item script-mais-fechar" onClick={(e) => e.currentTarget.closest('details')?.removeAttribute('open')}>Fechar</button>
+              </div>
+            </details>
+            {parsed && (
+              <Button variant="outline" size="md" className="lg:hidden" onClick={() => setPainelAberto(true)} aria-label="Abrir a lista de grifos">
+                Grifos{grifos.length ? ` (${grifos.length})` : ''}
+              </Button>
+            )}
+          </div>
         </div>
         {aviso && <p className="text-xs text-prosperus-gold-light">{aviso}</p>}
         {scriptJobAtivo && !aviso && (
@@ -641,9 +698,6 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         )}
         {!scriptJobAtivo && !aviso && (job?.status === 'error' || job?.status === 'needs_human') && (
           <p className="text-xs text-red-300">{jobStatusLabel(job)}</p>
-        )}
-        {!scriptJobAtivo && (
-          <p className="text-xs text-white/50">Selecione um trecho para grifar (dourado ajustar, verde manter, vermelho tirar), comente os passos e peça a nova versão: ela parte desta versão, dos grifos e dos comentários. "Gerar do zero" ignora tudo isso e escreve de novo a partir da ficha.</p>
         )}
       </div>
 
@@ -669,7 +723,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           {parsed && !temPassos && (
             <p className="script-no-print text-sm text-white/60 mt-3">Esta versão veio sem os passos numerados; o texto acima é o conteúdo como chegou.</p>
           )}
-          {!parsed && <p className="text-sm text-white/60">Esta versão veio vazia.</p>}
+          {!parsed && <p className="text-sm text-white/60">Esta versão veio vazia. Peça uma nova versão.</p>}
         </div>
 
         {/* "Seus grifos": coluna no desktop */}

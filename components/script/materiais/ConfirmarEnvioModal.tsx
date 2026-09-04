@@ -24,7 +24,7 @@ export function phoneError(raw: string): string | null {
   if (!d) return null;
   if (d.length === 10 || d.length === 11) return null;
   if ((d.length === 12 || d.length === 13) && d.startsWith('55')) return null;
-  return 'Use DDD + número (10 a 11 dígitos), com ou sem o 55.';
+  return 'Digite o DDD e o número, como (11) 99999-9999.';
 }
 
 const inputClass =
@@ -70,7 +70,7 @@ export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen
         <h3 className="font-serif text-2xl text-white pr-8">Vamos começar a montar a sua ficha</h3>
         <p className="text-sm text-white/75 font-sans leading-relaxed">
           Com o que você enviou até agora, a gente começa a ler os seus materiais e a montar as sugestões da sua ficha.
-          Elas chegam bloco a bloco, e você já pode ir preenchendo enquanto isso. Quando terminar, avisamos você.
+          Elas chegam bloco a bloco, e você já pode ir preenchendo enquanto isso. Quando tudo estiver pronto, a gente avisa.
         </p>
 
         <div className="space-y-2">
@@ -100,7 +100,7 @@ export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen
         </div>
         {error && <p className="text-xs text-red-400 font-sans">{error}</p>}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
-          <Button variant="ghost" size="lg" className="min-h-[44px]" onClick={onClose} disabled={submitting}>Ainda não</Button>
+          <Button variant="ghost" size="lg" className="min-h-[44px]" onClick={onClose} disabled={submitting}>Continuar enviando</Button>
           <Button variant="primary" size="lg" className="min-h-[44px]" onClick={handleConfirm} loading={submitting}>
             Confirmar e ir para a ficha
           </Button>

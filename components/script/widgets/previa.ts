@@ -326,7 +326,7 @@ export function faltamParaScript(p: Pick<ScriptProgresso, 'obrigatorios' | 'obri
 }
 
 /** Fim da ficha com tudo decidido: o script v1 só nasce quando a ficha fecha. */
-export const COPY_SCRIPT_PRONTO = 'Você decidiu tudo. Feche a ficha e a gente monta o script v1.';
+export const COPY_SCRIPT_PRONTO = 'Você decidiu tudo. Feche a ficha e a gente escreve a primeira versão do seu script.';
 /** Contador do cabeçalho em zero. */
 export const COPY_TUDO_DECIDIDO = 'tudo decidido para o seu script';
 

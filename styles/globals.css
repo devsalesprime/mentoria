@@ -556,11 +556,194 @@ body {
 .script-anatomia-cor-4 { --anat: rgba(120, 84, 160, 0.24); --anat-forte: #7854a0; }
 .script-anatomia-cor-5 { --anat: rgba(66, 138, 168, 0.25); --anat-forte: #428aa8; }
 
+/* ── Leitor v2 (04/09): leitura no celular, chips em linha, abas, barra, cartao ── */
+.script-tela { font-size: 17px; line-height: 1.6; }
+@media (min-width: 640px) { .script-tela { font-size: 18px; } }
+.script-tela .script-tela-intro { font-size: 1rem; line-height: 1.55; }
+.script-tela .script-md { font-size: 1.02em; line-height: 1.6; }
+.script-tela .script-nota { font-size: 0.95em; line-height: 1.55; padding: 0.95rem 1.1rem; }
+.script-tela .script-checklist li { font-size: 1em; line-height: 1.55; }
+.script-tela .script-como-usar { font-size: 0.95em; }
+.script-tela .script-nota-rotulo { font-size: 0.68rem; margin-bottom: 0.4rem; }
+.script-tela .script-fala { padding: 1rem 1.15rem 1rem 1.2rem; border-radius: 0.9rem; }
+.script-tela .script-fala-texto { font-size: 1.28em; line-height: 1.5; }
+.script-tela .script-fala-direcao { font-size: 0.86em; }
+.script-tela .script-objetivo { padding: 0.35rem 0 0.35rem 1rem; }
+.script-fala-num {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-width: 1.6rem; height: 1.6rem; padding: 0 0.4rem; margin-right: 0.5rem;
+  border-radius: 9999px; background: #0A2540; color: #FFE39B;
+  font-family: var(--font-serif); font-size: 0.95rem; font-weight: 600; letter-spacing: 0;
+}
+
+/* Campos entre colchetes ([nome], [ACIONAR MENTORA]): sempre em linha, quebrando com o texto, nunca em bloco */
+.script-slot, .script-tag, .script-proibido {
+  display: inline;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  vertical-align: baseline;
+  line-height: inherit;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.script-slot {
+  gap: 0; margin: 0; padding: 0 0.15rem;
+  border: 0; border-bottom: 2px dotted #CA9A43; border-radius: 0;
+  background: rgba(255, 227, 155, 0.35);
+  font-family: inherit; font-style: italic; font-size: inherit;
+}
+.script-slot-pena { display: inline; margin-right: 0.15rem; font-size: 0.85em; }
+.script-tag, .script-proibido {
+  margin: 0 0.1rem; padding: 0.05rem 0.4rem; border-radius: 0.3rem;
+  font-size: 0.68em; letter-spacing: 0.08em; line-height: 1.8;
+}
+
+/* Abas Treinamento | Campo: segmentadas, 44px, estado claro */
+.script-abas {
+  display: flex; width: 100%; max-width: 420px; padding: 3px;
+  border: 1px solid rgba(10, 37, 64, 0.12); border-radius: 0.8rem;
+  background: rgba(10, 37, 64, 0.06); overflow: visible;
+}
+.script-aba {
+  flex: 1 1 0; min-height: 44px; padding: 0 0.75rem; border-radius: 0.6rem;
+  font-size: 0.78rem; letter-spacing: 0.08em; color: rgba(10, 37, 64, 0.72);
+}
+.script-aba:hover { background: rgba(10, 37, 64, 0.08); }
+.script-aba-ativa, .script-aba-ativa:hover { background: #0A2540; color: #FFE39B; box-shadow: 0 1px 2px rgba(10, 37, 64, 0.25); }
+.script-abas-legenda { margin-top: 0.4rem; font-size: 0.82rem; line-height: 1.4; color: rgba(10, 37, 64, 0.65); }
+
+/* "Por que funciona": a anatomia da fala fica fechada por padrao */
+.script-porque {
+  display: inline-flex; align-items: center; gap: 0.35rem; min-height: 40px; margin-top: 0.35rem; padding: 0 0.2rem;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: var(--font-sans); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #9a7530;
+}
+.script-porque:hover { color: #0A2540; }
+.script-porque-seta { display: inline-block; transition: transform 0.15s; font-size: 0.7em; }
+.script-porque[aria-expanded="true"] .script-porque-seta { transform: rotate(90deg); }
+
+/* Callouts do campo: transicao, alerta e o proximo passo obrigatorio */
+.script-nota-transicao {
+  background: #FFFDF8; border-color: rgba(10, 37, 64, 0.18); border-left: 4px solid #0A2540;
+  font-family: var(--font-serif); font-size: 1.02em; font-style: italic;
+}
+.script-nota-transicao .script-nota-rotulo { font-family: var(--font-sans); font-style: normal; }
+.script-nota-erro { background: rgba(178, 96, 60, 0.09); border-color: rgba(178, 96, 60, 0.35); border-left: 4px solid #b2603c; }
+.script-nota-erro .script-nota-rotulo { color: #8f4a2a; }
+.script-nota-proximo { border-left: 4px solid #CA9A43; box-shadow: 0 6px 18px -10px rgba(10, 37, 64, 0.6); }
+.script-nota-proximo p { font-family: var(--font-serif); font-size: 1.08em; }
+
+/* Dica unica sobre os grifos, no alto da folha */
+.script-dica {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  margin: -0.25rem 0 1rem; padding: 0.35rem 0.25rem 0.35rem 0.75rem;
+  border-left: 3px solid #CA9A43; background: rgba(255, 227, 155, 0.22); border-radius: 0.4rem;
+  font-size: 0.86rem; line-height: 1.4; color: rgba(10, 37, 64, 0.8);
+}
+.script-dica-fechar {
+  flex: none; min-width: 44px; min-height: 40px; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-sans); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(10, 37, 64, 0.65);
+}
+.script-dica-fechar:hover { color: #0A2540; }
+
+/* Cartao de bolso: legivel de relance */
+.script-cartao { padding: 1.35rem 1.4rem 1.5rem; }
+.script-cartao-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%; margin-top: 0.9rem; }
+@media (min-width: 640px) { .script-cartao-acoes { width: auto; margin-top: 0; grid-template-columns: auto auto; } }
+.script-cartao-acoes .script-copiar { min-height: 44px; padding: 0.4rem 0.9rem; font-size: 0.72rem; border-radius: 0.6rem; border-width: 1.5px; }
+.script-cartao-corpo h3 { margin: 1.15rem 0 0.45rem; font-size: 1.15rem; letter-spacing: 0.01em; }
+.script-cartao-corpo li { margin: 0.45rem 0; font-size: 1.02rem; line-height: 1.5; }
+.script-cartao-corpo li::marker { color: #FFE39B; font-family: var(--font-serif); font-weight: 600; }
+.script-cartao-corpo strong, .script-cartao-valor { color: #FFE39B; font-weight: 700; }
+.script-cartao-valor { padding: 0 0.25rem; border-radius: 0.3rem; background: rgba(255, 227, 155, 0.14); white-space: nowrap; }
+
+/* Barra do rodape: uma linha no desktop, duas no celular (mapa em cima), progresso em linha fina */
+.script-barra { flex-wrap: wrap; gap: 0.4rem 0.35rem; padding-top: 0.65rem; overflow: hidden; }
+.script-barra-progresso { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgba(255, 255, 255, 0.12); }
+.script-barra-progresso > span { display: block; height: 100%; background: linear-gradient(90deg, #CA9A43, #FFE39B); transition: width 0.25s; }
+.script-barra-contador { display: none; }
+@media (min-width: 640px) {
+  .script-barra { flex-wrap: nowrap; }
+  .script-barra-contador {
+    display: inline-flex; align-items: center; flex: none; padding: 0 0.3rem;
+    font-family: var(--font-sans); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; color: rgba(255, 255, 255, 0.55); white-space: nowrap;
+  }
+}
+.script-mapa-item-curto { display: none; }
+@media (max-width: 639.98px) {
+  .script-mapa-strip { order: -1; flex-basis: 100%; overflow-x: visible; gap: 0.15rem; }
+  .script-mapa-item { flex: 1 1 0; min-width: 0; padding: 0 0.15rem; font-size: 0.66rem; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .script-mapa-item-atual { font-size: 0.7rem; }
+  .script-mapa-item-longo { display: none; }
+  .script-mapa-item-curto { display: inline; }
+  .script-barra-btn { flex: 1 1 0; min-width: 0; padding: 0 0.4rem; font-size: 0.68rem; letter-spacing: 0.06em; white-space: nowrap; }
+}
+
+/* Cabecalho de "Seu script": pilula da versao, "O que mudou", menu "Mais" (folha no celular) */
+.script-versao-pilula {
+  display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; padding: 0 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 9999px; background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85); font-size: 0.8rem; cursor: pointer; list-style: none;
+}
+.script-versao-pilula::-webkit-details-marker { display: none; }
+.script-versao-pilula:hover { background: rgba(255, 255, 255, 0.1); }
+.script-versao-menu { position: relative; }
+.script-versao-lista {
+  position: absolute; left: 0; top: calc(100% + 0.35rem); z-index: 30; min-width: 220px; padding: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 0.75rem; background: #061A2B; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.script-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; min-height: 44px; padding: 0 0.85rem;
+  border: 0; border-radius: 0.55rem; background: transparent; color: rgba(255, 255, 255, 0.88); text-align: left;
+  font-family: var(--font-sans); font-size: 0.86rem; cursor: pointer;
+}
+.script-menu-item:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.script-menu-item:disabled { opacity: 0.4; cursor: default; }
+.script-menu-item-atual { color: #FFE39B; }
+.script-menu-item-perigo { color: #f2a7a7; }
+.script-menu-rotulo { display: block; padding: 0.6rem 0.85rem 0.2rem; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.45); }
+.script-menu-sep { height: 1px; margin: 0.3rem 0.5rem; background: rgba(255, 255, 255, 0.1); }
+.script-mudou > summary {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px; cursor: pointer; list-style: none;
+  font-size: 0.78rem; color: rgba(255, 255, 255, 0.6);
+}
+.script-mudou > summary::-webkit-details-marker { display: none; }
+.script-mudou > summary:hover { color: #FFE39B; }
+.script-mudou > summary::before { content: "\25B8"; font-size: 0.7em; transition: transform 0.15s; }
+.script-mudou[open] > summary::before { transform: rotate(90deg); }
+.script-mudou-texto { max-width: 68ch; margin-top: 0.25rem; padding: 0.7rem 0.9rem; border-radius: 0.6rem; background: rgba(255, 255, 255, 0.05); font-size: 0.86rem; line-height: 1.55; color: rgba(255, 255, 255, 0.8); }
+.script-mais { position: relative; }
+.script-mais > summary { list-style: none; cursor: pointer; }
+.script-mais > summary::-webkit-details-marker { display: none; }
+.script-mais-menu {
+  position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 30; min-width: 260px; padding: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 0.75rem; background: #061A2B; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.script-mais-fechar { display: none; }
+@media (max-width: 639.98px) {
+  .script-mais[open]::before { content: ""; position: fixed; inset: 0; z-index: 40; background: rgba(3, 26, 43, 0.7); }
+  .script-mais-menu {
+    position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 41; min-width: 0;
+    padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); border-radius: 1rem 1rem 0 0; border-bottom: 0;
+  }
+  .script-mais-fechar { display: flex; justify-content: center; margin-top: 0.4rem; color: rgba(255, 255, 255, 0.6); }
+}
+.script-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+@media (max-width: 639.98px) {
+  .script-acoes { display: grid; grid-template-columns: 1fr 1fr; }
+  .script-acoes-primaria { grid-column: 1 / -1; }
+  .script-acoes-primaria > button { width: 100%; }
+}
+
 /* Grifos: pintura sem mexer no DOM (CSS Custom Highlight API) */
 ::highlight(script-grifo-dourado) { background-color: rgba(255, 218, 113, 0.55); }
 ::highlight(script-grifo-verde) { background-color: rgba(74, 222, 128, 0.4); }
 ::highlight(script-grifo-vermelho) { background-color: rgba(248, 113, 113, 0.4); text-decoration: line-through; }
 ::highlight(script-grifo-foco) { background-color: rgba(10, 37, 64, 0.22); }
+/* Trecho selecionado com o balao "Grifar" aberto: continua marcado mesmo quando a selecao nativa some (toque no balao, foco na nota) */
+::highlight(script-grifo-pendente) { background-color: rgba(212, 175, 55, 0.35); }
 .script-grifo-bolinha {
   display: inline-block;
   width: 0.7rem;

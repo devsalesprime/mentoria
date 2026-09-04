@@ -54,7 +54,7 @@ describe('ComplementoCampo', () => {
     expect(screen.queryByTestId('complemento-ajuste-2.1')).not.toBeInTheDocument();
   });
 
-  it('"Está bom assim" fecha sem decidir de novo; erro da rota aparece', async () => {
+  it('"Manter como está" fecha sem decidir de novo; erro da rota aparece', async () => {
     const campo = campoDecidido('2.1', 'Meu texto', comp);
     const onIncorporar = vi.fn().mockResolvedValue({ ok: true, campo: { ...campo, valor: 'Meu texto\n\nAchado novo nos materiais', complemento: null } });
     const onSalvarAjuste = vi.fn();
@@ -67,7 +67,7 @@ describe('ComplementoCampo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Incorporar ao meu texto' }));
     await act(async () => {});
-    fireEvent.click(screen.getByRole('button', { name: 'Está bom assim' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Manter como está' }));
     expect(onSalvarAjuste).not.toHaveBeenCalled();
     // Depois de incorporar o campo vem sem complemento: o painel some
     rerender(<ComplementoCampo campo={{ ...campo, complemento: null }} onIncorporar={onIncorporar} onDispensar={onDispensar} onSalvarAjuste={onSalvarAjuste} />);

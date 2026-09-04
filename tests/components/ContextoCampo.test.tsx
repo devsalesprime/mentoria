@@ -152,7 +152,7 @@ describe('ContextoCampo', () => {
     expect((fd as FormData).get('texto')).toBe('Vendo só por indicação.');
     expect(cfg.headers.Authorization).toMatch(/^Bearer /);
     expect(screen.getByText('Vendo só por indicação.')).toBeInTheDocument();
-    expect(screen.getByText('Nota salvo. Quando terminar, peça a sugestão.')).toBeInTheDocument();
+    expect(screen.getByText('Nota salva. Quando terminar, peça a nova sugestão.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pedir sugestão com esse contexto' })).toBeEnabled();
   });
 

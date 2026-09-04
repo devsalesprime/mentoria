@@ -19,7 +19,7 @@ import { IconeCheck } from './contexto/icones';
 import { rotuloStatus } from './FichaNavegador';
 
 /** Convite do campo sem sugestão: o widget já abre em edição, com esta frase em cima. Nunca placeholder plausível. */
-export const COPY_VAZIO = 'Não encontramos. Conte com a sua voz: grave um áudio ou escreva do seu jeito.';
+export const COPY_VAZIO = 'Não encontramos nos seus materiais. Grave um áudio ou escreva do seu jeito: é assim que o script sai na sua voz.';
 
 /** Campo obrigatório deixado em branco: o que acontece no script. */
 export const COPY_EM_BRANCO = 'Fica em branco no script até você preencher.';
@@ -216,7 +216,7 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
                 <>
                   {renderEditor(false)}
                   <Button variant="ghost" size="md" className={`${TAP} !text-white/60 hover:!text-white`} onClick={acceptEmpty}>
-                    {campo.obrigatorio ? 'Deixar em branco por enquanto' : 'Não se aplica / deixar vazio'}
+                    {campo.obrigatorio ? 'Deixar em branco por enquanto' : 'Não se aplica, deixar em branco'}
                   </Button>
                 </>
               )}

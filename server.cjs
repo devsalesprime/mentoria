@@ -80,6 +80,9 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
+      // Players embutidos: recomendacoes (insights) e a aula da Dani no leitor do script (Bunny Stream; CursEduca legado)
+      frameSrc: ["'self'", "https://iframe.mediadelivery.net", "https://player.curseduca.com"],
+      childSrc: ["'self'", "https://iframe.mediadelivery.net", "https://player.curseduca.com"],
     },
   },
 }));

@@ -21,12 +21,12 @@ export interface PassoNav {
 
 // Uma frase por M (5 M's) para situar o bloco na primeira pergunta dele
 export const BLOCK_INTRO: Record<number, string> = {
-  1: 'Meta: onde você quer chegar, com número e prazo.',
-  2: 'Mentor: quem você é e o que te legitima a cobrar caro.',
-  3: 'Mentorado: para quem, com dor, desejo, setor, bolso e território.',
-  4: 'Método: como você leva o cliente de A para B.',
-  5: 'A Mentoria: o que vai ao mercado como oferta.',
-  6: 'Venda: como a venda acontece hoje.',
+  1: 'Meta: onde você quer chegar, com número e prazo. É o que o script persegue.',
+  2: 'Mentor: quem você é e o que te autoriza a cobrar caro. É o que abre a conversa.',
+  3: 'Mentorado: para quem você vende, com dor, desejo, setor, bolso e território. É com ele que o script fala.',
+  4: 'Método: como você leva o cliente de A para B. É o que o script apresenta.',
+  5: 'A Mentoria: o que você oferece, com promessa, formato e preço. É a proposta do script.',
+  6: 'Venda: como a venda acontece hoje. Define a voz e o ritmo do script.',
 };
 
 /** Uma linha de "prévia do seu script" ao fechar cada bloco (o que o bloco já entrega ao script). */
@@ -48,7 +48,7 @@ export const STATUS_NAV: Record<StatusNav, { rotulo: string; classe: string }> =
   editado: { rotulo: 'Editado', classe: 'bg-teal-300' },
   vazio: { rotulo: 'Em branco', classe: 'bg-transparent border border-white/40' },
   aceito_vazio: { rotulo: 'Aceito em branco', classe: 'bg-white/30' },
-  refinando: { rotulo: 'Em revisão pela IA', classe: 'bg-prosperus-gold-light animate-pulse' },
+  refinando: { rotulo: 'Nova sugestão a caminho', classe: 'bg-prosperus-gold-light animate-pulse' },
 };
 
 const ORDEM_LEGENDA: StatusNav[] = ['sugerido', 'confirmado', 'editado', 'vazio', 'aceito_vazio', 'refinando'];

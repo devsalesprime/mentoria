@@ -129,7 +129,7 @@ describe('FichaWizard: a tela de uma pergunta', () => {
     // (a) chip do bloco + número da pergunta
     expect(screen.getByTestId('chip-bloco')).toHaveTextContent('Bloco 1 · Meta');
     expect(screen.getByTestId('wizard-posicao')).toHaveTextContent('Pergunta 1 de 2');
-    expect(screen.getByText('Meta: onde você quer chegar, com número e prazo.')).toBeInTheDocument();
+    expect(screen.getByText('Meta: onde você quer chegar, com número e prazo. É o que o script persegue.')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
     // (b) a pergunta é o título
     expect(titulo()).toBe(P('1.1'));
@@ -214,7 +214,7 @@ describe('FichaWizard: a tela de uma pergunta', () => {
     expect(within(inter).getByTestId('wizard-previa')).toHaveTextContent('Prévia do seu script');
     expect(within(inter).getByText('Próximo')).toBeInTheDocument();
     expect(within(inter).getByText(/2\. Mentor/)).toBeInTheDocument();
-    expect(within(inter).getByText('Mentor: quem você é e o que te legitima a cobrar caro.')).toBeInTheDocument();
+    expect(within(inter).getByText('Mentor: quem você é e o que te autoriza a cobrar caro. É o que abre a conversa.')).toBeInTheDocument();
     expect(within(inter).queryByTestId('mapa-blocos')).not.toBeInTheDocument();
     fireEvent.click(within(inter).getByRole('button', { name: 'Continuar' }));
     expect(titulo()).toBe(P('2.1'));
@@ -393,7 +393,7 @@ describe('FichaWizard: um navegador só, hierárquico', () => {
     fireEvent.click(within(nav).getByTestId('lateral-nav-bloco-2'));
     expect(within(within(nav).getByTestId('lateral-nav-passo-2.1')).getByRole('img', { name: 'Editado' })).toBeInTheDocument();
     fireEvent.click(within(nav).getByTestId('lateral-nav-bloco-4'));
-    expect(within(within(nav).getByTestId('lateral-nav-passo-4.1')).getByRole('img', { name: 'Em revisão pela IA' })).toBeInTheDocument();
+    expect(within(within(nav).getByTestId('lateral-nav-passo-4.1')).getByRole('img', { name: 'Nova sugestão a caminho' })).toBeInTheDocument();
     fireEvent.click(within(nav).getByRole('button', { name: 'Próxima pendente' }));
     expect(titulo()).toBe(P('2.3'));
     // ao trocar de bloco, só o atual fica aberto

@@ -60,9 +60,16 @@ export const COMO_FUNCIONA_FRASE =
 export const LINKS_DICA =
   'Links do seu site, página de vendas, Instagram, podcasts, entrevistas, reportagens, blog, aulas públicas. Só o link; acesso com senha vai na seção abaixo.';
 
-/** Secao "Peca para a sua IA preencher" (o prompt em si vem de GET /api/script/prompt-ia). */
+/** Secao "Peca ajuda a IA que voce ja usa" (o prompt em si vem de GET /api/script/prompt-ia). */
 export const PROMPT_IA_INTRO =
-  'Copie o prompt abaixo, cole no ChatGPT, Claude ou Gemini que você mais usa (de preferência um que já conheça a sua mentoria) e traga a resposta para cá. A sua IA responde com o que sabe de você, marcando o que tem certeza e o que é parcial ou incerto.';
+  'O ChatGPT, o Claude ou o Gemini que você já usa sabe muito sobre a sua mentoria. Em três passos, isso vira ficha.';
+export const PROMPT_IA_PASSOS: string[] = [
+  'Copie o prompt.',
+  'Cole na IA que você mais usa. Melhor se ela já conhece a sua mentoria.',
+  'Copie a resposta inteira e cole aqui embaixo.',
+];
+export const PROMPT_IA_GANHO =
+  'A resposta vem marcada: o que é certo e o que é parcial ou incerto. Sua ficha chega mais completa e o script sai mais parecido com você.';
 
 export const ACESSO_PLATAFORMA_AVISO =
-  'Guardamos este acesso só para extrair o conteúdo das suas aulas e transformar em base de conhecimento da sua IA. Só o Danilo vê. Você pode trocar a senha depois.';
+  'Usamos este acesso só para ler as suas aulas e levar o seu método para a ficha e para o script. Só o Danilo vê. Depois você pode trocar a senha.';
