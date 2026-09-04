@@ -37,7 +37,9 @@ describe('buildPromptIA', () => {
     expect(prompt).toContain('Nunca invente números, nomes, clientes ou casos');
     expect(prompt).toContain('palavras do próprio mentor');
     expect(prompt).toContain('Responda em português');
-    expect(prompt.trimEnd().split('\n').slice(-2)[0]).toBe('### FONTES');
+    expect(prompt).toContain('### FONTES');
+    expect(prompt.trimEnd().split('\n').slice(-2)[0]).toBe('### MATERIAIS QUE VALE A PENA ENVIAR');
+    expect(prompt).toContain('qual campo ele preenche');
   });
 
   it('cita o mentor, o clube e os socios; sem travessao; sem a palavra proibida', () => {
