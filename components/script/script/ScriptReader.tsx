@@ -4,6 +4,10 @@ import { documentoDe } from './parseScript';
 import { CartaoView, MapaSection, PassoCorpo, PremissaBox, comTags } from './ScriptPaper';
 import { AulaDani, AulaFolha } from './AulaDani';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
+import { TreinamentosPasso } from './TreinamentosPasso';
+import { TarefasPasso } from './TarefasPasso';
+import { PerfisTabela, extrairPerfis } from './PerfisTabela';
+import { contagemDoPasso } from './tarefas';
 import {
   TOTAL_TELAS, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO, ehTelaDePasso, passoNaTela, rotuloCurto, nomeTela, type DocumentoId,
 } from './telas';
@@ -18,6 +22,12 @@ import {
  * A aula da Dani sobre os 7 passos (data/aula-7-passos.ts) aparece em tres lugares: o cartao no Sumario (logo depois da
  * lista dos 7 passos), o item "Aula" da barra (abre a folha/painel de qualquer tela) e "Ver na aula da Dani" sob o titulo
  * de cada passo (abre a mesma folha ja no passo). A folha e o AulaFolha (components/script/script/AulaDani.tsx).
+ *
+ * Onda C (SPEC-workflow-v2-decisoes-06-09 §1 decisao 4 e §3): cada tela de passo e um MOVIMENTO, nesta ordem:
+ *   objetivo -> "Treinamentos deste passo" (ate 2 gravacoes, player so no toque) -> o script (abas Treinamento | Campo)
+ *   -> a tabela "Quem esta do outro lado", quando o markdown traz a secao -> "Tarefas" com checkbox.
+ * As tarefas sao por pessoa e por versao e vivem no servidor (tabela script_tarefas); esta tela e controlada:
+ * recebe `tarefasConcluidas` e chama `onTarefa`. O Sumario mostra a contagem de cada passo num chip.
  */
 
 /** Valores da ficha que o sumario mostra quando o cabecalho do script nao os traz. */
@@ -60,7 +70,13 @@ interface ScriptReaderProps {
   totalGrifos: number;
   onAbrirGrifos?: () => void;
   rootRef: React.RefObject<HTMLDivElement | null>;
+  /** Tarefas ja concluidas por esta pessoa nesta versao (chave `passo:tarefa_id`). */
+  tarefasConcluidas?: ReadonlySet<string>;
+  /** Marcar ou desmarcar uma tarefa; sem ela os checkboxes ficam so para leitura. */
+  onTarefa?: (passo: number, tarefaId: string, concluida: boolean) => void;
 }
+
+const SEM_TAREFAS: ReadonlySet<string> = new Set<string>();
 
 const DICA_GRIFO = 'script-dica-grifo';
 const ABA_SESSAO = 'script-aba';
@@ -150,7 +166,23 @@ const TelaCartao: React.FC<{ doc: ScriptDoc; onImprimir?: () => void; apresentac
   </div>
 );
 
-const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaResumo; onTela: (t: number) => void; comentarios: React.ReactNode }> = ({ doc, clubNome, ficha, onTela, comentarios }) => {
+/** Chip "x/y" das tarefas de um passo, no Sumario. Fica dourado cheio quando o passo esta completo. */
+const ChipTarefas: React.FC<{ passo: number; concluidas: ReadonlySet<string> }> = ({ passo, concluidas }) => {
+  const { feitas, total } = contagemDoPasso(passo, concluidas);
+  if (!total) return null;
+  return (
+    <span
+      className={`script-chip-tarefas ${feitas >= total ? 'script-chip-tarefas-cheio' : ''}`}
+      data-testid="chip-tarefas"
+      data-passo={passo}
+      aria-label={`Passo ${passo}: ${feitas} de ${total} tarefas`}
+    >
+      {feitas}/{total}
+    </span>
+  );
+};
+
+const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaResumo; onTela: (t: number) => void; comentarios: React.ReactNode; tarefasConcluidas: ReadonlySet<string> }> = ({ doc, clubNome, ficha, onTela, comentarios, tarefasConcluidas }) => {
   const tem = (re: RegExp) => doc.cabecalho.some((c) => re.test(c.rotulo));
   const extras: { rotulo: string; valor: string }[] = [];
   if (ficha?.paraQuem && !tem(/para quem/i)) extras.push({ rotulo: 'Para quem este script vende', valor: ficha.paraQuem });
@@ -203,10 +235,11 @@ const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaRes
                 <li key={p.n}>
                   <button type="button" onClick={() => onTela(p.n + 1)} className="script-passo-linha" aria-label={`Ir para o passo ${p.n}: ${p.nome}`}>
                     <span className="script-num" aria-hidden="true">{p.n}</span>
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="block font-serif text-[1.1rem] leading-snug text-prosperus-navy-panel">{p.nome}</span>
                       {objetivo && <span className="block text-sm text-prosperus-navy-panel/70 leading-snug">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>}
                     </span>
+                    <ChipTarefas passo={p.n} concluidas={tarefasConcluidas} />
                   </button>
                 </li>
               );
@@ -251,7 +284,18 @@ const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaRes
   );
 };
 
-const TelaPasso: React.FC<{ doc: ScriptDoc; tela: number; documento: DocumentoId; onDocumento: (d: DocumentoId) => void; comentarios: React.ReactNode; onVerAula: (passo: number) => void }> = ({ doc, tela, documento, onDocumento, comentarios, onVerAula }) => {
+interface TelaPassoProps {
+  doc: ScriptDoc;
+  tela: number;
+  documento: DocumentoId;
+  onDocumento: (d: DocumentoId) => void;
+  comentarios: React.ReactNode;
+  onVerAula: (passo: number) => void;
+  tarefasConcluidas: ReadonlySet<string>;
+  onTarefa?: (passo: number, tarefaId: string, concluida: boolean) => void;
+}
+
+const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, onDocumento, comentarios, onVerAula, tarefasConcluidas, onTarefa }) => {
   const n = passoNaTela(tela);
   const multiplos = doc.documentos.length > 1;
   const d = documentoDe(doc, documento);
@@ -261,6 +305,11 @@ const TelaPasso: React.FC<{ doc: ScriptDoc; tela: number; documento: DocumentoId
   const objetivo = p1?.blocos.find((b) => b.tipo === 'objetivo') || null;
   const mostraObjetivo = objetivo && !(p && p.blocos.some((b) => b.tipo === 'objetivo'));
   const docAtivo: DocumentoId = multiplos ? documento : 'treinamento';
+  // "Quem esta do outro lado" vira tabela de verdade depois das abas; o bloco sai do corpo para nao repetir.
+  const perfis = extrairPerfis(p) || extrairPerfis(p1);
+  const corpo = p && perfis && p.blocos.includes(perfis.bloco)
+    ? { ...p, blocos: p.blocos.filter((b) => b !== perfis.bloco) }
+    : p;
   return (
     <div data-tela={tela} data-documento={docAtivo} className="script-passo-tela">
       <header className="flex items-center gap-4 mb-4">
@@ -285,6 +334,7 @@ const TelaPasso: React.FC<{ doc: ScriptDoc; tela: number; documento: DocumentoId
           <span className="font-serif text-[1.15rem] leading-snug text-prosperus-navy-panel">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>
         </p>
       )}
+      <TreinamentosPasso passo={n} />
       {multiplos && (
         <div className="script-no-print">
           <div role="tablist" aria-label="Documento do script" className="script-abas">
@@ -307,10 +357,12 @@ const TelaPasso: React.FC<{ doc: ScriptDoc; tela: number; documento: DocumentoId
         </div>
       )}
       <div role={multiplos ? 'tabpanel' : undefined} key={`${docAtivo}-${n}`} className="mt-4">
-        {p ? <PassoCorpo passo={p} /> : (
+        {corpo ? <PassoCorpo passo={corpo} /> : (
           <p className="text-sm text-prosperus-navy-panel/70">Este passo não está no script de {docAtivo === 'campo' ? 'campo' : 'treinamento'} desta versão.</p>
         )}
       </div>
+      {perfis && <PerfisTabela tabela={perfis.tabela} />}
+      <TarefasPasso passo={n} concluidas={tarefasConcluidas} onTarefa={onTarefa} />
       {comentarios}
     </div>
   );
@@ -338,6 +390,7 @@ const TelaPreparacao: React.FC<{ doc: ScriptDoc }> = ({ doc }) => {
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
   doc, clubNome, tela, onTela, documento, onDocumento, marcadas, comentariosDo, ficha, onImprimirCartao, apresentacao, totalGrifos, onAbrirGrifos, rootRef,
+  tarefasConcluidas = SEM_TAREFAS, onTarefa,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
   const primeiraRef = useRef(true);
@@ -373,8 +426,8 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
 
   let conteudo: React.ReactNode;
   if (tela === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onImprimir={onImprimirCartao} apresentacao={apresentacao} />;
-  else if (tela === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={onTela} comentarios={comentariosDo(0)} />;
-  else if (ehTelaDePasso(tela)) conteudo = <TelaPasso doc={doc} tela={tela} documento={documento} onDocumento={onDocumento} comentarios={comentariosDo(passoNaTela(tela))} onVerAula={abrirAula} />;
+  else if (tela === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={onTela} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} />;
+  else if (ehTelaDePasso(tela)) conteudo = <TelaPasso doc={doc} tela={tela} documento={documento} onDocumento={onDocumento} comentarios={comentariosDo(passoNaTela(tela))} onVerAula={abrirAula} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} />;
   else conteudo = <TelaPreparacao doc={doc} />;
 
   // No celular (< 640px) a barra vira duas linhas: o mapa em cima, inteiro; os botoes embaixo, com menos respiro.

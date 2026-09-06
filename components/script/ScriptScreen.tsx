@@ -6,6 +6,7 @@ import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript
 import { ScriptPaper } from './script/ScriptPaper';
 import { ScriptReader, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
 import { TELA_CARTAO, TOTAL_TELAS, clampTela, ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId } from './script/telas';
+import { chaveTarefa } from './script/tarefas';
 import { useGrifos } from './grifos/useGrifos';
 import { GrifoBubble } from './grifos/GrifoBubble';
 import { GrifosPanel } from './grifos/GrifosPanel';
@@ -28,6 +29,10 @@ export { splitScript };
  * cada grifo em comentario da revisao ("[GRIFO ajustar] «trecho» → nota") e chama POST /api/script/versoes/:v/revisar.
  * Comentarios por passo continuam (recolhidos em cada tela de passo; o geral fica no sumario). Acoes: Baixar (.md),
  * Imprimir ou salvar em PDF, Aprovar, Pedir nova versao, Gerar do zero. Classes .script-* e a folha de impressao vivem em styles/globals.css.
+ * Movimentos (onda C): cada tela de passo traz os treinamentos recomendados, o script, a tabela de perfis quando o markdown
+ * tem a secao e as tarefas com checkbox. Esta tela e quem guarda o estado das tarefas: le em GET /api/script/versoes/:v/tarefas
+ * quando a versao abre, marca na hora (otimista) e grava em PUT .../tarefas/:passo/:tarefa_id; recusa do servidor volta o
+ * checkbox e avisa. Nada no localStorage: a marcacao e por pessoa e por versao, no banco (tabela script_tarefas).
  * Apresentacao comercial (menu "Mais"): a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job`
  * (pedido na fila). Com arquivo -> baixar o PPTX, ver o PDF e as notas; na fila -> "Apresentação sendo montada";
  * sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
@@ -99,6 +104,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   // Job `slides` que ESTA tela acabou de pedir (o servidor so devolve na proxima consulta)
   const [slidesJobs, setSlidesJobs] = useState<Record<number, ScriptJobInfo | null>>({});
   const [comentarios, setComentarios] = useState<ScriptComment[]>([]);
+  // Tarefas dos movimentos ja concluidas por esta pessoa nesta versao (chave `passo:tarefa_id`)
+  const [tarefas, setTarefas] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<number, string>>({});
@@ -177,8 +184,51 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }
   }, [headers]);
 
+  /**
+   * Tarefas dos movimentos (onda C): o que ESTA pessoa ja marcou nesta versao. Vem do servidor
+   * (`GET /api/script/versoes/:v/tarefas`), nunca do navegador: as trilhas guardaram os checkboxes no
+   * localStorage e quem limpava o navegador perdia o parcial. Falha de rede na leitura nao atrapalha o
+   * script (a tela abre com tudo desmarcado e a proxima marcacao tenta gravar de novo).
+   */
+  const loadTarefas = useCallback(async (n: number) => {
+    try {
+      const res = await axios.get(`/api/script/versoes/${n}/tarefas`, headers);
+      if (res.data?.success) {
+        const feitas = new Set<string>();
+        for (const t of res.data.tarefas || []) if (t.concluida) feitas.add(chaveTarefa(t.passo, t.tarefa_id));
+        setTarefas(feitas);
+      }
+    } catch {
+      setTarefas(new Set());
+    }
+  }, [headers]);
+
   useEffect(() => { loadList(); }, [loadList]);
   useEffect(() => { if (selected != null) loadVersao(selected); }, [selected, loadVersao]);
+  useEffect(() => { if (selected != null) loadTarefas(selected); }, [selected, loadTarefas]);
+
+  /** Marca ou desmarca na hora (otimista) e grava; se o servidor recusar, volta como estava e avisa. */
+  const alternarTarefa = useCallback(async (passo: number, tarefaId: string, concluida: boolean) => {
+    const n = versao?.versao ?? selected;
+    if (n == null) return;
+    const chave = chaveTarefa(passo, tarefaId);
+    setTarefas((prev) => {
+      const proxima = new Set(prev);
+      if (concluida) proxima.add(chave); else proxima.delete(chave);
+      return proxima;
+    });
+    try {
+      const res = await axios.put(`/api/script/versoes/${n}/tarefas/${passo}/${encodeURIComponent(tarefaId)}`, { concluida }, headers);
+      if (!res.data?.success) throw new Error(res.data?.message || 'não salvou');
+    } catch (e: any) {
+      setTarefas((prev) => {
+        const volta = new Set(prev);
+        if (concluida) volta.delete(chave); else volta.add(chave);
+        return volta;
+      });
+      setAviso(e?.response?.data?.message || 'Não deu para salvar a tarefa. Tente de novo.');
+    }
+  }, [headers, versao?.versao, selected]);
 
   // Apresentacao comercial da versao aberta: o que ja foi publicado e o pedido que ainda esta na fila
   const versaoDaLista = useMemo(
@@ -870,6 +920,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               totalGrifos={grifos.length}
               onAbrirGrifos={() => setPainelAberto(true)}
               rootRef={readerRef}
+              tarefasConcluidas={tarefas}
+              onTarefa={alternarTarefa}
             />
           )}
           {parsed && !temPassos && (

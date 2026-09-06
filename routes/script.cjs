@@ -8,6 +8,7 @@ const JOBS = require('../utils/cohort-jobs.cjs');
 const CTX = require('../utils/script-context.cjs');
 const SV = require('../utils/script-versions.cjs');
 const SG = require('../utils/script-grifos.cjs');
+const ST = require('../utils/script-tarefas.cjs');
 const SUF = require('../utils/suficiencia.cjs');
 
 /**
@@ -29,6 +30,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
   SG.ensureScriptGrifosTable(dbRun).catch((e) => console.error('script_grifos DDL error:', e.message));
+  ST.ensureScriptTarefasTable(dbRun).catch((e) => console.error('script_tarefas DDL error:', e.message));
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
   SF.ensureModoColumn(dbRun).catch((e) => console.error('script_fichas modo DDL error:', e.message));
 
@@ -898,6 +900,49 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
+  // ─── Tarefas dos movimentos (por pessoa e por versao) ────────────────────
+  // Cada Passo do leitor e um movimento: treinamentos recomendados + script + guia pratico + tarefas com
+  // checkbox. O script e do clube, mas a execucao e de cada socio, entao a chave e
+  // (clube, versao, e-mail, passo, tarefa). Persistencia no servidor de proposito: as trilhas guardaram
+  // os checkboxes no localStorage e quem limpava o navegador perdia o parcial.
+
+  // GET /api/script/versoes/:versao/tarefas  -> { tarefas } (os 7 passos DESTA pessoa nesta versao)
+  router.get('/api/script/versoes/:versao/tarefas', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const tarefas = await ST.listTarefas({ dbAll }, req.cohort.club_slug, n, req.cohort.email);
+      res.json({ success: true, versao: n, tarefas });
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes/:versao/tarefas:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // PUT /api/script/versoes/:versao/tarefas/:passo/:tarefa_id  { concluida }
+  // Idempotente: repetir o mesmo PUT devolve a mesma linha e preserva `concluida_em` (a primeira marcacao).
+  router.put('/api/script/versoes/:versao/tarefas/:passo/:tarefa_id', authMiddleware, cohortGuard, validateBody(ST.tarefaPutSchema), async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const passo = ST.parsePasso(req.params.passo);
+      if (passo == null) return res.status(400).json({ success: false, message: 'Passo inválido: use de 1 a 7.' });
+      const tarefaId = ST.parseTarefaId(req.params.tarefa_id);
+      if (!tarefaId) return res.status(400).json({ success: false, message: 'Tarefa inválida.' });
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const tarefa = await ST.setTarefa({ dbGet, dbRun, uuidv4 }, {
+        club_slug: req.cohort.club_slug, versao: n, email: req.cohort.email,
+        passo, tarefa_id: tarefaId, concluida: req.body.concluida,
+      });
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, versao: n, tarefa });
+    } catch (error) {
+      console.error('Error in PUT /api/script/versoes/:versao/tarefas/:passo/:tarefa_id:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
   // GET /api/admin/clubs/:slug/script-grifos  -> { grifos } (admin, so leitura; fica aqui porque a tabela e deste modulo)
   const adminOnly = (req, res, next) => (req.user && req.user.role === 'admin' ? next() : res.status(403).json({ success: false, message: 'Acesso negado. Apenas admin.' }));
   router.get('/api/admin/clubs/:slug/script-grifos', authMiddleware, adminOnly, async (req, res) => {
@@ -905,6 +950,19 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       res.json({ success: true, grifos: await SG.listGrifos({ dbAll }, req.params.slug) });
     } catch (error) {
       console.error('Error in GET /api/admin/clubs/:slug/script-grifos:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/admin/clubs/:slug/script-versoes/:versao/tarefas  -> { tarefas } de todo mundo do clube (admin, so leitura)
+  // Membro de outro clube que tentar ler por aqui recebe 403.
+  router.get('/api/admin/clubs/:slug/script-versoes/:versao/tarefas', authMiddleware, adminOnly, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const tarefas = await ST.listTarefasDoClube({ dbAll }, req.params.slug, n);
+      res.json({ success: true, club_slug: req.params.slug, versao: n, tarefas });
+    } catch (error) {
+      console.error('Error in GET /api/admin/clubs/:slug/script-versoes/:versao/tarefas:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
