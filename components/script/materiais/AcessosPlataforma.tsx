@@ -77,7 +77,11 @@ export const AcessosPlataforma: React.FC<AcessosPlataformaProps> = ({ acessos, o
                   aria-label={`Remover acesso ${a.plataforma_url}`}
                   className="!text-white/50 hover:!text-red-400 flex-shrink-0"
                 >
-                  ✕
+                  {/* icone em SVG: nada de emoji na tela do mentor */}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3.5 h-3.5" aria-hidden="true">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6L6 18" />
+                  </svg>
                 </Button>
               </div>
               <p className="text-xs text-white/60 font-sans">

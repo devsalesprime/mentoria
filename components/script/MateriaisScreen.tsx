@@ -233,6 +233,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
                   onFilesChange={(next) => handleFilesChange(cat.id, next)}
                   category={cat.id}
                   token={token}
+                  downloadUrl={(f) => `/api/script/materials/files/${encodeURIComponent(f.id)}/download?token=${encodeURIComponent(token)}`}
                   maxFiles={20}
                   accept={SCRIPT_ACCEPT}
                   allowedMimePrefixes={SCRIPT_MIME_PREFIXES}
@@ -299,7 +300,13 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
                   </a>
                   <p className="text-[11px] text-white/40 font-sans truncate">{LINK_TYPES.find((t) => t.id === l.tipo)?.label || 'Outro'} · {l.url}</p>
                 </div>
-                <Button variant="icon" size="xs" onClick={() => removeLink(i)} aria-label={`Remover ${l.rotulo || l.url}`} className="!text-white/50 hover:!text-red-400 flex-shrink-0">✕</Button>
+                <Button variant="icon" size="xs" onClick={() => removeLink(i)} aria-label={`Remover ${l.rotulo || l.url}`} className="!text-white/50 hover:!text-red-400 flex-shrink-0">
+                  {/* icone em SVG: nada de emoji na tela do mentor */}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3.5 h-3.5" aria-hidden="true">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6L6 18" />
+                  </svg>
+                </Button>
               </li>
             ))}
           </ul>

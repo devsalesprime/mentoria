@@ -170,26 +170,29 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
       // which cascades ON DELETE CASCADE and wipes diagnostic_data.
       // IMPORTANT: Await DB operations before returning token to prevent race conditions
       // where the frontend starts saving before the user/diagnostic rows exist.
+      // last_login_at: a hora em que a pessoa ENTROU. E a unica escrita desta data no sistema, e por isso
+      // o admin pode confiar nela. `updated_at` continua marcando "a linha mudou" (resync de clube,
+      // troca de nome) e nunca mais e lido como login. Idempotente: entrar de novo so move a data.
       if (isExistingUser) {
         if (cohortMember) {
           await dbRun(
-            `UPDATE users SET name = ?, cohort = 'exclusive', club_slug = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            `UPDATE users SET name = ?, cohort = 'exclusive', club_slug = ?, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
             [fullName, cohortMember.club_slug, userId]
           );
         } else {
           await dbRun(
-            `UPDATE users SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            `UPDATE users SET name = ?, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
             [fullName, userId]
           );
         }
       } else if (cohortMember) {
         await dbRun(
-          `INSERT INTO users (id, email, name, role, cohort, club_slug) VALUES (?, ?, ?, ?, 'exclusive', ?)`,
+          `INSERT INTO users (id, email, name, role, cohort, club_slug, last_login_at) VALUES (?, ?, ?, ?, 'exclusive', ?, CURRENT_TIMESTAMP)`,
           [userId, email, fullName, 'member', cohortMember.club_slug]
         );
       } else {
         await dbRun(
-          `INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)`,
+          `INSERT INTO users (id, email, name, role, last_login_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
           [userId, email, fullName, 'member']
         );
       }

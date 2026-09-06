@@ -23,6 +23,11 @@ interface FileUploadProps {
   canDelete?: (file: UploadedFile) => boolean;
   /** Rotulo extra por arquivo (ex.: quem enviou). */
   fileMeta?: (file: UploadedFile) => React.ReactNode;
+  /**
+   * URL de download do arquivo. Quando informada, cada linha ganha o icone de baixar.
+   * Sem ela nada muda (as telas antigas seguem sem o botao).
+   */
+  downloadUrl?: (file: UploadedFile) => string | null;
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -76,6 +81,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   hint,
   canDelete,
   fileMeta,
+  downloadUrl,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -235,18 +241,42 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               )}
               {fileMeta && <span className="text-[11px] text-white/40 font-sans flex-shrink-0">{fileMeta(file)}</span>}
             </div>
-            {(!canDelete || canDelete(file)) && (
-              <Button
-                variant="icon"
-                size="xs"
-                type="button"
-                onClick={() => deleteFile(file.id)}
-                className="!text-white/50 hover:!text-red-400 flex-shrink-0"
-                aria-label={`Remover ${file.fileName}`}
-              >
-                ✕
-              </Button>
-            )}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Baixar o proprio arquivo: o servidor so entrega a quem enviou */}
+              {(() => {
+                const href = downloadUrl?.(file);
+                if (!href) return null;
+                return (
+                  <a
+                    href={href}
+                    download={file.fileName}
+                    className="inline-flex items-center justify-center p-1.5 rounded-md text-white/50 hover:text-prosperus-gold-light hover:bg-white/10 transition-colors"
+                    aria-label={`Baixar ${file.fileName}`}
+                    title="Baixar"
+                    data-testid={`baixar-${file.id}`}
+                  >
+                    {/* icone em SVG: nada de emoji na tela do mentor */}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden="true">
+                      <path d="M12 3v12" />
+                      <path d="m7 11 5 5 5-5" />
+                      <path d="M5 21h14" />
+                    </svg>
+                  </a>
+                );
+              })()}
+              {(!canDelete || canDelete(file)) && (
+                <Button
+                  variant="icon"
+                  size="xs"
+                  type="button"
+                  onClick={() => deleteFile(file.id)}
+                  className="!text-white/50 hover:!text-red-400 flex-shrink-0"
+                  aria-label={`Remover ${file.fileName}`}
+                >
+                  ✕
+                </Button>
+              )}
+            </div>
           </motion.div>
         ))}
       </AnimatePresence>

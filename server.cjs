@@ -405,6 +405,12 @@ function initializeDatabase() {
     db.run(`ALTER TABLE users ADD COLUMN club_slug TEXT DEFAULT NULL`, (err) => {
       if (err && !err.message.includes('duplicate column')) console.error('⚠️ users.club_slug migration error:', err.message);
     });
+    // "Ultimo login" do admin: quando a pessoa ENTROU (POST /auth/verify-member), nao quando a linha mudou.
+    // Antes o admin lia users.updated_at, que muda em qualquer UPDATE de perfil e cobrava a pessoa errada.
+    // Registro: migrations/025_users_last_login.sql
+    db.run(`ALTER TABLE users ADD COLUMN last_login_at DATETIME DEFAULT NULL`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ users.last_login_at migration error:', err.message);
+    });
     db.run(`CREATE INDEX IF NOT EXISTS idx_users_club_slug ON users(club_slug)`);
     db.run(`
       CREATE TABLE IF NOT EXISTS script_fichas (

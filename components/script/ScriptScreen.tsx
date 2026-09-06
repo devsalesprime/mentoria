@@ -300,12 +300,14 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     return () => window.removeEventListener('keydown', onKey);
   }, [modalGrifos, captura, parsed, irPara]);
 
-  // O menu "Mais" e um <details> nativo: o navegador nao fecha no Esc nem ao clicar fora.
-  // Aqui ele passa a fechar dos dois jeitos; no Esc o foco volta para o proprio botao "Mais".
+  // Os menus da barra ("Mais" e a pilula da versao) sao <details> nativos: o navegador nao fecha no Esc
+  // nem ao clicar fora. Aqui os dois passam a fechar dos dois jeitos; no Esc o foco volta para o proprio
+  // botao que abriu. `script-mudou` fica de fora de proposito: e um texto que a pessoa abre para ler,
+  // nao um menu, e nao deve sumir sozinho.
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const abertos = () => Array.from(
-      document.querySelectorAll<HTMLDetailsElement>('details.script-mais[open]'),
+      document.querySelectorAll<HTMLDetailsElement>('details.script-mais[open], details.script-versao-menu[open]'),
     );
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;

@@ -522,9 +522,15 @@ async function importPrefill({ dbGet, dbRun, uuidv4, safeJsonParse }, slug, body
     blocos_importados,
     ...extraMeta,
   };
+  // prefilled_at = QUANDO a ficha foi pre-preenchida, ou seja o primeiro import que entrou.
+  // COALESCE porque o prefill chega em marcos (6 blocos, um PUT por bloco) e o runner pode reimportar:
+  // sem ele a data pulava para o ultimo bloco e "rejuvenescia" a cada reimport, e o admin cobrava a
+  // pessoa errada (PENDENCIAS-2026-09-06 §1 item 33). Quem quer a hora do ULTIMO import le
+  // prefill_meta.importado_em, gravado logo acima a cada chamada.
   await dbRun(
     `UPDATE script_fichas
-        SET fields = ?, ficha_status = ?, prefill_meta = ?, prefilled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        SET fields = ?, ficha_status = ?, prefill_meta = ?,
+            prefilled_at = COALESCE(prefilled_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
       WHERE club_slug = ?`,
     [JSON.stringify(fields), nextStatus, JSON.stringify(meta), slug]
   );

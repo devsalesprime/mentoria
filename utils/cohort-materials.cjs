@@ -11,9 +11,11 @@ const normEmail = VM.normEmail;
 const LATEST_USER_JOIN = `LEFT JOIN users u ON u.id = (
       SELECT u2.id FROM users u2 WHERE lower(u2.email) = cm.email ORDER BY u2.updated_at DESC, u2.created_at DESC LIMIT 1)`;
 
+// "Ultimo login" vem de users.last_login_at (gravado no POST /auth/verify-member), NUNCA de updated_at:
+// updated_at muda em qualquer escrita na linha e mostrava login recente para quem nunca entrou.
 async function listClubMembers({ dbAll }, slug) {
   return dbAll(
-    `SELECT cm.email, cm.nome, cm.created_at, u.id AS user_id, u.name AS user_name, u.updated_at AS ultimo_login
+    `SELECT cm.email, cm.nome, cm.created_at, u.id AS user_id, u.name AS user_name, u.last_login_at AS ultimo_login
        FROM cohort_members cm
        ${LATEST_USER_JOIN}
       WHERE cm.club_slug = ?

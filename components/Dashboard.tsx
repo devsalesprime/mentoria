@@ -748,7 +748,12 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     return (
       <div className="bg-prosperus-navy-mid border border-white/5 rounded-lg p-1 min-h-[600px] shadow-2xl relative overflow-hidden flex items-center justify-center">
         <div className="text-center">
-          <span className="text-4xl text-prosperus-gold-dark mb-4 block">🚧</span>
+          {/* icone em SVG: nada de emoji na tela do mentor */}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10 mb-4 mx-auto block text-prosperus-gold-dark" aria-hidden="true">
+            <path d="M3 20h18" />
+            <path d="M5 20V9l7-5 7 5v11" />
+            <path d="M9 20v-6h6v6" />
+          </svg>
           <h3 className="font-serif text-2xl text-white mb-2">{getActiveLabel()}</h3>
           <p className="text-gray-500">Este módulo será implementado em breve.</p>
           <Button
@@ -892,9 +897,15 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <Button
               variant="ghost"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="lg:hidden text-white text-xl sm:text-2xl flex-shrink-0"
+              className="lg:hidden text-white flex-shrink-0"
+              aria-label="Abrir o menu"
             >
-              ☰
+              {/* icone em SVG: nada de emoji na tela do mentor */}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-6 h-6" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h16" />
+              </svg>
             </Button>
             <div className="min-w-0 flex-1">
               <h1 className="text-base sm:text-lg md:text-xl font-bold text-white truncate">

@@ -108,8 +108,9 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
            LEFT JOIN script_fichas sf ON sf.club_slug = cc.slug
           ORDER BY cc.nome COLLATE NOCASE ASC`
       );
+      // ultimo_login = users.last_login_at (a hora de entrar), nunca users.updated_at: ver utils/cohort-materials.cjs
       const members = await dbAll(
-        `SELECT cm.email, cm.nome, cm.club_slug, u.id AS user_id, u.updated_at AS ultimo_login
+        `SELECT cm.email, cm.nome, cm.club_slug, u.id AS user_id, u.last_login_at AS ultimo_login
            FROM cohort_members cm
            ${LATEST_USER_JOIN}
           ORDER BY cm.created_at ASC`
