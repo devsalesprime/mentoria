@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * Gates de suficiencia com DOIS PERFIS (SPEC-workflow-v2-decisoes-06-09 §1, decisao 2):
- * avaliarSuficiencia(fields, { modo }) com 'essencial' olha so as 12 perguntas; sem `modo` (assinatura antiga,
+ * avaliarSuficiencia(fields, { modo }) com 'essencial' olha so as perguntas essenciais; sem `modo` (assinatura antiga,
  * dois argumentos ou um so) continua valendo 'completo', a regra de sempre.
  * Cobre tambem autoConfirmar({ modo }) e resumoSuficiencia, que carrega o modo para o admin.
  */

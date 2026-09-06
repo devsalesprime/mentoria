@@ -224,7 +224,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             className="flex items-center justify-between gap-3 p-3 bg-prosperus-navy-mid border border-white/10 rounded-lg"
           >
             <div className="flex items-center gap-2 min-w-0 flex-wrap">
-              <span className="text-white/50">📄</span>
+              {/* icone em SVG: nada de emoji na tela do mentor */}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 flex-shrink-0 text-white/50" aria-hidden="true">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                <path d="M14 3v5h5" />
+              </svg>
               <span className="text-sm text-white/70 font-sans truncate">{file.fileName}</span>
               {file.fileSize != null && (
                 <span className="text-xs text-white/50 font-sans flex-shrink-0">{formatSize(file.fileSize)}</span>

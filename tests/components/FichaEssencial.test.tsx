@@ -93,7 +93,7 @@ const DECIDIDOS = (): ScriptBlockView[] => [
 
 beforeEach(() => { window.localStorage.clear(); });
 
-describe('as 12 perguntas essenciais na definição do front', () => {
+describe('as perguntas essenciais na definição do front', () => {
   it('SCRIPT_ESSENCIAL_KEYS e ehEssencial concordam com a marca do servidor', () => {
     expect(SCRIPT_ESSENCIAL_KEYS.length).toBeGreaterThan(0);
     expect(ehEssencial({ key: '3.3' })).toBe(true);
@@ -105,7 +105,7 @@ describe('as 12 perguntas essenciais na definição do front', () => {
   it('textoFaltamEssenciais: singular, plural e zero', () => {
     expect(textoFaltamEssenciais(1)).toBe('Falta 1 pergunta essencial');
     expect(textoFaltamEssenciais(3)).toBe('Faltam 3 perguntas essenciais');
-    expect(textoFaltamEssenciais(0)).toBe('As 12 perguntas essenciais estão respondidas');
+    expect(textoFaltamEssenciais(0)).toBe('As perguntas essenciais estão respondidas');
   });
 });
 

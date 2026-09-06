@@ -19,8 +19,11 @@ function writeClosed(closed: boolean) {
   } catch { /* sem localStorage */ }
 }
 
-/** Palavras de tempo relativo: no texto do admin elas envelhecem sozinhas ("amanhã" salvo na quinta vira mentira no sábado). */
-const RELATIVOS = /\b(depois\s+de\s+amanh[ãa]|anteontem|amanh[ãa]|hoje|ontem)\b/gi;
+/**
+ * Palavras de tempo relativo: no texto do admin elas envelhecem sozinhas ("amanhã" salvo na quinta vira
+ * mentira no sábado). Sem `\b`, que não funciona depois de letra acentuada; a borda vai na mão.
+ */
+const RELATIVOS = /(^|[^\p{L}])(depois\s+de\s+amanh[ãa]|anteontem|amanh[ãa]|hoje|ontem)(?![\p{L}])/giu;
 
 /** Data no texto: DD/MM, DD/MM/AA ou DD/MM/AAAA. */
 const DATA_BR = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?\b/;
@@ -49,7 +52,7 @@ export function prazoParaExibir(prazo: string | null | undefined, hoje: Date = n
   }
 
   const limpo = bruto
-    .replace(RELATIVOS, '')
+    .replace(RELATIVOS, '$1')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s,;.:·-]+/, '')
     .replace(/\s+([,;.:])/g, '$1')

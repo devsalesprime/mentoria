@@ -51,13 +51,13 @@ export const COPY_VER_PREVIA = 'Ver a prévia do script';
  * Subconjunto em foco. Dois usos:
  *   - "completar o que falta" (suficiência parcial): `keys` são os campos que o mentor precisa decidir e
  *     `pendentes` os que ainda esperam a resposta dele (um campo decidido mas sinalizado conta até ele mexer);
- *   - ficha essencial (`essencial: true`): `keys` são as 12 perguntas que fecham o cartão de bolso.
+ *   - ficha essencial (`essencial: true`): `keys` são as perguntas essenciais que fecham o cartão de bolso.
  * Os demais campos ficam recolhidos no navegador (rótulo `rotuloOutros`), editáveis sob demanda.
  */
 export interface FocoWizard {
   keys: string[];
   pendentes: string[];
-  /** Ficha essencial: o fim da ficha ganha o botão de fechar e a copy das 12 perguntas. */
+  /** Ficha essencial: o fim da ficha ganha o botão de fechar e a copy das perguntas essenciais. */
   essencial?: boolean;
   /** Título do grupo recolhido no navegador com o que está fora do foco. */
   rotuloOutros?: string;
@@ -73,7 +73,7 @@ export function textoFaltamRespostas(n: number): string {
 
 /** "Faltam N perguntas essenciais" (ficha essencial). */
 export function textoFaltamEssenciais(n: number): string {
-  if (n <= 0) return 'As 12 perguntas essenciais estão respondidas';
+  if (n <= 0) return 'As perguntas essenciais estão respondidas';
   return n === 1 ? 'Falta 1 pergunta essencial' : `Faltam ${n} perguntas essenciais`;
 }
 
@@ -587,7 +587,7 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   };
   const pendentesNoFoco = focoKeys ? passos.slice(0, limite).filter(pendente).length : 0;
   const foraDoFoco = !!focoKeys && i >= limite;
-  /** Ficha essencial: as 12 perguntas são o fluxo; o resto fica em "Aprofundar (opcional)". */
+  /** Ficha essencial: as perguntas essenciais são o fluxo; o resto fica em "Aprofundar (opcional)". */
   const focoEssencial = !!focoKeys && !!foco?.essencial;
   /** Campos essenciais (uma pergunta pode valer duas chaves) e quantos já têm decisão. */
   const essenciaisTotal = focoEssencial ? passos.slice(0, limite).reduce((s, p) => s + p.campos.length, 0) : 0;

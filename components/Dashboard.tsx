@@ -147,7 +147,7 @@ const getSidebarMenu = (
     // "Enviei o que tinha" e "Não tenho materiais" fecham a etapa dos materiais do mesmo jeito
     const materiaisDot: 'green' | 'yellow' =
       script.materialsStatus === 'submitted' || script.materialsStatus === 'skipped' ? 'green' : 'yellow';
-    // No caminho essencial a etapa se chama "Ficha essencial" (são as 12 perguntas, não a ficha inteira)
+    // No caminho essencial a etapa se chama "Ficha essencial" (são as perguntas essenciais, não a ficha inteira)
     const fichaLabel = script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha do Script';
     menu.push({
       id: 'script',

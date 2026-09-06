@@ -8,7 +8,7 @@
  * - POST /api/script/ficha/materials/skip ("Nao tenho materiais, ir para a ficha") marca skipped
  *   POR PESSOA, sem enfileirar leitura de material nenhuma, e guarda o WhatsApp opcional dos avisos
  * - PUT /api/script/ficha/notify-phone grava o mesmo WhatsApp fora do envio (fim da ficha)
- * - POST /api/script/ficha/complete no modo essencial fecha com as 12 perguntas; no completo, 400 com `faltam`
+ * - POST /api/script/ficha/complete no modo essencial fecha com as perguntas essenciais; no completo, 400 com `faltam`
  */
 import fs from 'fs';
 import path from 'path';
@@ -91,11 +91,11 @@ afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
-describe('as 12 perguntas essenciais', () => {
+describe('as perguntas essenciais', () => {
   it('a ficha essencial e um subconjunto da completa: mesmas chaves, todas existentes na ficha de 34', () => {
     expect(SF.ESSENCIAL_KEYS.length).toBeGreaterThan(0);
     for (const k of SF.ESSENCIAL_KEYS) expect(SF.FIELD_KEYS).toContain(k);
-    // as 12 perguntas do refino (algumas valem duas chaves)
+    // as perguntas essenciais do refino (algumas valem duas chaves)
     expect(SF.ESSENCIAL_KEYS).toEqual([
       '2.1', '2.2', '3.1', '3.3', '3.4', '3.9', '4.1', '4.2', '5.1', '5.2', '5.3', '5.4', '6.2', '6.3', '6.5', '6.6',
     ]);

@@ -13,7 +13,7 @@ import type { ScriptModo } from '../../data/script-ficha-fields';
 import { Button } from '../ui/Button';
 
 export const COPY_MODO_AUTOMATICO = 'Você está no caminho completo. Prefere o essencial?';
-export const COPY_MODO_EXPLICA = 'O que você mandou bastou, então seguimos pelo caminho mais completo. O essencial são as 12 perguntas que fecham o cartão de bolso da reunião.';
+export const COPY_MODO_EXPLICA = 'O que você mandou bastou, então seguimos pelo caminho mais completo. O essencial são as perguntas essenciais que fecham o cartão de bolso da reunião.';
 export const COPY_MUDAR_ESSENCIAL = 'Mudar para o essencial';
 export const COPY_SEGUIR_COMPLETO = 'Continuar no completo';
 

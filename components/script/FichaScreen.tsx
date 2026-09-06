@@ -226,7 +226,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   // ── Ficha essencial (SPEC-workflow-v2-decisoes-06-09 §1 decisão 1 e §2) ──
   /** Caminho escolhido na entrada; sem escolha (fichas antigas) vale 'completo'. */
   const modoEssencial = data?.modo === 'essencial';
-  /** As 12 perguntas essenciais (algumas valem duas chaves), na ordem da ficha. */
+  /** As perguntas essenciais (algumas valem duas chaves), na ordem da ficha. */
   const essenciaisKeys = useMemo(
     () => (data?.blocos || []).flatMap((b) => b.campos.filter(ehEssencial).map((c) => c.key)),
     [data],
@@ -434,7 +434,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         </div>
         {modoEssencial ? (
           <p className="text-sm text-white/70 font-sans leading-relaxed">
-            São as 12 perguntas que fecham o seu cartão de bolso: as falas-chave dos 7 passos, o investimento total e a pergunta de
+            São as perguntas essenciais que fecham o seu cartão de bolso: as falas-chave dos 7 passos, o investimento total e a pergunta de
             recomendação. Confirme, edite ou preencha. As outras perguntas ficam em "Aprofundar (opcional)", para quando você quiser.
           </p>
         ) : (
