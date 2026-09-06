@@ -85,7 +85,9 @@ const JOB_STATUSES = ['queued', 'running', 'done', 'error', 'needs_human'];
 // prefill = pre-preenchimento da ficha; script = escrever o script do zero (ficha confirmada); refinar = nova sugestao para 1 campo (payload.field_key);
 // revisar = nova versao do script a partir de uma versao existente + comentarios dela (payload.versao, content_md, comentarios)
 // pendencia = o worker abriu uma pendencia com o mentor (WhatsApp) para os campos que faltaram (payload.campos); 1 ativa por clube
-const JOB_TIPOS = ['prefill', 'script', 'refinar', 'revisar', 'pendencia'];
+// slides = apresentacao comercial (PPTX + PDF + notas + contato) de UMA versao do script (payload.versao); 1 ativo por (clube, versao).
+//         O worker publica o resultado em PUT /api/jobs/:id/entregavel (multipart).
+const JOB_TIPOS = ['prefill', 'script', 'refinar', 'revisar', 'pendencia', 'slides'];
 
 const COHORT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS cohort_jobs (
   id TEXT PRIMARY KEY,
@@ -119,6 +121,41 @@ async function ensureCohortJobsTable(dbRun) {
     } catch (e) {
         if (!/duplicate column/i.test(String(e && e.message))) throw e;
     }
+}
+
+// ─── script_entregaveis (arquivos que o worker publica para uma versao do script) ───
+
+/** Tipos de entregavel aceitos em PUT /api/jobs/:id/entregavel (hoje so a apresentacao comercial). */
+const ENTREGAVEL_TIPOS = ['slides'];
+
+/**
+ * Campos de arquivo do multipart por tipo: extensao obrigatoria, mime gravado e como o navegador recebe
+ * (attachment = baixa; inline = abre, para a imagem do contato). Nome no disco e fixo por campo (substituir = sobrescrever).
+ */
+const ENTREGAVEL_CAMPOS = {
+    slides: {
+        pptx: { ext: '.pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', disposition: 'attachment', rotulo: 'Apresentação (PPTX)' },
+        pdf: { ext: '.pdf', mime: 'application/pdf', disposition: 'attachment', rotulo: 'Apresentação em PDF' },
+        notas: { ext: '.md', mime: 'text/markdown; charset=utf-8', disposition: 'attachment', rotulo: 'Notas do apresentador' },
+        contact: { ext: '.png', mime: 'image/png', disposition: 'inline', rotulo: 'Contato' },
+    },
+};
+
+/** Limite por arquivo do multipart de entregaveis (a apresentacao com imagens fica na casa das dezenas de MB). */
+const ENTREGAVEL_MAX_BYTES = 80 * 1024 * 1024;
+
+/** Campos de texto de PUT /api/jobs/:id/entregavel (os arquivos vem por multer). `meta` chega como string JSON. */
+const entregavelBodySchema = z.object({
+    tipo: z.enum(ENTREGAVEL_TIPOS),
+    versao: z.coerce.number().int().min(1),
+    meta: z.string().max(20000).optional(),
+});
+
+/** Nome de arquivo seguro para gravar/devolver: so letras, numeros, ponto, hifen e underscore; nunca caminho. */
+function safeFileName(name, fallback = 'arquivo') {
+    const base = String(name || '').split(/[\\/]/).pop() || '';
+    const limpo = base.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+    return (limpo || fallback).slice(0, 120);
 }
 
 async function readCohortConfig(dbAll) {
@@ -225,6 +262,11 @@ module.exports = {
     ensureCohortConfigTable,
     JOB_STATUSES,
     JOB_TIPOS,
+    ENTREGAVEL_TIPOS,
+    ENTREGAVEL_CAMPOS,
+    ENTREGAVEL_MAX_BYTES,
+    entregavelBodySchema,
+    safeFileName,
     COHORT_JOBS_DDL,
     COHORT_JOBS_INDEX_DDL,
     ensureCohortJobsTable,

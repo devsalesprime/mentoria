@@ -43,7 +43,16 @@ interface ScriptVersao {
   /** Livre do worker; job `revisar` grava { tipo: 'revisao', base_versao }. */
   meta?: { tipo?: string; base_versao?: number | null; [k: string]: any } | null;
   content_md?: string;
+  /** Apresentacao comercial e afins ja publicados pelo worker para esta versao. */
+  entregaveis?: Entregavel[];
+  /** Job `slides` na fila / sendo montado para esta versao. */
+  slides_job?: { id: string; status: string } | null;
 }
+/** Arquivo de um entregavel da versao (a URL ja vem pronta; o token vai por query). */
+interface EntregavelArquivo { campo: string; nome: string; bytes: number; url: string }
+interface Entregavel { tipo: string; versao: number; created_at: string; meta?: any; arquivos: EntregavelArquivo[] }
+const ENTREGAVEL_TIPO_ROTULO: Record<string, string> = { slides: 'Apresentação comercial' };
+const ENTREGAVEL_CAMPO_ROTULO: Record<string, string> = { pptx: 'PPTX', pdf: 'PDF', notas: 'Notas do apresentador', contact: 'Contato' };
 interface ScriptComentario { id: string; versao: number; passo: number; texto: string; autor_email: string | null; autor_nome: string | null; created_at: string }
 /** Grifo do leitor (GET /api/admin/clubs/:slug/script-grifos): passo = a tela (0 cartao, 1 sumario, 2..8 Passo 1..7, 9 preparacao). */
 interface ScriptGrifo { id: string; versao: number; passo: number; documento: 'treinamento' | 'campo'; texto: string; cor: 'dourado' | 'verde' | 'vermelho'; nota: string; autor_email: string | null; autor_nome: string | null; created_at: string; resolvido_em: string | null }
@@ -131,6 +140,8 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const [carregandoVersao, setCarregandoVersao] = useState<number | null>(null);
   // Grifos do leitor por versao (so leitura); null = ainda nao carregado
   const [grifos, setGrifos] = useState<ScriptGrifo[] | null>(null);
+  // Versao com "Gerar slides" em andamento
+  const [gerandoSlides, setGerandoSlides] = useState<number | null>(null);
 
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -282,6 +293,22 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
     return () => { vivo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, slug]);
+
+  /** "Gerar slides": job `slides` desta versao (vale para versao ainda não aprovada; repetir devolve o que já está na fila). */
+  const gerarSlides = async (n: number) => {
+    setGerandoSlides(n);
+    try {
+      const res = await axios.post(`/api/admin/clubs/${slug}/script-versoes/${n}/slides`, {}, { headers });
+      if (res.data?.success) {
+        showToast(res.data.job?.existing ? `A apresentação da v${n} já está na fila` : `Apresentação da v${n} na fila`, 'success');
+        await fetchDetail();
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Não deu para pedir a apresentação agora', 'error');
+    } finally {
+      setGerandoSlides(null);
+    }
+  };
 
   const baixarVersao = async (n: number) => {
     const md = await fetchVersao(n);
@@ -654,8 +681,45 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                   <div className="flex gap-2">
                     <Button variant="outline" size="xs" onClick={() => abrirVersao(v.versao)} loading={carregandoVersao === v.versao}>{aberta ? 'Fechar' : 'Ver'}</Button>
                     <Button variant="outline" size="xs" onClick={() => baixarVersao(v.versao)}>Baixar .md</Button>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      data-testid={`gerar-slides-${v.versao}`}
+                      onClick={() => gerarSlides(v.versao)}
+                      loading={gerandoSlides === v.versao}
+                      disabled={gerandoSlides != null || !!v.slides_job}
+                    >
+                      {v.slides_job ? 'Slides na fila' : 'Gerar slides'}
+                    </Button>
                   </div>
                 </div>
+                {(v.entregaveis || []).length > 0 && (
+                  <div data-testid={`entregaveis-${v.versao}`}>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/40 font-semibold mb-1">Entregáveis</p>
+                    <ul className="space-y-1.5">
+                      {(v.entregaveis || []).map((e) => (
+                        <li key={`${e.tipo}-${e.created_at}`} className="text-xs border-l-2 border-prosperus-gold/40 pl-2">
+                          <span className="text-prosperus-gold font-semibold">{ENTREGAVEL_TIPO_ROTULO[e.tipo] || e.tipo}</span>
+                          <span className="text-white/40 ml-2">{formatDateTime(e.created_at)}</span>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                            {e.arquivos.map((a) => (
+                              <a
+                                key={a.campo}
+                                href={`${a.url}?token=${encodeURIComponent(token)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-prosperus-gold-light hover:underline"
+                              >
+                                {ENTREGAVEL_CAMPO_ROTULO[a.campo] || a.campo}
+                                <span className="text-white/40 ml-1">{formatSize(a.bytes)}</span>
+                              </a>
+                            ))}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {aberta && conteudo[v.versao] != null && (
                   <div
                     className="bg-prosperus-neutral-white text-prosperus-neutral-black rounded-lg p-4 max-h-[70vh] overflow-y-auto custom-scrollbar text-sm

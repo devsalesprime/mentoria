@@ -28,6 +28,9 @@ export { splitScript };
  * cada grifo em comentario da revisao ("[GRIFO ajustar] «trecho» → nota") e chama POST /api/script/versoes/:v/revisar.
  * Comentarios por passo continuam (recolhidos em cada tela de passo; o geral fica no sumario). Acoes: Baixar (.md),
  * Imprimir ou salvar em PDF, Aprovar, Pedir nova versao, Gerar do zero. Classes .script-* e a folha de impressao vivem em styles/globals.css.
+ * Apresentacao comercial (menu "Mais"): a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job`
+ * (pedido na fila). Com arquivo -> baixar o PPTX, ver o PDF e as notas; na fila -> "Apresentação sendo montada";
+ * sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
  */
 
 interface ScriptScreenProps {
@@ -73,11 +76,28 @@ export function emailDoToken(token: string): string | null {
 
 const GRIFO_RE = /^\[GRIFO (ajustar|manter|tirar)\]\s/;
 
+/**
+ * Apresentacao comercial da versao (entregavel `slides`, publicado pelo worker): a versao ja vem com
+ * `entregaveis` e `slides_job` de GET /api/script/versoes (e de /:versao), sem chamada a mais.
+ */
+interface EntregavelArquivo { campo: string; nome: string; bytes: number; url: string }
+interface Entregavel { tipo: string; versao: number; created_at: string; arquivos: EntregavelArquivo[] }
+type VersaoComEntregaveis = ScriptVersion & { entregaveis?: Entregavel[]; slides_job?: ScriptJobInfo | null };
+
+/** Rotulo de cada arquivo da apresentacao no menu (a ordem e a de leitura). */
+const SLIDES_ITENS: Array<{ campo: string; rotulo: string; inline: boolean }> = [
+  { campo: 'pptx', rotulo: 'Baixar apresentação (PPTX)', inline: false },
+  { campo: 'pdf', rotulo: 'Ver em PDF', inline: true },
+  { campo: 'notas', rotulo: 'Notas do apresentador', inline: false },
+];
+
 export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavigate, pollMs = 20000 }) => {
-  const [versoes, setVersoes] = useState<ScriptVersion[] | null>(null);
+  const [versoes, setVersoes] = useState<VersaoComEntregaveis[] | null>(null);
   const [job, setJob] = useState<ScriptJobInfo | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [versao, setVersao] = useState<ScriptVersion | null>(null);
+  const [versao, setVersao] = useState<VersaoComEntregaveis | null>(null);
+  // Job `slides` que ESTA tela acabou de pedir (o servidor so devolve na proxima consulta)
+  const [slidesJobs, setSlidesJobs] = useState<Record<number, ScriptJobInfo | null>>({});
   const [comentarios, setComentarios] = useState<ScriptComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +105,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const [sending, setSending] = useState<number | null>(null);
   const [aprovando, setAprovando] = useState(false);
   const [pedindo, setPedindo] = useState(false);
+  const [gerandoSlides, setGerandoSlides] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [docAtivo, setDocAtivo] = useState<DocumentoId>('treinamento');
   // leitor em telas
@@ -114,13 +135,21 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     try {
       const res = await axios.get('/api/script/versoes', headers);
       if (res.data?.success) {
-        const list: ScriptVersion[] = res.data.versoes || [];
+        const list: VersaoComEntregaveis[] = res.data.versoes || [];
         const max = list.length ? Math.max(...list.map((v) => v.versao)) : null;
         const nova = maxConhecidoRef.current != null && max != null && max > maxConhecidoRef.current;
         maxConhecidoRef.current = max;
         setVersoes(list);
         setJob(res.data.job || null);
         setError(null);
+        // o servidor ja sabe da apresentacao (pedida ou pronta): o estado local desta tela sai de cena
+        setSlidesJobs((prev) => {
+          const next = { ...prev };
+          for (const v of list) {
+            if (v.slides_job || (v.entregaveis || []).some((e) => e.tipo === 'slides')) delete next[v.versao];
+          }
+          return next;
+        });
         if (nova && max != null) {
           setSelected(max);
           setAviso(`Nova versão pronta: v${max}. Ela abre na mesma tela em que você estava.`);
@@ -150,13 +179,35 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   useEffect(() => { loadList(); }, [loadList]);
   useEffect(() => { if (selected != null) loadVersao(selected); }, [selected, loadVersao]);
 
-  // Enquanto o job esta na fila/rodando (sem versao ou escrevendo a proxima), consulta de novo a cada 20 s
+  // Apresentacao comercial da versao aberta: o que ja foi publicado e o pedido que ainda esta na fila
+  const versaoDaLista = useMemo(
+    () => (versoes || []).find((v) => v.versao === (versao?.versao ?? selected)) || null,
+    [versoes, versao?.versao, selected]
+  );
+  const slides = useMemo<Entregavel | null>(
+    () => ((versao?.entregaveis ?? versaoDaLista?.entregaveis ?? []).find((e) => e.tipo === 'slides') || null),
+    [versao?.entregaveis, versaoDaLista]
+  );
+  const slidesJob = useMemo<ScriptJobInfo | null>(() => {
+    const n = versao?.versao ?? selected;
+    if (n == null) return null;
+    return slidesJobs[n] ?? versao?.slides_job ?? versaoDaLista?.slides_job ?? null;
+  }, [slidesJobs, versao, versaoDaLista, selected]);
+  const slidesJobAtivo = !!slidesJob && (slidesJob.status === 'queued' || slidesJob.status === 'running');
+  const arquivoDoSlides = useCallback(
+    (campo: string) => (slides ? slides.arquivos.find((a) => a.campo === campo) || null : null),
+    [slides]
+  );
+  const itensDaApresentacao = useMemo(() => SLIDES_ITENS.filter((it) => !!arquivoDoSlides(it.campo)), [arquivoDoSlides]);
+
+  // Enquanto o job esta na fila/rodando (sem versao, escrevendo a proxima ou montando a apresentacao), consulta de novo a cada 20 s
   const scriptJobAtivo = !!job && (job.status === 'queued' || job.status === 'running');
+  const consultando = scriptJobAtivo || slidesJobAtivo;
   useEffect(() => {
-    if (!scriptJobAtivo) return;
+    if (!consultando) return;
     const t = setInterval(loadList, pollMs);
     return () => clearInterval(t);
-  }, [scriptJobAtivo, loadList, pollMs]);
+  }, [consultando, loadList, pollMs]);
 
   const parsed = useMemo(() => (versao?.content_md ? parseScript(versao.content_md) : null), [versao?.content_md]);
   const multiplos = !!parsed && parsed.documentos.length > 1;
@@ -341,6 +392,37 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     setTimeout(limpar, 60000);
   };
 
+  /** Abre um arquivo da apresentacao comercial (o token vai na URL: o link nasce fora do axios). */
+  const abrirEntregavel = (arq: EntregavelArquivo, inline: boolean) => {
+    if (typeof window === 'undefined') return;
+    const url = `${arq.url}${arq.url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}${inline ? '&inline=1' : ''}`;
+    if (typeof window.open === 'function') {
+      const aberta = window.open(url, '_blank', 'noopener');
+      if (aberta) return;
+    }
+    window.location.assign(url);
+  };
+
+  /** "Gerar apresentação": manda montar os slides desta versao com as falas do script nas notas. */
+  const gerarSlides = async () => {
+    const n = versao?.versao ?? selected;
+    if (n == null) return;
+    setGerandoSlides(true);
+    try {
+      const res = await axios.post(`/api/script/versoes/${n}/slides`, {}, headers);
+      if (res.data?.success) {
+        setSlidesJobs((prev) => ({ ...prev, [n]: res.data.job || { id: `slides-${n}`, tipo: 'slides', status: 'queued', attempts: 0 } }));
+        setAviso(res.data.job?.existing
+          ? 'A sua apresentação já está sendo montada. Avisamos quando ficar pronta.'
+          : 'Vamos montar a sua apresentação com as falas do script nas notas. Avisamos quando ficar pronta.');
+      }
+    } catch (e: any) {
+      setAviso(e?.response?.data?.message || 'Não deu para pedir a apresentação agora. Tente de novo.');
+    } finally {
+      setGerandoSlides(false);
+    }
+  };
+
   const enviarComentario = async (passo: number) => {
     const texto = (draft[passo] || '').trim();
     if (!texto || !versao) return;
@@ -368,6 +450,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       if (res.data?.success) {
         setVersao((v) => (v ? { ...v, status: 'aprovado', aprovado_em: res.data.versao?.aprovado_em || new Date().toISOString() } : v));
         setVersoes((prev) => (prev ? prev.map((v) => (v.versao === versao.versao ? { ...v, status: 'aprovado' } : v)) : prev));
+        // Aprovar tambem manda montar a apresentacao comercial desta versao
+        if (res.data.slides_job) setSlidesJobs((prev) => ({ ...prev, [versao.versao]: res.data.slides_job }));
         setAviso('Script aprovado. Ele fica aqui para você baixar ou imprimir quando quiser.');
         ficha.refresh();
       }
@@ -656,6 +740,35 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                     </>
                   ) : (
                     <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Imprimir o script</button>
+                  )}
+                </div>
+                <div className="script-menu-sep" />
+                <div role="group" aria-label="Apresentação comercial">
+                  <span className="script-menu-rotulo">Apresentação comercial</span>
+                  {itensDaApresentacao.length > 0 ? (
+                    itensDaApresentacao.map((it) => (
+                      <button
+                        key={it.campo}
+                        type="button"
+                        className="script-menu-item"
+                        data-testid={`slides-${it.campo}`}
+                        onClick={() => abrirEntregavel(arquivoDoSlides(it.campo)!, it.inline)}
+                      >
+                        {it.rotulo}
+                      </button>
+                    ))
+                  ) : slidesJobAtivo ? (
+                    <button type="button" className="script-menu-item" data-testid="slides-montando" disabled>Apresentação sendo montada</button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="script-menu-item"
+                      data-testid="slides-gerar"
+                      disabled={gerandoSlides || !versao}
+                      onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); gerarSlides(); }}
+                    >
+                      Gerar apresentação
+                    </button>
                   )}
                 </div>
                 <div className="script-menu-sep" />

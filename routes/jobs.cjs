@@ -15,8 +15,11 @@ const { scriptPrefillSchema, validateBody } = require('../utils/validation.cjs')
  * Auth: Authorization: Bearer <COHORT_JOBS_TOKEN>. Sem a variavel, tudo responde 503 "fila desligada".
  * Nunca logar o body nem os materiais (acessos de plataforma trazem login/senha).
  */
-module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, safeJsonParse, COHORT_JOBS_TOKEN, APP_URL }) {
+module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, path, multer, safeJsonParse, COHORT_JOBS_TOKEN, APP_URL, DATA_DIR }) {
   const router = Router();
+  const pathLib = path || require('path');
+  const multerLib = multer || require('multer');
+  const dataDir = DATA_DIR || pathLib.join(__dirname, '..', 'data');
 
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
@@ -67,6 +70,33 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
     // Campo decidido no app nunca e sobrescrito: vira complemento (resposta { decidido: false, complemento: true }).
     decidir: z.boolean().optional().default(false),
   });
+
+  // ─── Entregaveis (PUT /api/jobs/:id/entregavel, multipart) ─────────────────
+  // Os arquivos caem primeiro em data/entregaveis/_tmp e so depois vao para a pasta final
+  // (DATA_DIR/entregaveis/<club_slug>/v<versao>/<tipo>/<campo><ext>): o `tipo`/`versao` chegam no mesmo multipart.
+  const tmpEntregaveis = pathLib.join(dataDir, 'entregaveis', '_tmp');
+  const CAMPOS_ENTREGAVEL = [...new Set(Object.values(VM.ENTREGAVEL_CAMPOS).flatMap((c) => Object.keys(c)))];
+  const uploadEntregavel = multerLib({
+    storage: multerLib.diskStorage({
+      destination: (req, file, cb) => {
+        try {
+          if (!fs.existsSync(tmpEntregaveis)) fs.mkdirSync(tmpEntregaveis, { recursive: true });
+          cb(null, tmpEntregaveis);
+        } catch (e) { cb(e); }
+      },
+      filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.fieldname}`),
+    }),
+    limits: { fileSize: VM.ENTREGAVEL_MAX_BYTES, files: CAMPOS_ENTREGAVEL.length },
+  }).fields(CAMPOS_ENTREGAVEL.map((name) => ({ name, maxCount: 1 })));
+
+  /** Apaga o que sobrou em _tmp quando o pedido nao chega ao fim (job inexistente, body invalido, erro). */
+  function limparTemporarios(req) {
+    for (const lista of Object.values(req.files || {})) {
+      for (const f of lista || []) {
+        try { if (f.path && fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch { /* ignora */ }
+      }
+    }
+  }
 
   function currentToken() {
     return String(COHORT_JOBS_TOKEN || process.env.COHORT_JOBS_TOKEN || '').trim();
@@ -466,6 +496,89 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, sa
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
+
+  // PUT /api/jobs/:id/entregavel  (multipart/form-data)
+  // Campos de texto: tipo ('slides'), versao (inteiro >= 1), meta (string JSON, opcional).
+  // Arquivos: pptx, pdf, notas (.md), contact (.png) - ao menos um; cada um vira <campo><ext> em
+  // DATA_DIR/entregaveis/<club_slug>/v<versao>/<tipo>/. Mesmo (clube, versao, tipo) sobrescreve (idempotente).
+  router.put(
+    '/api/jobs/:id/entregavel',
+    (req, res, next) => uploadEntregavel(req, res, (err) => {
+      if (!err) return next();
+      limparTemporarios(req);
+      const campo = err.field ? ` (${err.field})` : '';
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ success: false, message: `Arquivo grande demais${campo}: o limite é ${Math.round(VM.ENTREGAVEL_MAX_BYTES / (1024 * 1024))} MB.` });
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') return res.status(400).json({ success: false, message: `Campo de arquivo desconhecido${campo}: use ${CAMPOS_ENTREGAVEL.join(', ')}.` });
+      console.error('Error in PUT /api/jobs/:id/entregavel (upload):', err.message);
+      return res.status(400).json({ success: false, message: 'Não deu para receber os arquivos.' });
+    }),
+    async (req, res) => {
+      try {
+        const job = await JOBS.getJob({ dbGet }, req.params.id);
+        if (!job) { limparTemporarios(req); return res.status(404).json({ success: false, message: 'Job não encontrado.' }); }
+
+        const parsed = VM.entregavelBodySchema.safeParse(req.body || {});
+        if (!parsed.success) {
+          limparTemporarios(req);
+          return res.status(400).json({ success: false, message: 'Dados inválidos', errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+        }
+        const { tipo, versao } = parsed.data;
+        const defs = VM.ENTREGAVEL_CAMPOS[tipo] || {};
+
+        let meta = null;
+        if (parsed.data.meta) {
+          try {
+            meta = JSON.parse(parsed.data.meta);
+          } catch {
+            limparTemporarios(req);
+            return res.status(400).json({ success: false, message: 'meta não é um JSON válido.' });
+          }
+        }
+
+        const slug = job.club_slug;
+        const existeVersao = await SV.getVersion({ dbGet }, slug, versao, { withContent: false });
+        if (!existeVersao) { limparTemporarios(req); return res.status(404).json({ success: false, message: 'Versão não encontrada.' }); }
+
+        const arquivos = [];
+        for (const campo of CAMPOS_ENTREGAVEL) {
+          const f = ((req.files || {})[campo] || [])[0];
+          if (!f) continue;
+          const def = defs[campo];
+          if (!def) { limparTemporarios(req); return res.status(400).json({ success: false, message: `O entregável "${tipo}" não aceita o arquivo "${campo}".` }); }
+          // multer entrega o nome como latin1 ("apresentação.pptx" chegava como "apresentaÃ§Ã£o.pptx")
+          const original = Buffer.from(String(f.originalname || ''), 'latin1').toString('utf8');
+          if (def.ext && !original.toLowerCase().endsWith(def.ext)) {
+            limparTemporarios(req);
+            return res.status(400).json({ success: false, message: `O arquivo de "${campo}" precisa ser ${def.ext}.` });
+          }
+          arquivos.push({ campo, nome: VM.safeFileName(original, `${campo}${def.ext}`), tmpPath: f.path, bytes: f.size || 0, mime: def.mime });
+        }
+        if (!arquivos.length) {
+          limparTemporarios(req);
+          return res.status(400).json({ success: false, message: `Mande ao menos um arquivo (${Object.keys(defs).join(', ')}).` });
+        }
+
+        const row = await SV.saveEntregavel({ dbGet, dbRun, uuidv4 }, {
+          dataDir, club_slug: slug, versao, tipo, job_id: job.id, meta, arquivos,
+        });
+        const entregavel = SV.rowToEntregavel(row);
+        res.json({
+          success: true,
+          entregavel: {
+            id: entregavel.id,
+            versao: entregavel.versao,
+            tipo: entregavel.tipo,
+            arquivos: entregavel.arquivos.map((a) => ({ campo: a.campo, nome: a.nome, bytes: a.bytes })),
+            created_at: entregavel.created_at,
+          },
+        });
+      } catch (error) {
+        limparTemporarios(req);
+        console.error('Error in PUT /api/jobs/:id/entregavel:', error.message);
+        res.status(500).json({ success: false, message: 'Erro interno.' });
+      }
+    }
+  );
 
   // PUT /api/jobs/:id/prefill  -> mesmo JSON/validacao/semantica de PUT /api/admin/clubs/:slug/script-ficha
   // { parcial: true } aceita um SUBCONJUNTO das 34 chaves (prefill em marcos, bloco a bloco): importa so essas,

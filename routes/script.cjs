@@ -185,7 +185,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       // Ultimo job de pre-preenchimento DESTA pessoa (queued/running = "ja estamos processando")
       job: jobView(job),
       // Script escrito: versoes do clube + ultimo job `script` do clube (a tela "Seu script" usa)
-      script: { ...(extra.scriptSummary || { versoes: 0, ultima: null, aprovada: null }), job: jobView(extra.scriptJob) },
+      // `entregaveis` = { "3": [{ tipo, arquivos: [{ campo, nome, bytes, url }], created_at }] } por versao (apresentacao comercial)
+      script: {
+        ...(extra.scriptSummary || { versoes: 0, ultima: null, aprovada: null }),
+        job: jobView(extra.scriptJob),
+        entregaveis: extra.entregaveis || {},
+      },
       config,
       prefilled_at: ficha.prefilled_at,
       reviewed_at: ficha.reviewed_at,
@@ -213,7 +218,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
-      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob] = await Promise.all([
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
         JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
@@ -221,11 +226,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         JOBS.listRefiningKeys({ dbAll }, slug),
         SV.scriptSummary({ dbGet }, slug),
         JOBS.findLatestJob({ dbGet }, { tipo: 'script', club_slug: slug }),
+        SV.entregaveisPorVersao({ dbAll }, slug, entregavelUrl),
       ]);
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
@@ -563,7 +569,23 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return n;
   }
 
-  // GET /api/script/versoes  -> { versoes: [...sem conteudo], job }
+  /** URL de download de um arquivo do entregavel (o membro nunca recebe caminho de disco). */
+  const entregavelUrl = (versao, tipo, campo) =>
+    `/api/script/versoes/${Number(versao)}/entregaveis/${encodeURIComponent(tipo)}/${encodeURIComponent(campo)}`;
+
+  /**
+   * Pendura em cada versao o que a tela "Seu script" precisa sem uma chamada a mais:
+   * `entregaveis` (a apresentacao comercial ja publicada) e `slides_job` (o job `slides` na fila / sendo montado).
+   */
+  async function decorarVersoes(slug, versoes) {
+    const [porVersao, jobs] = await Promise.all([
+      SV.entregaveisPorVersao({ dbAll }, slug, entregavelUrl),
+      JOBS.listActiveSlidesJobs({ dbAll }, slug),
+    ]);
+    return versoes.map((v) => ({ ...v, entregaveis: porVersao[v.versao] || [], slides_job: jobView(jobs[v.versao]) }));
+  }
+
+  // GET /api/script/versoes  -> { versoes: [...sem conteudo, com entregaveis e slides_job], job }
   router.get('/api/script/versoes', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
@@ -571,23 +593,82 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         SV.listVersions({ dbAll }, slug),
         JOBS.findLatestJob({ dbGet }, { tipo: 'script', club_slug: slug }),
       ]);
-      res.json({ success: true, versoes, job: jobView(job), ficha_status: req.ficha.ficha_status });
+      res.json({ success: true, versoes: await decorarVersoes(slug, versoes), job: jobView(job), ficha_status: req.ficha.ficha_status });
     } catch (error) {
       console.error('Error in GET /api/script/versoes:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
 
-  // GET /api/script/versoes/:versao  -> { versao: { ..., content_md }, comentarios }
+  // GET /api/script/versoes/:versao  -> { versao: { ..., content_md, entregaveis, slides_job }, comentarios }
   router.get('/api/script/versoes/:versao', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
       const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n);
       if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
       const comentarios = await SV.listComments({ dbAll }, req.cohort.club_slug, n);
-      res.json({ success: true, versao, comentarios });
+      const [decorada] = await decorarVersoes(req.cohort.club_slug, [versao]);
+      res.json({ success: true, versao: decorada, comentarios });
     } catch (error) {
       console.error('Error in GET /api/script/versoes/:versao:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Apresentacao comercial (entregavel `slides` de uma versao) ───────────
+
+  /** Enfileira o job `slides` da versao (1 ativo por clube + versao) e responde no formato do front. */
+  async function pedirSlides(req, res, n) {
+    const slug = req.cohort.club_slug;
+    const r = await SV.enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
+      club_slug: slug,
+      nome_clube: req.cohort.club_nome || null,
+      versao: n,
+      email: req.cohort.email,
+    });
+    if (!r) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+    await touchActivity(slug);
+    res.json({ success: true, versao: n, job: { ...jobView(r.job), existing: r.existing } });
+  }
+
+  // POST /api/script/versoes/:versao/slides  -> "Gerar apresentação" (job `slides` da versao)
+  router.post('/api/script/versoes/:versao/slides', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      await pedirSlides(req, res, n);
+    } catch (error) {
+      console.error('Error in POST /api/script/versoes/:versao/slides:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/script/versoes/:versao/entregaveis  -> { entregaveis: [{ tipo, arquivos: [{ campo, nome, bytes, url }] }] }
+  router.get('/api/script/versoes/:versao/entregaveis', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      res.json({ success: true, versao: n, entregaveis: await SV.listEntregaveis({ dbAll }, req.cohort.club_slug, n, entregavelUrl) });
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes/:versao/entregaveis:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/script/versoes/:versao/entregaveis/:tipo/:campo  -> stream (attachment; ?inline=1 abre no navegador)
+  router.get('/api/script/versoes/:versao/entregaveis/:tipo/:campo', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const n = parseVersao(req, res); if (n == null) return;
+      const row = await SV.getEntregavelRow({ dbGet }, req.cohort.club_slug, n, req.params.tipo);
+      const arquivo = SV.arquivoDoEntregavel(row, req.params.campo);
+      if (!arquivo) return res.status(404).json({ success: false, message: 'Arquivo não encontrado.' });
+      if (!fs.existsSync(arquivo.path)) return res.status(404).json({ success: false, message: 'Arquivo não encontrado no disco.' });
+      const inline = req.query.inline === '1' || arquivo.disposition === 'inline';
+      res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(arquivo.nome)}"`);
+      res.setHeader('Content-Type', arquivo.mime);
+      fs.createReadStream(arquivo.path).pipe(res);
+    } catch (error) {
+      console.error('Error in GET /api/script/versoes/:versao/entregaveis/:tipo/:campo:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
@@ -623,13 +704,24 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   });
 
   // POST /api/script/versoes/:versao/aprovar
+  // Aprovar tambem manda montar a apresentacao comercial desta versao (job `slides`, 1 ativo por clube + versao).
   router.post('/api/script/versoes/:versao/aprovar', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
-      const versao = await SV.approveVersion({ dbGet, dbRun }, req.cohort.club_slug, n, VM.normEmail(req.cohort.email));
+      const slug = req.cohort.club_slug;
+      const versao = await SV.approveVersion({ dbGet, dbRun }, slug, n, VM.normEmail(req.cohort.email));
       if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
-      await touchActivity(req.cohort.club_slug);
-      res.json({ success: true, versao });
+      await touchActivity(slug);
+      let slidesJob = null;
+      try {
+        const r = await SV.enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
+          club_slug: slug, nome_clube: req.cohort.club_nome || null, versao: n, email: req.cohort.email, aprovada: true,
+        });
+        if (r) slidesJob = { ...jobView(r.job), existing: r.existing };
+      } catch (e) {
+        console.error('slides na aprovação:', e.message);
+      }
+      res.json({ success: true, versao, slides_job: slidesJob });
     } catch (error) {
       console.error('Error in POST /api/script/versoes/:versao/aprovar:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });

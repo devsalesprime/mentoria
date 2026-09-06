@@ -81,6 +81,10 @@
     { "slug": "ana-e-gustavo", "nome": "Mushagency", "ativo": 1, "members": [
       { "email": "gustavo.costa@mush.pt", "nome": "Gustavo Gomes Morais Pinho Costa" }
     ]},
-    { "slug": "marcelo-mc-participacoes", "nome": "M&C Participações", "ativo": 1, "members": [] }
+    { "slug": "marcelo-mc-participacoes", "nome": "M&C Participações", "ativo": 1, "members": [] },
+    { "slug": "lucas-e-grazi", "nome": "Zenitis (Lucas e Grazi)", "ativo": 1, "members": [
+      { "email": "lucasgsiqueira.desafio@gmail.com", "nome": "Lucas Guimarães Siqueira" },
+      { "email": "graziellariosmenezes@gmail.com", "nome": "Graziella Rios de Menezes" }
+    ]}
   ]
 }

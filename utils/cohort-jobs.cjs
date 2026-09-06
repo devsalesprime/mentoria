@@ -7,6 +7,8 @@
  *   revisar : nova versao a partir de uma versao + comentarios (payload.versao). Divide o escopo com `script`:
  *             1 ativo por club_slug entre script|revisar (os dois escrevem a proxima versao do mesmo clube).
  *   refinar : nova sugestao para 1 campo (payload.field_key). 1 ativo por (club_slug, field_key).
+ *   slides  : apresentacao comercial de UMA versao do script (payload.versao). 1 ativo por (club_slug, versao);
+ *             o worker publica os arquivos em PUT /api/jobs/:id/entregavel.
  *
  * Regras:
  *   - job ativo = queued|running; enfileirar de novo dentro do escopo devolve o existente.
@@ -26,6 +28,7 @@ const SCRIPT_FAMILY = ['script', 'revisar'];
 function dedupeScope(tipo) {
   if (SCRIPT_FAMILY.includes(tipo) || tipo === 'pendencia') return 'club';
   if (tipo === 'refinar') return 'club_field';
+  if (tipo === 'slides') return 'club_versao';
   return 'pessoa';
 }
 
@@ -68,34 +71,52 @@ async function getJob({ dbGet }, id) {
 }
 
 /**
- * Job ativo (queued|running) no escopo do tipo, se existir:
- * prefill = (club, email) · script|revisar = (club, qualquer um dos dois) · refinar = (club, payload.field_key).
+ * WHERE do escopo de deduplicacao:
+ * prefill = (club, email) · script|revisar = (club, qualquer um dos dois) · refinar = (club, payload.field_key)
+ * · pendencia = (club) · slides = (club, payload.versao).
  */
-async function findActiveJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null }) {
-  const scope = dedupeScope(tipo);
-  const tipos = scopeTipos(tipo);
-  const where = [`tipo IN (${tipos.map(() => '?').join(', ')})`, `club_slug = ?`, `status IN ('queued', 'running')`];
-  const params = [...tipos, club_slug];
-  if (scope === 'pessoa') { where.push('email = ?'); params.push(VM.normEmail(email)); }
-  if (scope === 'club_field') { where.push(`json_extract(payload, '$.field_key') = ?`); params.push(String(field_key || '')); }
-  return rowToJob(await dbGet(
-    `SELECT * FROM cohort_jobs WHERE ${where.join(' AND ')} ORDER BY created_at DESC, rowid DESC LIMIT 1`,
-    params
-  ));
-}
-
-/** Ultimo job (qualquer status) no escopo do tipo (prefill = da pessoa; script|revisar = do clube, o mais recente dos dois; refinar = do campo). */
-async function findLatestJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null }) {
+function escopoWhere({ tipo, club_slug, email, field_key = null, versao = null }) {
   const scope = dedupeScope(tipo);
   const tipos = scopeTipos(tipo);
   const where = [`tipo IN (${tipos.map(() => '?').join(', ')})`, `club_slug = ?`];
   const params = [...tipos, club_slug];
   if (scope === 'pessoa') { where.push('email = ?'); params.push(VM.normEmail(email)); }
   if (scope === 'club_field') { where.push(`json_extract(payload, '$.field_key') = ?`); params.push(String(field_key || '')); }
+  if (scope === 'club_versao') { where.push(`CAST(json_extract(payload, '$.versao') AS INTEGER) = ?`); params.push(Number(versao) || 0); }
+  return { where, params };
+}
+
+/** Job ativo (queued|running) no escopo do tipo, se existir. */
+async function findActiveJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null, versao = null }) {
+  const { where, params } = escopoWhere({ tipo, club_slug, email, field_key, versao });
+  return rowToJob(await dbGet(
+    `SELECT * FROM cohort_jobs WHERE ${where.join(' AND ')} AND status IN ('queued', 'running') ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    params
+  ));
+}
+
+/** Ultimo job (qualquer status) no escopo do tipo (prefill = da pessoa; script|revisar = do clube, o mais recente dos dois; refinar = do campo; slides = da versao). */
+async function findLatestJob({ dbGet }, { tipo = 'prefill', club_slug, email, field_key = null, versao = null }) {
+  const { where, params } = escopoWhere({ tipo, club_slug, email, field_key, versao });
   return rowToJob(await dbGet(
     `SELECT * FROM cohort_jobs WHERE ${where.join(' AND ')} ORDER BY created_at DESC, rowid DESC LIMIT 1`,
     params
   ));
+}
+
+/** Jobs `slides` ativos (queued|running) do clube, por versao: { [versao]: job }. Usado pelo membro e pelo admin. */
+async function listActiveSlidesJobs({ dbAll }, club_slug) {
+  const rows = await dbAll(
+    `SELECT * FROM cohort_jobs WHERE tipo = 'slides' AND club_slug = ? AND status IN ('queued', 'running') ORDER BY created_at ASC, rowid ASC`,
+    [club_slug]
+  );
+  const out = {};
+  for (const r of rows) {
+    const job = rowToJob(r);
+    const v = job.payload && job.payload.versao != null ? Number(job.payload.versao) : NaN;
+    if (Number.isInteger(v) && v >= 1) out[v] = job;
+  }
+  return out;
 }
 
 /** Chaves de campo com job `refinar` ativo (queued|running) no clube: a ficha marca `refinando: true`. */
@@ -110,7 +131,7 @@ async function listRefiningKeys({ dbAll }, club_slug) {
 
 /**
  * Enfileira (ou devolve o job ativo existente no escopo do tipo).
- * Para `refinar`, `payload.field_key` e obrigatorio (escopo da deduplicacao).
+ * Para `refinar`, `payload.field_key` e obrigatorio; para `slides`, `payload.versao` (escopo da deduplicacao).
  * @returns {{ job: object, existing: boolean }}
  */
 async function enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo = 'prefill', club_slug, email, notify_phone = null, payload = null }) {
@@ -118,7 +139,9 @@ async function enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo = 'prefill', club_slu
   const key = VM.normEmail(email);
   const field_key = payload && payload.field_key ? String(payload.field_key) : null;
   if (tipo === 'refinar' && !field_key) throw new Error('job refinar exige payload.field_key');
-  const active = await findActiveJob({ dbGet }, { tipo, club_slug, email: key, field_key });
+  const versao = payload && payload.versao != null ? Number(payload.versao) : null;
+  if (tipo === 'slides' && !(Number.isInteger(versao) && versao >= 1)) throw new Error('job slides exige payload.versao');
+  const active = await findActiveJob({ dbGet }, { tipo, club_slug, email: key, field_key, versao });
   if (active) {
     // Atualiza o telefone se a pessoa informou um novo (o job ainda nao rodou)
     if (notify_phone && notify_phone !== active.notify_phone) {
@@ -226,10 +249,12 @@ module.exports = {
   SCRIPT_FAMILY,
   dedupeScope,
   scopeTipos,
+  escopoWhere,
   rowToJob,
   getJob,
   findActiveJob,
   findLatestJob,
+  listActiveSlidesJobs,
   listRefiningKeys,
   enqueueJob,
   claimNextJob,

@@ -13,8 +13,9 @@ const SUF = require('../utils/suficiencia.cjs');
  * Rotas por CLUBE (:slug), nao por usuario. Materiais sao por PESSOA: o admin e o unico que ve tudo
  * (arquivos, links, observacoes e acessos de plataforma de cada membro, mais o `legado` da forma antiga).
  */
-module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMiddleware, adminMiddleware, uuidv4, safeJsonParse }) {
+module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMiddleware, adminMiddleware, uuidv4, fs, safeJsonParse }) {
   const router = Router();
+  const fsLib = fs || require('fs');
 
   VM.ensureCohortConfigTable(dbRun).catch((e) => console.error('cohort_config DDL error:', e.message));
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
@@ -174,14 +175,22 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
       const ficha = await ensureFicha(club.slug);
       const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: true });
-      const [membros, files, jobs, contextoItems, versoes, comentarios] = await Promise.all([
+      const [membros, files, jobs, contextoItems, versoesBase, comentarios, entregaveis, slidesJobs] = await Promise.all([
         listMembers(club.slug),
         listFiles(club.slug),
         dbAll(`SELECT * FROM cohort_jobs WHERE club_slug = ? ORDER BY created_at DESC LIMIT 50`, [club.slug]),
         CTX.listContext({ dbAll }, club.slug, { fileUrl: (id) => `/api/admin/files/${encodeURIComponent(id)}` }),
         SV.listVersions({ dbAll }, club.slug),
         SV.listComments({ dbAll }, club.slug),
+        SV.entregaveisPorVersao({ dbAll }, club.slug, (v, tipo, campo) => entregavelUrl(club.slug, v, tipo, campo)),
+        JOBS.listActiveSlidesJobs({ dbAll }, club.slug),
       ]);
+      // Cada versao leva os entregaveis publicados (apresentacao comercial) e o job `slides` na fila, se houver
+      const versoes = versoesBase.map((v) => ({
+        ...v,
+        entregaveis: entregaveis[v.versao] || [],
+        slides_job: slidesJobs[v.versao] ? { id: slidesJobs[v.versao].id, status: slidesJobs[v.versao].status } : null,
+      }));
       const materials = VM.normalizeMaterials(ficha.materials);
       const contexto = CTX.groupByField(contextoItems);
       view.blocos = view.blocos.map((b) => ({ ...b, campos: b.campos.map((c) => ({ ...c, contexto_count: (contexto[c.key] || []).length })) }));
@@ -346,6 +355,73 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       res.json({ success: true, versao, comentarios: await SV.listComments({ dbAll }, req.params.slug, n) });
     } catch (error) {
       console.error('Error in GET /api/admin/clubs/:slug/script-versoes/:versao:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Apresentacao comercial (entregavel `slides` de uma versao) ───────────
+
+  const entregavelUrl = (slug, versao, tipo, campo) =>
+    `/api/admin/clubs/${encodeURIComponent(slug)}/script-versoes/${Number(versao)}/entregaveis/${encodeURIComponent(tipo)}/${encodeURIComponent(campo)}`;
+
+  function versaoDaRota(req, res) {
+    const n = Number(req.params.versao);
+    if (!Number.isInteger(n) || n < 1) { res.status(400).json({ success: false, message: 'Versão inválida.' }); return null; }
+    return n;
+  }
+
+  // POST /api/admin/clubs/:slug/script-versoes/:versao/slides  -> "Gerar slides": job `slides` desta versao,
+  // mesmo que ela nao esteja aprovada (regerar). 1 ativo por clube + versao: repetir devolve o existente.
+  router.post('/api/admin/clubs/:slug/script-versoes/:versao/slides', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const n = versaoDaRota(req, res); if (n == null) return;
+      const club = await getClub(req.params.slug);
+      if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
+      const membro = await dbGet(`SELECT email FROM cohort_members WHERE club_slug = ? ORDER BY created_at ASC LIMIT 1`, [club.slug]);
+      const r = await SV.enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
+        club_slug: club.slug,
+        nome_clube: club.nome,
+        versao: n,
+        email: (membro && membro.email) || `admin@${club.slug}`,
+      });
+      if (!r) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      res.json({ success: true, versao: n, job: { ...r.job, existing: r.existing } });
+    } catch (error) {
+      console.error('Error in POST /api/admin/clubs/:slug/script-versoes/:versao/slides:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/admin/clubs/:slug/script-versoes/:versao/entregaveis
+  router.get('/api/admin/clubs/:slug/script-versoes/:versao/entregaveis', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const n = versaoDaRota(req, res); if (n == null) return;
+      const slug = req.params.slug;
+      res.json({
+        success: true,
+        versao: n,
+        entregaveis: await SV.listEntregaveis({ dbAll }, slug, n, (v, tipo, campo) => entregavelUrl(slug, v, tipo, campo)),
+      });
+    } catch (error) {
+      console.error('Error in GET /api/admin/clubs/:slug/script-versoes/:versao/entregaveis:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // GET /api/admin/clubs/:slug/script-versoes/:versao/entregaveis/:tipo/:campo  -> stream (?inline=1 abre no navegador)
+  router.get('/api/admin/clubs/:slug/script-versoes/:versao/entregaveis/:tipo/:campo', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+      const n = versaoDaRota(req, res); if (n == null) return;
+      const row = await SV.getEntregavelRow({ dbGet }, req.params.slug, n, req.params.tipo);
+      const arquivo = SV.arquivoDoEntregavel(row, req.params.campo);
+      if (!arquivo) return res.status(404).json({ success: false, message: 'Arquivo não encontrado.' });
+      if (!fsLib.existsSync(arquivo.path)) return res.status(404).json({ success: false, message: 'Arquivo não encontrado no disco.' });
+      const inline = req.query.inline === '1' || arquivo.disposition === 'inline';
+      res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(arquivo.nome)}"`);
+      res.setHeader('Content-Type', arquivo.mime);
+      fsLib.createReadStream(arquivo.path).pipe(res);
+    } catch (error) {
+      console.error('Error in GET /api/admin/clubs/:slug/script-versoes/:versao/entregaveis/:tipo/:campo:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

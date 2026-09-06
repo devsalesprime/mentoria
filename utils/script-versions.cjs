@@ -6,9 +6,16 @@
  * Comentario: passo 0 = geral, 1..7 = "## Passo N" do markdown.
  * Grifos (utils/script-grifos.cjs): quando a versao nova nasce de um job `revisar`, insertVersion marca resolvidos os grifos
  * pendentes ate a versao base (payload.versao do job).
+ * Entregaveis (tabela script_entregaveis): arquivos que o worker publica para UMA versao (hoje `slides` = apresentacao
+ * comercial: pptx, pdf, notas .md, contato .png) em PUT /api/jobs/:id/entregavel. 1 linha por (clube, versao, tipo);
+ * publicar de novo sobrescreve os arquivos e a linha. Disco: DATA_DIR/entregaveis/<club_slug>/v<versao>/<tipo>/<campo><ext>.
  */
+const fs = require('fs');
+const path = require('path');
 const { z } = require('zod');
 const SG = require('./script-grifos.cjs');
+const SF = require('./script-ficha.cjs');
+const VM = require('./validation-materials.cjs');
 
 const VERSAO_STATUSES = ['rascunho', 'aprovado'];
 
@@ -37,6 +44,19 @@ const DDL = [
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`,
   `CREATE INDEX IF NOT EXISTS idx_script_comments_club_versao ON script_comments(club_slug, versao)`,
+  // Registro: migrations/022_script_entregaveis.sql. Sem FK de proposito (o DDL roda pelo router, antes do schema principal).
+  `CREATE TABLE IF NOT EXISTS script_entregaveis (
+  id TEXT PRIMARY KEY,
+  club_slug TEXT NOT NULL,
+  versao INTEGER NOT NULL,
+  tipo TEXT NOT NULL DEFAULT 'slides',
+  arquivos JSON NOT NULL DEFAULT '[]',
+  meta JSON,
+  job_id TEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(club_slug, versao, tipo)
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_script_entregaveis_club_versao ON script_entregaveis(club_slug, versao)`,
 ];
 
 async function ensureScriptVersionsTables(dbRun) {
@@ -190,6 +210,180 @@ async function scriptSummary({ dbGet }, club_slug) {
   };
 }
 
+// ─── Entregaveis de uma versao (script_entregaveis) ──────────────────────────
+
+/** Pasta no disco: DATA_DIR/entregaveis/<club_slug>/v<versao>/<tipo>/ (todos os pedacos passam por safeFileName). */
+function entregavelDir(dataDir, club_slug, versao, tipo) {
+  return path.join(
+    dataDir,
+    'entregaveis',
+    VM.safeFileName(club_slug, 'clube'),
+    `v${Number(versao) || 0}`,
+    VM.safeFileName(tipo, 'entregavel')
+  );
+}
+
+/** Linha do banco -> objeto da API. `urlFor(versao, tipo, campo)` monta a URL de download (sem devolver caminho de disco). */
+function rowToEntregavel(r, urlFor = null) {
+  if (!r) return null;
+  const arquivos = parseJson(r.arquivos, []) || [];
+  return {
+    id: r.id,
+    versao: r.versao,
+    tipo: r.tipo,
+    meta: parseJson(r.meta, null),
+    job_id: r.job_id || null,
+    created_at: r.created_at,
+    arquivos: arquivos.map((a) => ({
+      campo: a.campo,
+      nome: a.nome,
+      bytes: a.bytes || 0,
+      ...(urlFor ? { url: urlFor(r.versao, r.tipo, a.campo) } : {}),
+    })),
+  };
+}
+
+async function getEntregavelRow({ dbGet }, club_slug, versao, tipo) {
+  return dbGet(`SELECT * FROM script_entregaveis WHERE club_slug = ? AND versao = ? AND tipo = ?`, [club_slug, Number(versao), tipo]);
+}
+
+/** Entregaveis do clube (uma versao ou todas), mais recentes primeiro. */
+async function listEntregaveis({ dbAll }, club_slug, versao = null, urlFor = null) {
+  const rows = await dbAll(
+    `SELECT * FROM script_entregaveis WHERE club_slug = ? ${versao != null ? 'AND versao = ?' : ''} ORDER BY versao DESC, tipo ASC`,
+    versao != null ? [club_slug, Number(versao)] : [club_slug]
+  );
+  return rows.map((r) => rowToEntregavel(r, urlFor));
+}
+
+/** { [versao]: [entregavel] } para pendurar na lista de versoes sem uma chamada a mais no front. */
+async function entregaveisPorVersao({ dbAll }, club_slug, urlFor = null) {
+  const out = {};
+  try {
+    for (const e of await listEntregaveis({ dbAll }, club_slug, null, urlFor)) {
+      (out[e.versao] = out[e.versao] || []).push(e);
+    }
+  } catch (e) {
+    console.error('entregaveisPorVersao:', e.message);
+  }
+  return out;
+}
+
+/** Um arquivo do entregavel, para o stream: { path, nome, mime, disposition } ou null. */
+function arquivoDoEntregavel(row, campo) {
+  if (!row) return null;
+  const def = (VM.ENTREGAVEL_CAMPOS[row.tipo] || {})[campo];
+  const a = (parseJson(row.arquivos, []) || []).find((x) => x.campo === campo);
+  if (!a || !a.path) return null;
+  return {
+    path: a.path,
+    nome: a.nome || `${campo}${(def && def.ext) || ''}`,
+    mime: a.mime || (def && def.mime) || 'application/octet-stream',
+    disposition: (def && def.disposition) || 'attachment',
+  };
+}
+
+/**
+ * Grava (ou substitui) o entregavel de UMA versao. `arquivos` = [{ campo, nome, tmpPath, bytes, mime }] ja validados.
+ * Cada campo vira <campo><ext> na pasta do entregavel; publicar de novo sobrescreve os arquivos e a linha
+ * (os campos que sairam sao apagados do disco). Idempotente por (club_slug, versao, tipo).
+ */
+async function saveEntregavel({ dbGet, dbRun, uuidv4 }, { dataDir, club_slug, versao, tipo, job_id = null, meta = null, arquivos = [] }) {
+  const dir = entregavelDir(dataDir, club_slug, versao, tipo);
+  fs.mkdirSync(dir, { recursive: true });
+  const anterior = await getEntregavelRow({ dbGet }, club_slug, versao, tipo);
+  const antigos = anterior ? (parseJson(anterior.arquivos, []) || []) : [];
+
+  const gravados = [];
+  for (const a of arquivos) {
+    const def = (VM.ENTREGAVEL_CAMPOS[tipo] || {})[a.campo];
+    const destino = path.join(dir, `${a.campo}${(def && def.ext) || path.extname(a.nome || '') || ''}`);
+    if (a.tmpPath && a.tmpPath !== destino) {
+      try {
+        fs.renameSync(a.tmpPath, destino);
+      } catch {
+        fs.copyFileSync(a.tmpPath, destino);
+        try { fs.unlinkSync(a.tmpPath); } catch { /* o temporario some no proximo boot */ }
+      }
+    }
+    gravados.push({ nome: a.nome, campo: a.campo, path: destino, bytes: a.bytes || 0, mime: a.mime || (def && def.mime) || 'application/octet-stream' });
+  }
+  // Campo que existia e nao veio de novo: some do disco (o entregavel novo substitui o anterior por inteiro)
+  for (const velho of antigos) {
+    if (gravados.some((g) => g.path === velho.path)) continue;
+    try { if (velho.path && fs.existsSync(velho.path)) fs.unlinkSync(velho.path); } catch { /* ignora */ }
+  }
+
+  const id = anterior ? anterior.id : `se-${uuidv4()}`;
+  await dbRun(
+    `INSERT INTO script_entregaveis (id, club_slug, versao, tipo, arquivos, meta, job_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(club_slug, versao, tipo) DO UPDATE SET
+       arquivos = excluded.arquivos, meta = excluded.meta, job_id = excluded.job_id, created_at = CURRENT_TIMESTAMP`,
+    [id, club_slug, Number(versao), tipo, JSON.stringify(gravados), meta == null ? null : JSON.stringify(meta), job_id]
+  );
+  return getEntregavelRow({ dbGet }, club_slug, versao, tipo);
+}
+
+// ─── Job `slides` (apresentacao comercial de uma versao) ─────────────────────
+
+/** A ficha do clube em linhas "- chave · pergunta · valor" (so os campos com resposta). Vai no payload do job `slides`. */
+function fichaMd(fieldsRaw) {
+  const fields = SF.normalizeFields(fieldsRaw && typeof fieldsRaw === 'object' ? fieldsRaw : {});
+  const linhas = [];
+  for (const def of SF.FIELDS) {
+    const estado = fields[def.key];
+    const bruto = SF.isDecided(estado) ? SF.effectiveValue(estado) : (estado && estado.sugerido) || '';
+    const valor = String(bruto || '').replace(/\s+/g, ' ').trim();
+    if (!valor) continue;
+    linhas.push(`- ${def.key} · ${def.pergunta} · ${valor}`);
+  }
+  return linhas.join('\n');
+}
+
+/** WhatsApp do aviso: o ultimo job `prefill`/`script` da pessoa e, sem ele, o ultimo do clube (igual ao "forçar script" do admin). */
+async function ultimoNotifyPhone({ dbGet }, club_slug, email) {
+  const base = `SELECT notify_phone FROM cohort_jobs WHERE club_slug = ? AND tipo IN ('prefill', 'script')
+                  AND notify_phone IS NOT NULL AND notify_phone <> ''`;
+  try {
+    const key = VM.normEmail(email);
+    if (key) {
+      const r = await dbGet(`${base} AND email = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, [club_slug, key]);
+      if (r && r.notify_phone) return r.notify_phone;
+    }
+    const c = await dbGet(`${base} ORDER BY created_at DESC, rowid DESC LIMIT 1`, [club_slug]);
+    return c ? c.notify_phone : null;
+  } catch (e) {
+    console.error('ultimoNotifyPhone:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Enfileira o job `slides` de UMA versao (1 ativo por clube + versao: pedir de novo devolve o existente).
+ * payload = { versao, content_md, club_slug, nome_clube, email, notify_phone, aprovada, ficha_md }.
+ * Devolve null quando a versao nao existe.
+ */
+async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, { club_slug, nome_clube = null, versao, email, aprovada = null }) {
+  const v = await getVersion({ dbGet }, club_slug, versao, { withContent: true });
+  if (!v) return null;
+  const parse = safeJsonParse || ((s, f) => parseJson(s, f));
+  const ficha = await dbGet(`SELECT fields FROM script_fichas WHERE club_slug = ?`, [club_slug]);
+  const key = VM.normEmail(email);
+  const notify_phone = await ultimoNotifyPhone({ dbGet }, club_slug, key);
+  const payload = {
+    versao: v.versao,
+    content_md: v.content_md || '',
+    club_slug,
+    nome_clube: nome_clube || null,
+    email: key,
+    notify_phone,
+    aprovada: aprovada == null ? v.status === 'aprovado' : !!aprovada,
+    ficha_md: fichaMd(parse(ficha ? ficha.fields : null, {})),
+  };
+  return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo: 'slides', club_slug, email: key, notify_phone, payload });
+}
+
 module.exports = {
   VERSAO_STATUSES,
   ensureScriptVersionsTables,
@@ -205,4 +399,14 @@ module.exports = {
   insertComment,
   scriptSummary,
   resolveGrifosDoJob,
+  entregavelDir,
+  rowToEntregavel,
+  getEntregavelRow,
+  listEntregaveis,
+  entregaveisPorVersao,
+  arquivoDoEntregavel,
+  saveEntregavel,
+  fichaMd,
+  ultimoNotifyPhone,
+  enqueueSlidesJob,
 };
