@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Captura } from './anchor';
 import { CORES, COR_DESCRICAO, COR_ROTULO, GRIFO_NOTA_MAX, GRIFO_TEXTO_MAX, GRIFO_TEXTO_MIN, type GrifoCor } from './types';
 
@@ -15,13 +15,38 @@ interface GrifoBubbleProps {
 }
 
 const LARGURA = 340;
+/** Folga entre a bolha e o trecho marcado, e entre a bolha e a borda da janela. */
+const FOLGA = 8;
+const MARGEM = 8;
+/** Altura minima util: abaixo disso a bolha rola por dentro em vez de encolher ate sumir. */
+const ALTURA_MIN = 160;
 
-function posicao(rect: Captura['rect'], acima: boolean): React.CSSProperties {
-  if (typeof window === 'undefined') return {};
-  const vw = window.innerWidth;
-  const left = Math.max(8, Math.min(rect.left, vw - LARGURA - 8));
-  if (acima) return { top: Math.max(8, rect.top - 8), left, transform: 'translateY(-100%)' };
-  return { top: rect.bottom + 8, left };
+/**
+ * A bolha NUNCA cobre o trecho selecionado: fica embaixo dele quando cabe embaixo, em cima quando
+ * nao cabe embaixo e sobra mais espaco em cima. `altura` e a altura medida da propria bolha (0 antes
+ * da primeira medicao, o que cai no caso "embaixo", que e o padrao seguro). O que sobrar de altura
+ * vira rolagem interna, entao a bolha tambem nao vaza para fora da janela.
+ */
+export function posicao(rect: Captura['rect'], altura: number, vw: number, vh: number): React.CSSProperties {
+  const left = Math.max(MARGEM, Math.min(rect.left, vw - LARGURA - MARGEM));
+  const espacoAbaixo = Math.max(0, vh - rect.bottom - FOLGA - MARGEM);
+  const espacoAcima = Math.max(0, rect.top - FOLGA - MARGEM);
+  const paraCima = altura > espacoAbaixo && espacoAcima > espacoAbaixo;
+  if (paraCima) {
+    const usada = Math.min(altura || espacoAcima, espacoAcima);
+    return {
+      top: Math.max(MARGEM, rect.top - FOLGA - usada),
+      left,
+      maxHeight: Math.max(ALTURA_MIN, espacoAcima),
+      overflowY: 'auto',
+    };
+  }
+  return {
+    top: rect.bottom + FOLGA,
+    left,
+    maxHeight: Math.max(ALTURA_MIN, espacoAbaixo),
+    overflowY: 'auto',
+  };
 }
 
 export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onCancelar, erro }) => {
@@ -29,12 +54,21 @@ export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onC
   const [nota, setNota] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [falha, setFalha] = useState<string | null>(null);
+  const balaoRef = useRef<HTMLDivElement | null>(null);
+  const [altura, setAltura] = useState(0);
 
   // Zera o formulario so quando a selecao muda de fato (outro trecho ou outra tela), nao a cada leitura da mesma selecao
   useEffect(() => { setCor(null); setNota(''); setFalha(null); }, [captura.texto, captura.tela, captura.documento]);
 
   const folha = typeof window !== 'undefined' && window.innerWidth < 640;
-  const acima = typeof window !== 'undefined' && captura.rect.bottom + 260 > window.innerHeight;
+  // A bolha cresce quando a cor e escolhida (aparece a nota); a altura real e medida antes de pintar,
+  // senao a conta de "cabe embaixo?" usa um chute e a bolha acaba por cima do trecho marcado.
+  useLayoutEffect(() => {
+    if (folha) return;
+    const h = balaoRef.current?.offsetHeight ?? 0;
+    setAltura((prev) => (Math.abs(prev - h) > 1 ? h : prev));
+  }, [folha, cor, captura.texto, captura.tela, captura.documento, erro, falha]);
+
   const previa = captura.texto.length > 90 ? `${captura.texto.slice(0, 89)}…` : captura.texto;
   const invalido = captura.curto || captura.longo;
 
@@ -49,11 +83,14 @@ export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onC
 
   return (
     <div
+      ref={balaoRef}
       role="dialog"
       aria-label="Grifar o trecho selecionado"
       data-testid="grifo-balao"
       className={`script-no-print script-grifo-balao ${folha ? 'script-grifo-balao-folha' : ''}`}
-      style={folha ? undefined : posicao(captura.rect, acima)}
+      style={folha || typeof window === 'undefined'
+        ? undefined
+        : posicao(captura.rect, altura, window.innerWidth, window.innerHeight)}
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-[11px] uppercase tracking-[0.16em] font-semibold text-prosperus-gold-dark">Grifar</p>

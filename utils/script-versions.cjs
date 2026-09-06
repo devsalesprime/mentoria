@@ -15,6 +15,7 @@ const path = require('path');
 const { z } = require('zod');
 const SG = require('./script-grifos.cjs');
 const SF = require('./script-ficha.cjs');
+const ST = require('./script-tarefas.cjs');
 const VM = require('./validation-materials.cjs');
 
 const VERSAO_STATUSES = ['rascunho', 'aprovado'];
@@ -102,10 +103,15 @@ function rowToVersion(r, { withContent = false } = {}) {
   return out;
 }
 
-/** Grava a proxima versao (max + 1) do clube. */
+/**
+ * Grava a proxima versao (max + 1) do clube e herda as tarefas ja marcadas na versao base
+ * (a comentada, quando o job e `revisar`; senao a ultima que existia). O script mudou, mas o treino de
+ * quem ja assistiu continua marcado: ninguem recomeca do zero a cada revisao.
+ */
 async function insertVersion({ dbGet, dbRun, uuidv4 }, { club_slug, content_md, resumo = '', meta = null, job_id = null }) {
   const row = await dbGet(`SELECT COALESCE(MAX(versao), 0) AS m FROM script_versions WHERE club_slug = ?`, [club_slug]);
-  const versao = (row ? row.m : 0) + 1;
+  const anterior = row ? row.m : 0;
+  const versao = anterior + 1;
   const id = `sv-${uuidv4()}`;
   await dbRun(
     `INSERT INTO script_versions (id, club_slug, versao, content_md, resumo, meta, status, job_id)
@@ -113,7 +119,32 @@ async function insertVersion({ dbGet, dbRun, uuidv4 }, { club_slug, content_md, 
     [id, club_slug, versao, content_md, resumo || null, meta == null ? null : JSON.stringify(meta), job_id]
   );
   await resolveGrifosDoJob({ dbGet, dbRun }, club_slug, job_id);
+  await herdarTarefas({ dbGet, dbRun }, club_slug, versao, anterior, job_id);
   return getVersion({ dbGet }, club_slug, versao, { withContent: false });
+}
+
+/**
+ * Versao base da heranca das tarefas: a versao comentada quando o job e `revisar` (`payload.versao`),
+ * senao a ultima que existia antes desta ("Escrever do zero" continua de onde a pessoa parou).
+ * Sem versao anterior, ou sem a tabela no banco, nao faz nada.
+ */
+async function herdarTarefas({ dbGet, dbRun }, club_slug, versao, anterior, job_id) {
+  try {
+    let base = anterior;
+    if (job_id) {
+      const job = await dbGet('SELECT tipo, payload FROM cohort_jobs WHERE id = ?', [job_id]).catch(() => null);
+      if (job && job.tipo === 'revisar') {
+        const payload = parseJson(job.payload, null);
+        const n = payload && payload.versao != null ? Number(payload.versao) : NaN;
+        if (Number.isInteger(n) && n >= 1) base = n;
+      }
+    }
+    if (!Number.isInteger(base) || base < 1) return 0;
+    return await ST.copiarTarefas({ dbRun }, { club_slug, de: base, para: versao });
+  } catch (e) {
+    console.error('herdarTarefas:', e.message);
+    return 0;
+  }
 }
 
 /**
@@ -401,6 +432,7 @@ module.exports = {
   insertComment,
   scriptSummary,
   resolveGrifosDoJob,
+  herdarTarefas,
   entregavelDir,
   rowToEntregavel,
   getEntregavelRow,

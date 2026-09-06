@@ -22,6 +22,12 @@ const REQUIRED_KEYS = FIELDS.filter((f) => f.obrigatorio).map((f) => f.key);
 const ESSENCIAL_KEYS = FIELDS.filter((f) => f.essencial).map((f) => f.key);
 const ESSENCIAL_SET = new Set(ESSENCIAL_KEYS);
 const MODOS = ['essencial', 'completo'];
+/**
+ * `modo` gravado pelo proprio app, sem a pessoa ter visto a tela de escolha: acontece quando os materiais
+ * bastaram e a ficha fechou sozinha antes de qualquer escolha (13 clubes com dossie entraram assim).
+ * Fica em script_fichas.prefill_meta.modo_origem para a tela oferecer o essencial uma vez.
+ */
+const MODO_ORIGEM_AUTOMATICO = 'automatico';
 /** Modo da ficha guardado em script_fichas.modo; qualquer outro valor le como 'completo'. */
 function normalizeModo(m) {
   return m === 'essencial' ? 'essencial' : 'completo';
@@ -68,6 +74,26 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+/**
+ * Escrita concorrente de socios (6 clubes tem dois donos na mesma ficha): cada campo carrega uma versao
+ * propria (`rev`), que sobe a cada gravacao. A tela manda a `rev` que ela viu; se a do servidor ja passou
+ * dela e quem respondeu foi OUTRA pessoa, a gravacao para com 409 e a tela pergunta o que fazer
+ * (nunca some com o que o socio decidiu). O worker (PUT /api/jobs/:id/campo) nao passa por esta checagem.
+ */
+function proximaRev(state) {
+  const n = Number(state && state.rev);
+  return Number.isInteger(n) && n >= 0 ? n + 1 : 1;
+}
+
+/** Quem escreveu foi uma pessoa (e-mail) e nao o sistema ('automatica', 'worker:<id>'). */
+function ehPessoa(atualizado_por) {
+  return typeof atualizado_por === 'string' && atualizado_por.includes('@');
+}
+
+function mesmaPessoa(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
 function emptyFieldState() {
   return {
     sugerido: '',
@@ -78,6 +104,8 @@ function emptyFieldState() {
     status: 'vazio',
     valor: '',
     estrutura: null,
+    // Versao do campo: sobe a cada gravacao (escrita concorrente de socios)
+    rev: 0,
     // Achado do worker em cima de um campo JA decidido (o texto do mentor pesa mais; isto e aprofundamento):
     // { sugerido, fonte, classe, alternativas, recebido_em } | null. Some ao incorporar/dispensar.
     complemento: null,
@@ -122,6 +150,8 @@ function normalizeFieldState(raw) {
   if (!FIELD_STATUSES.includes(out.status)) out.status = out.sugerido ? 'sugerido' : 'vazio';
   if (typeof out.valor !== 'string') out.valor = out.valor == null ? '' : String(out.valor);
   out.estrutura = out.status === 'editado' ? normalizeEstrutura(out.estrutura) : null;
+  const rev = Number(out.rev);
+  out.rev = Number.isInteger(rev) && rev >= 0 ? rev : 0;
   return out;
 }
 
@@ -145,17 +175,39 @@ function effectiveValue(state) {
 }
 
 /**
- * Aplica decisoes do mentor. updates = { "3.3": { valor?, status, estrutura? } }.
+ * Um campo que o socio ja respondeu depois da leitura desta tela (escrita concorrente).
+ * Devolvido em `conflitos` para a tela avisar sem bloquear ("O seu sócio ... acabou de responder").
+ */
+function conflitoDoCampo(key, cur, revEnviada) {
+  return {
+    key,
+    rev: cur.rev,
+    rev_enviada: revEnviada,
+    status: cur.status,
+    valor: effectiveValue(cur),
+    sugerido: cur.sugerido,
+    atualizado_por: cur.atualizado_por || null,
+    atualizado_em: cur.atualizado_em || null,
+  };
+}
+
+/**
+ * Aplica decisoes do mentor. updates = { "3.3": { valor?, status, estrutura?, rev?, forcar? } }.
  * Transicoes:
  *   confirmado   : exige sugerido nao vazio; valor = sugerido; estrutura = null
  *   editado      : exige valor nao vazio; guarda estrutura (JSON do widget) se vier
  *   aceito_vazio : sempre permitido; valor = ''; estrutura = null
  *   sugerido|vazio : desfaz a decisao (volta ao original)
+ *
+ * Com `checarRev`, um campo que OUTRA pessoa decidiu depois da `rev` que a tela viu nao e gravado:
+ * ele volta em `conflitos` (a tela mostra o aviso e oferece "Usar a minha", que reenvia com `forcar`).
+ * Sem `rev` no update (cliente antigo) ou com `forcar: true`, grava como sempre gravou.
  */
-function applyUpdates(fields, updates, email) {
+function applyUpdates(fields, updates, email, { checarRev = false } = {}) {
   const next = normalizeFields(fields);
   const applied = [];
   const rejected = [];
+  const conflitos = [];
   const ts = nowIso();
 
   for (const [key, upd] of Object.entries(updates || {})) {
@@ -165,20 +217,28 @@ function applyUpdates(fields, updates, email) {
     const status = upd.status;
     const valor = typeof upd.valor === 'string' ? upd.valor : '';
 
+    // O socio respondeu este campo depois de esta tela ler a ficha: para aqui e pergunta
+    if (checarRev && !upd.forcar && Number.isInteger(upd.rev) && cur.rev > upd.rev
+      && isDecided(cur) && ehPessoa(cur.atualizado_por) && !mesmaPessoa(cur.atualizado_por, email)) {
+      conflitos.push(conflitoDoCampo(key, cur, upd.rev));
+      continue;
+    }
+
     if (status === 'confirmado') {
       if (!cur.sugerido.trim()) { rejected.push({ key, motivo: 'sem sugestao para confirmar' }); continue; }
-      next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, estrutura: null, atualizado_por: email, atualizado_em: ts };
+      next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, estrutura: null, rev: proximaRev(cur), atualizado_por: email, atualizado_em: ts };
     } else if (status === 'editado') {
       if (!valor.trim()) { rejected.push({ key, motivo: 'valor vazio' }); continue; }
-      next[key] = { ...cur, status: 'editado', valor: valor.trim(), estrutura: normalizeEstrutura(upd.estrutura), atualizado_por: email, atualizado_em: ts };
+      next[key] = { ...cur, status: 'editado', valor: valor.trim(), estrutura: normalizeEstrutura(upd.estrutura), rev: proximaRev(cur), atualizado_por: email, atualizado_em: ts };
     } else if (status === 'aceito_vazio') {
-      next[key] = { ...cur, status: 'aceito_vazio', valor: '', estrutura: null, atualizado_por: email, atualizado_em: ts };
+      next[key] = { ...cur, status: 'aceito_vazio', valor: '', estrutura: null, rev: proximaRev(cur), atualizado_por: email, atualizado_em: ts };
     } else if (status === 'sugerido' || status === 'vazio') {
       next[key] = {
         ...cur,
         status: cur.sugerido.trim() ? 'sugerido' : 'vazio',
         valor: '',
         estrutura: null,
+        rev: proximaRev(cur),
         atualizado_por: email,
         atualizado_em: ts,
       };
@@ -191,7 +251,7 @@ function applyUpdates(fields, updates, email) {
     applied.push(key);
   }
 
-  return { fields: next, applied, rejected };
+  return { fields: next, applied, rejected, conflitos };
 }
 
 /**
@@ -236,6 +296,7 @@ function applyPrefill(fields, campos, { parcial = false } = {}) {
       status: san.sugerido ? 'sugerido' : 'vazio',
       valor: '',
       estrutura: null,
+      rev: proximaRev(cur),
       complemento: null,
     };
     imported.push(key);
@@ -262,7 +323,7 @@ function applyComplemento(fields, key, acao, email) {
   if (acao !== 'incorporar') return { ok: false, motivo: 'acao invalida' };
   const atual = effectiveValue(cur).trim();
   const valor = atual ? `${atual}\n\n${cur.complemento.sugerido}` : cur.complemento.sugerido;
-  next[key] = { ...cur, status: 'editado', valor, estrutura: null, complemento: null, autor: null, atualizado_por: email, atualizado_em: nowIso() };
+  next[key] = { ...cur, status: 'editado', valor, estrutura: null, complemento: null, autor: null, rev: proximaRev(cur), atualizado_por: email, atualizado_em: nowIso() };
   return { ok: true, fields: next, field: next[key], decidiu: true };
 }
 
@@ -316,6 +377,7 @@ function applyWorkerSuggestion(fields, key, inc, { job_id = null, decidir = fals
       estrutura: null,
       complemento: null,
       autor: AUTOR_WHATSAPP,
+      rev: proximaRev(cur),
       atualizado_por: job_id ? `worker:${job_id}` : 'worker',
       atualizado_em: ts,
     };
@@ -343,6 +405,7 @@ function applyWorkerSuggestion(fields, key, inc, { job_id = null, decidir = fals
     status: san.sugerido ? 'sugerido' : 'vazio',
     valor: '',
     estrutura: null,
+    rev: proximaRev(cur),
     atualizado_por: job_id ? `worker:${job_id}` : 'worker',
     atualizado_em: ts,
   };
@@ -370,6 +433,7 @@ function limparADefinir(fields) {
       ...cur,
       ...(san ? { sugerido: '', classe: 'VZ', fonte: '', nota_interna: san.nota_interna, status: 'vazio', valor: '' } : {}),
       alternativas: alts,
+      rev: proximaRev(cur),
     };
     alterados.push({ key, antes: cur.sugerido, alternativas_removidas: altsAntes - alts.length });
   }
@@ -505,11 +569,22 @@ function roundMinutes(m) {
 }
 
 /**
+ * Quem respondeu o campo, quando foi uma pessoa (nunca o sistema): { email, nome }.
+ * `nomes` = { "<e-mail>": "Nome" } do clube; sem o nome, a tela cai no e-mail.
+ */
+function autorDoCampo(state, nomes) {
+  if (!ehPessoa(state.atualizado_por)) return null;
+  const email = String(state.atualizado_por).trim().toLowerCase();
+  return { email, nome: (nomes && nomes[email]) || '' };
+}
+
+/**
  * Monta a visao da ficha para o front: blocos com campos (definicao + estado),
  * progresso e o "hoje" (SPEC secao 4: dia 1 = blocos 1 a 3, dia 2 = 4 a 6, dia 3 = revisar).
  * includeInternal: inclui nota_interna e passo (so admin).
+ * nomes: mapa e-mail -> nome do clube, para o campo dizer quem respondeu (escrita concorrente de socios).
  */
-function buildFichaView(fieldsRaw, { includeInternal = false } = {}) {
+function buildFichaView(fieldsRaw, { includeInternal = false, nomes = null } = {}) {
   const fields = normalizeFields(fieldsRaw);
 
   const blocos = BLOCKS.map((b) => {
@@ -544,6 +619,10 @@ function buildFichaView(fieldsRaw, { includeInternal = false } = {}) {
         autor: st.autor || null,
         atualizado_por: st.atualizado_por,
         atualizado_em: st.atualizado_em,
+        // Versao do campo: a tela devolve no PUT para o servidor barrar a escrita por cima do socio
+        rev: st.rev,
+        // Quem respondeu, quando foi uma pessoa (a tela mostra "respondido por Fulano há ...")
+        decidido_por: autorDoCampo(st, nomes),
       };
       if (includeInternal) {
         campo.nota_interna = st.nota_interna;
@@ -629,6 +708,7 @@ module.exports = {
   ESSENCIAL_KEYS,
   ESSENCIAL_SET,
   MODOS,
+  MODO_ORIGEM_AUTOMATICO,
   normalizeModo,
   SCRIPT_FICHAS_MODO_DDL,
   ensureModoColumn,
@@ -641,6 +721,10 @@ module.exports = {
   AUTOR_WHATSAPP,
   PLACEHOLDER_RE,
   isPlaceholder,
+  proximaRev,
+  ehPessoa,
+  mesmaPessoa,
+  autorDoCampo,
   sanitizeSugestao,
   cleanAlternativas,
   applyWorkerSuggestion,

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios';
 import { Button } from '../ui/Button';
 import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo } from '../../hooks/useScriptFicha';
+import { AvisoModoAutomatico } from './AvisoModoAutomatico';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
 import { ScriptPaper } from './script/ScriptPaper';
 import { ScriptReader, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
@@ -298,6 +299,38 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [modalGrifos, captura, parsed, irPara]);
+
+  // O menu "Mais" e um <details> nativo: o navegador nao fecha no Esc nem ao clicar fora.
+  // Aqui ele passa a fechar dos dois jeitos; no Esc o foco volta para o proprio botao "Mais".
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const abertos = () => Array.from(
+      document.querySelectorAll<HTMLDetailsElement>('details.script-mais[open]'),
+    );
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const lista = abertos();
+      if (!lista.length) return;
+      e.stopPropagation();
+      for (const d of lista) {
+        d.removeAttribute('open');
+        d.querySelector<HTMLElement>('summary')?.focus();
+      }
+    };
+    const onDown = (e: PointerEvent) => {
+      const alvo = e.target as Element | null;
+      for (const d of abertos()) {
+        if (alvo && typeof alvo.closest === 'function' && alvo.closest('details') === d) continue;
+        d.removeAttribute('open');
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onDown);
+    };
+  }, []);
 
   // Selecao de texto -> balao "Grifar" (mouse: ao soltar; toque: selectionchange com atraso)
   useEffect(() => {
@@ -683,6 +716,13 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     const status = jobStatusLabel(job);
     return (
       <div className="max-w-2xl mx-auto space-y-5">
+        {/* O app escolheu o caminho sozinho (o material bastou antes da tela de escolha): oferece o essencial uma vez */}
+        <AvisoModoAutomatico
+          clubeSlug={clubSlug}
+          modo={ficha.data?.modo}
+          modoOrigem={ficha.data?.modo_origem}
+          onEssencial={() => ficha.definirModo('essencial')}
+        />
         <div className="bg-prosperus-navy-mid border border-white/10 rounded-2xl p-6 sm:p-8 space-y-4">
           <p className="text-[11px] uppercase tracking-[0.2em] text-prosperus-gold-dark font-semibold">Seu script</p>
           {fichaConfirmada || job ? (
@@ -742,6 +782,15 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   return (
     <div className="space-y-4 script-screen">
+      {/* O app escolheu o caminho sozinho: oferece o essencial uma vez (a mesma memória da Ficha) */}
+      <div className="script-no-print">
+        <AvisoModoAutomatico
+          clubeSlug={clubSlug}
+          modo={ficha.data?.modo}
+          modoOrigem={ficha.data?.modo_origem}
+          onEssencial={() => ficha.definirModo('essencial')}
+        />
+      </div>
       {/* Cabecalho e acoes: pilula da versao (com a troca num menu), "O que mudou", Aprovar, Pedir nova versao e o menu "Mais" */}
       <div className="script-no-print flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">

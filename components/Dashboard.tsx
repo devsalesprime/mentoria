@@ -923,9 +923,15 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <Button
               variant="ghost"
               onClick={() => setIsProfileModalOpen(true)}
+              aria-label="Abrir o perfil"
               className="text-xs sm:text-sm text-gray-400 hover:text-white hidden sm:block"
             >
-              👤 <span className="hidden md:inline">Perfil</span>
+              {/* icone em SVG: nada de emoji na tela do mentor */}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block w-4 h-4 align-[-2px]" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              <span className="hidden md:inline">Perfil</span>
             </Button>
             <Button
               variant="danger-soft"

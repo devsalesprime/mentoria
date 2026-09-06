@@ -5,6 +5,7 @@ import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-f
 import { ehEssencial } from '../../data/script-ficha-fields';
 import { campoRefinando } from '../../hooks/useContextoCampo';
 import { FichaField } from './FichaField';
+import { AvisoModoAutomatico } from './AvisoModoAutomatico';
 import { COPY_APROFUNDAR, FichaWizard, textoFaltamEssenciais, textoFaltamRespostas, type FocoWizard } from './FichaWizard';
 import { BLOCK_INTRO, COPY_GRUPO_APROFUNDAR } from './FichaNavegador';
 import { ToastStack } from './contexto/ToastStack';
@@ -62,7 +63,10 @@ export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já 
 export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo escrito.';
 
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
-  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento, pedirRevisao, definirModo } = ficha;
+  const {
+    data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia,
+    complemento, pedirRevisao, definirModo, conflitos, manterDoSocio, usarAMinha, meuEmail,
+  } = ficha;
   const [openBlock, setOpenBlock] = useState<number | null>(null);
   const [modo, setModo] = useState<Modo>(() => {
     try { return window.localStorage.getItem(MODO_KEY) === 'tudo' ? 'tudo' : 'passo'; } catch { return 'passo'; }
@@ -320,7 +324,16 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
               {/* a janela de cada lado (3.5 cinza, 3.6 dourada) já carrega o próprio rótulo */}
               {[c, outro].map((f) => (
                 <div key={f.key} className="space-y-2 min-w-0">
-                  <FichaField campo={f} onDecide={decide} contexto={contexto} onRecarregar={recarregar} />
+                  <FichaField
+                    campo={f}
+                    onDecide={decide}
+                    contexto={contexto}
+                    onRecarregar={recarregar}
+                    conflito={conflitos?.[f.key] || null}
+                    onManterDoSocio={manterDoSocio}
+                    onUsarAMinha={usarAMinha}
+                    meuEmail={meuEmail}
+                  />
                   {f.complemento && <ComplementoCampo campo={f} onIncorporar={incorporar} onDispensar={dispensar} onSalvarAjuste={salvarAjuste} />}
                 </div>
               ))}
@@ -331,7 +344,16 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
       }
       out.push(
         <React.Fragment key={c.key}>
-          <FichaField campo={c} onDecide={decide} contexto={contexto} onRecarregar={recarregar} />
+          <FichaField
+            campo={c}
+            onDecide={decide}
+            contexto={contexto}
+            onRecarregar={recarregar}
+            conflito={conflitos?.[c.key] || null}
+            onManterDoSocio={manterDoSocio}
+            onUsarAMinha={usarAMinha}
+            meuEmail={meuEmail}
+          />
           {c.complemento && <ComplementoCampo campo={c} onIncorporar={incorporar} onDispensar={dispensar} onSalvarAjuste={salvarAjuste} />}
         </React.Fragment>,
       );
@@ -422,6 +444,14 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             Com a ficha fechada, a gente escreve o seu script dos 7 passos, na sua voz.
           </p>
         )}
+
+        {/* O app escolheu o caminho sozinho (o material bastou antes da tela de escolha): oferece o essencial uma vez */}
+        <AvisoModoAutomatico
+          clubeSlug={data.club.slug}
+          modo={data.modo}
+          modoOrigem={data.modo_origem}
+          onEssencial={() => definirModo('essencial')}
+        />
 
         {isConfirmed && !closedNow && (
           fechadaPelosMateriais

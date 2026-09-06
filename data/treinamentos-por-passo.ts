@@ -26,7 +26,13 @@
  * O player é o mesmo da aula da Dani (iframe da Bunny Stream, library 716048), já liberado no
  * `frame-src` do `server.cjs`. `inicioSegundos` fica vazio: nenhuma gravação tem marca de tempo
  * documentada (MAPA §3.3).
+ *
+ * Os dados vivem em `treinamentos-por-passo.json` (mesmo padrão de `script-ficha-fields.json`): o servidor
+ * lê o MESMO arquivo em `utils/script-tarefas.cjs` para saber quais tarefas ainda existem no catálogo na
+ * hora de herdar as marcações de uma versão para a outra. Este módulo só tipa e expõe os helpers do front.
+ * Os dois arquivos precisam de `git add -f` (o `.gitignore` ignora `data/`).
  */
+import catalogo from './treinamentos-por-passo.json';
 
 /** De onde a gravação veio. Manda na prioridade quando há mais de um treinamento no mesmo tema. */
 export type TreinamentoTipo = 'Imersão presencial' | 'Corporate' | 'Sócios' | 'Formação de Mentoria' | 'Evento';
@@ -50,149 +56,14 @@ export interface Treinamento {
   inicioSegundos?: number;
 }
 
-export const BUNNY_LIBRARY = '716048';
+export const BUNNY_LIBRARY: string = catalogo.bunny_library;
 
 export function embedDoGuid(guid: string): string {
   return `https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY}/${guid}`;
 }
 
 /** Passo (1 a 7) -> até 2 treinamentos recomendados, na ordem em que aparecem na tela. */
-export const TREINAMENTOS_POR_PASSO: Record<number, Treinamento[]> = {
-  1: [
-    {
-      id: 'imersao.2026-06.dani-martins-mentalidade-ceo',
-      titulo: 'Palestra Dani Martins · Mentalidade de CEO com Foco em Receita: o dono como o melhor vendedor do negócio',
-      palestrante: 'Dani Martins',
-      tipo: 'Imersão presencial',
-      duracaoMin: 169.3,
-      bunnyGuid: '22741290-9d9e-407b-8512-226c91d4ba47',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/22741290-9d9e-407b-8512-226c91d4ba47',
-      porQueAgora: 'O perfil comportamental do lado de quem vende: as cinco inteligências, os quatro perfis e as crenças de identidade, capacidade e merecimento.',
-    },
-    {
-      id: 'corporate.perfil-do-cliente-com-thiago-chiovatto',
-      titulo: 'Perfil do Cliente - Com Thiago Chiovatto',
-      palestrante: 'Thiago Chiovatto',
-      tipo: 'Corporate',
-      duracaoMin: 88.6,
-      bunnyGuid: 'b5f9555c-0e88-43b4-8834-b18aec327076',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/b5f9555c-0e88-43b4-8834-b18aec327076',
-      porQueAgora: 'Ler o perfil do cliente nos cinco primeiros minutos e abrir a reunião no ritmo dele, que é a decisão deste passo.',
-    },
-  ],
-  2: [
-    {
-      id: 'corporate.a-arte-de-fazer-perguntas-com-pamela-ferrari',
-      titulo: 'A Arte de Fazer Perguntas - Com Pâmela Ferrari',
-      palestrante: 'Pâmela Ferrari',
-      tipo: 'Corporate',
-      duracaoMin: 81.0,
-      bunnyGuid: '3fe9dfe7-a992-471b-afec-58f198ad547b',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/3fe9dfe7-a992-471b-afec-58f198ad547b',
-      porQueAgora: 'É a gravação do próprio CNCS (Contexto, Necessidade, Consequência, Solução) e dos cinco níveis de consciência.',
-    },
-    {
-      id: 'corporate.spin-selling-com-lua-paiva',
-      titulo: 'Spin Selling',
-      palestrante: 'Luã Paiva',
-      tipo: 'Corporate',
-      duracaoMin: 84.0,
-      bunnyGuid: '0d4089d0-3d20-46cd-8345-ee4566f8492b',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/0d4089d0-3d20-46cd-8345-ee4566f8492b',
-      porQueAgora: 'Percorre a trilha inteira de perguntas até a consequência, que é a origem do CNCS que você usa aqui.',
-    },
-  ],
-  3: [
-    {
-      id: 'corporate.apresentacao-cirurgica-com-thiago-chiovatto',
-      titulo: 'Apresentação Cirúrgica - Com Thiago Chiovatto',
-      palestrante: 'Thiago Chiovatto',
-      tipo: 'Corporate',
-      duracaoMin: 80.0,
-      bunnyGuid: 'b0f2fcdd-1673-45cc-8874-ae9a3247c5d7',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7',
-      porQueAgora: 'As quatro fases da apresentação e a regra de vender o benefício, nunca a característica.',
-    },
-    {
-      id: 'corporate.storytelling-com-juliana-medeiros',
-      titulo: 'Storytelling',
-      palestrante: 'Juliana Medeiros',
-      tipo: 'Corporate',
-      duracaoMin: 74.2,
-      bunnyGuid: '4bded213-9729-48d4-bdf0-ec5bde22e187',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/4bded213-9729-48d4-bdf0-ec5bde22e187',
-      porQueAgora: 'Dá os quatro elementos da história de bolso (herói, desafio, caminho, transformação) que sustentam a prova social.',
-    },
-  ],
-  4: [
-    {
-      id: 'corporate.objecoes-com-pamela-ferrari',
-      titulo: 'Objeções - Com Pâmela Ferrari',
-      palestrante: 'Pâmela Ferrari',
-      tipo: 'Corporate',
-      duracaoMin: 71.1,
-      bunnyGuid: '6690f16c-da9d-4f36-9400-3cfae11d9f77',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/6690f16c-da9d-4f36-9400-3cfae11d9f77',
-      porQueAgora: 'A tese da gravação é a deste passo: objeção se antecipa ao longo da venda e nunca chega de surpresa no fechamento.',
-    },
-    {
-      id: 'corporate.use-o-nao-e-melhore-a-conversao-com-lua-paiva',
-      titulo: 'Use o Não e Melhore a Conversão',
-      palestrante: 'Luã Paiva',
-      tipo: 'Corporate',
-      duracaoMin: 62.9,
-      bunnyGuid: '76c8ab9d-104c-47be-bed5-d948317d4fd2',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/76c8ab9d-104c-47be-bed5-d948317d4fd2',
-      porQueAgora: 'Entrega o método ACA (Acolher, Clarificar, Avançar) e separa a objeção que se antecipa da que se responde na hora.',
-    },
-  ],
-  5: [
-    {
-      id: 'corporate.fechamento-com-pamela-ferrari',
-      titulo: 'Fechamento - Com Pâmela Ferrari',
-      palestrante: 'Pâmela Ferrari',
-      tipo: 'Corporate',
-      duracaoMin: 72.3,
-      bunnyGuid: 'b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd',
-      porQueAgora: 'Sinais de compra, microcompromissos, equação de valor e a pergunta que abre o fechamento.',
-    },
-    {
-      id: 'corporate.os-seis-porques-da-decisao-com-dani-martins',
-      titulo: 'Os Seis Porquês da Decisão - Com Dani Martins',
-      palestrante: 'Dani Martins',
-      tipo: 'Corporate',
-      duracaoMin: 61.2,
-      bunnyGuid: '351d4990-e6ae-4a22-be99-e37cf9daec30',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/351d4990-e6ae-4a22-be99-e37cf9daec30',
-      porQueAgora: 'É a gravação de quando o cliente não decide: indecisão, reatância e os seis porquês que ele responde por dentro.',
-    },
-  ],
-  6: [
-    {
-      id: 'corporate.follow-up-com-claudio-rosa',
-      titulo: 'Follow Up - Com Cláudio Rosa',
-      palestrante: 'Cláudio Rosa',
-      tipo: 'Corporate',
-      duracaoMin: 60.6,
-      bunnyGuid: '2b21162d-5d92-4bb1-91e9-08d1fe344c38',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/2b21162d-5d92-4bb1-91e9-08d1fe344c38',
-      porQueAgora: 'Ciclo de reforço em cinco etapas e sequências de sete contatos, que é o movimento do compromisso.',
-    },
-  ],
-  7: [
-    {
-      id: 'corporate.recomendacao-com-pamela-ferrari',
-      titulo: 'Recomendação',
-      palestrante: 'Pâmela Ferrari',
-      tipo: 'Corporate',
-      duracaoMin: 63.9,
-      bunnyGuid: '8a8cc7d2-7b67-4d09-8352-13df7625bf4e',
-      embedUrl: 'https://iframe.mediadelivery.net/embed/716048/8a8cc7d2-7b67-4d09-8352-13df7625bf4e',
-      porQueAgora: 'Ensina o EVPC (Encantar, Validar, Propósito, Compromisso) e o momento certo de pedir, por segmento.',
-    },
-  ],
-};
+export const TREINAMENTOS_POR_PASSO: Record<number, Treinamento[]> = catalogo.passos as unknown as Record<number, Treinamento[]>;
 
 /** Os treinamentos recomendados de um passo (lista vazia quando o passo não tem nenhum). */
 export function treinamentosDoPasso(passo: number | null | undefined): Treinamento[] {

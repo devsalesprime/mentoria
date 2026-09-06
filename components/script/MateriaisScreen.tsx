@@ -64,6 +64,11 @@ export const COPY_PULAR_MATERIAIS = 'Não tenho materiais, ir para a ficha';
 
 export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, onNavigate }) => {
   const { data, loading, loaded, error, saveMaterials, submitMaterials, setFiles, pularMateriais } = ficha;
+  // TODO HOOK: todo hook fica AQUI EM CIMA, antes de qualquer `return`. Num acesso direto (ou F5) em
+  // /dashboard/materiais o primeiro render cai no `if (loading && !data)` e sai antes; se um hook morar
+  // depois desse return, o render seguinte (ja com a ficha) chama um hook a mais e o React quebra com o
+  // erro #310 ("rendered more hooks than during the previous render") direto no ModuleErrorBoundary.
+  const navigate = useNavigate();
   const [openCat, setOpenCat] = useState<string | null>(MATERIAL_CATEGORIAS[0].id);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLabel, setLinkLabel] = useState('');
@@ -152,7 +157,6 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
 
   // Depois de "Confirmar e ir para a ficha": a Ficha mostra o painel de marcos e as sugestoes chegam bloco a bloco.
   // O aviso fica guardado ate a pilha de toasts da Ficha montar (contexto/toast.ts).
-  const navigate = useNavigate();
 
   // "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa, não manda ler nada e abre a ficha.
   // O WhatsApp é opcional; sem ele a pessoa segue igual, só não recebe os avisos.

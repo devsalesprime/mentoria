@@ -14,15 +14,53 @@
  * o par. Assim trocar um treinamento recomendado não pede migration; a linha antiga simplesmente para de
  * aparecer na tela (e o `GET` continua devolvendo, para não apagar histórico de ninguém).
  *
+ * Herança entre versões: a versão nova nascia com tudo desmarcado e quem pedia uma revisão recomeçava o
+ * treino do zero. Agora `copiarTarefas` leva as marcações da versão base para a nova (mesma pessoa, mesmo
+ * passo, mesma tarefa, mesma data), e só as tarefas que ainda existem no catálogo passam. A linha órfã
+ * (treinamento tirado de `data/treinamentos-por-passo.json`) fica no banco, mas sai da leitura do membro:
+ * não aparece na tela nem entra na contagem do passo. O admin continua vendo, marcada como órfã.
+ *
  * Registro: migrations/024_script_tarefas.sql.
  */
 const { z } = require('zod');
+const CATALOGO = require('../data/treinamentos-por-passo.json');
 
 const PASSO_MIN = 1;
 const PASSO_MAX = 7;
 const TAREFA_ID_MAX = 80;
 /** Minúsculas, dígitos, ponto, hífen e sublinhado; começa por letra ou dígito (o ponto vem do id do catálogo). */
 const TAREFA_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/**
+ * As tarefas iguais em todos os passos (components/script/script/tarefas.ts). Os ids são estáveis porque
+ * viram chave no banco: id novo em vez de id renomeado.
+ */
+const TAREFAS_FIXAS = ['treinar-falas', 'aplicar-reuniao', 'marcar-ajustes'];
+
+/** `assistir-<id do treinamento>`, uma por gravação recomendada do passo. */
+function idDeAssistir(treinamentoId) {
+  return `assistir-${String(treinamentoId || '').trim().toLowerCase()}`;
+}
+
+/** Os ids de tarefa válidos de um passo hoje: assistir a cada recomendado + as três fixas. */
+function tarefasDoPasso(passo) {
+  const recomendados = (CATALOGO.passos && CATALOGO.passos[String(passo)]) || [];
+  return [...recomendados.map((t) => idDeAssistir(t.id)), ...TAREFAS_FIXAS];
+}
+
+/** Pares "passo:tarefa" que o catálogo de hoje reconhece (os 7 passos de uma vez). */
+function paresDoCatalogo() {
+  const pares = [];
+  for (let p = PASSO_MIN; p <= PASSO_MAX; p += 1) for (const id of tarefasDoPasso(p)) pares.push(`${p}:${id}`);
+  return pares;
+}
+
+const PARES_CATALOGO = new Set(paresDoCatalogo());
+
+/** A tarefa ainda existe no catálogo? Linha órfã = treinamento que saiu de `data/treinamentos-por-passo.json`. */
+function ehDoCatalogo(passo, tarefa_id) {
+  return PARES_CATALOGO.has(`${Number(passo)}:${String(tarefa_id || '').trim().toLowerCase()}`);
+}
 
 const DDL = [
   `CREATE TABLE IF NOT EXISTS script_tarefas (
@@ -67,7 +105,7 @@ function parseTarefaId(valor) {
   return id;
 }
 
-function rowToTarefa(r, { comEmail = false } = {}) {
+function rowToTarefa(r, { comEmail = false, comOrfa = false } = {}) {
   if (!r) return null;
   const t = {
     passo: r.passo,
@@ -77,21 +115,26 @@ function rowToTarefa(r, { comEmail = false } = {}) {
     updated_at: r.updated_at,
   };
   if (comEmail) t.email = r.email;
+  if (comOrfa) t.orfa = !ehDoCatalogo(r.passo, r.tarefa_id);
   return t;
 }
 
 const ORDER = 'ORDER BY passo ASC, tarefa_id ASC';
 
-/** Todas as tarefas marcadas por UMA pessoa numa versão (os 7 passos de uma vez). */
-async function listTarefas({ dbAll }, club_slug, versao, email) {
+/**
+ * Todas as tarefas marcadas por UMA pessoa numa versão (os 7 passos de uma vez).
+ * A linha órfã (tarefa que saiu do catálogo) fica de fora: não aparece na tela nem entra na contagem.
+ */
+async function listTarefas({ dbAll }, club_slug, versao, email, { incluirOrfas = false } = {}) {
   const rows = await dbAll(
     `SELECT * FROM script_tarefas WHERE club_slug = ? AND versao = ? AND email = ? ${ORDER}`,
     [club_slug, Number(versao), normEmail(email)]
   );
-  return rows.map((r) => rowToTarefa(r));
+  const vivas = incluirOrfas ? rows : rows.filter((r) => ehDoCatalogo(r.passo, r.tarefa_id));
+  return vivas.map((r) => rowToTarefa(r, { comOrfa: incluirOrfas }));
 }
 
-/** Tarefas de todo mundo do clube numa versão (admin, só leitura). */
+/** Tarefas de todo mundo do clube numa versão (admin, só leitura). Inclui as órfãs, marcadas como tal. */
 async function listTarefasDoClube({ dbAll }, club_slug, versao = null) {
   const filtro = versao == null ? '' : ' AND versao = ?';
   const params = versao == null ? [club_slug] : [club_slug, Number(versao)];
@@ -99,7 +142,30 @@ async function listTarefasDoClube({ dbAll }, club_slug, versao = null) {
     `SELECT * FROM script_tarefas WHERE club_slug = ?${filtro} ORDER BY versao DESC, email ASC, passo ASC, tarefa_id ASC`,
     params
   );
-  return rows.map((r) => rowToTarefa(r, { comEmail: true }));
+  return rows.map((r) => rowToTarefa(r, { comEmail: true, comOrfa: true }));
+}
+
+/**
+ * Herda as marcações da versão `de` para a versão `para`, de TODAS as pessoas do clube: mesmo passo, mesma
+ * tarefa, mesmo `concluida` e o `concluida_em` original (a data em que a pessoa marcou de verdade).
+ * Só passa tarefa que ainda existe no catálogo; a órfã fica para trás. Nunca sobrescreve o que a versão
+ * nova já tem (INSERT OR IGNORE), então republicar não apaga marcação nova.
+ * @returns {number} quantas linhas foram copiadas
+ */
+async function copiarTarefas({ dbRun }, { club_slug, de, para }) {
+  const origem = Number(de);
+  const destino = Number(para);
+  if (!Number.isInteger(origem) || !Number.isInteger(destino) || origem < 1 || destino < 1 || origem === destino) return 0;
+  const pares = paresDoCatalogo();
+  const marcas = pares.map(() => '?').join(', ');
+  const r = await dbRun(
+    `INSERT OR IGNORE INTO script_tarefas (id, club_slug, versao, email, passo, tarefa_id, concluida, concluida_em, updated_at)
+     SELECT 'st-' || lower(hex(randomblob(8))), club_slug, ?, email, passo, tarefa_id, concluida, concluida_em, CURRENT_TIMESTAMP
+       FROM script_tarefas
+      WHERE club_slug = ? AND versao = ? AND (passo || ':' || tarefa_id) IN (${marcas})`,
+    [destino, club_slug, origem, ...pares]
+  );
+  return r && r.changes ? r.changes : 0;
 }
 
 async function getTarefa({ dbGet }, club_slug, versao, email, passo, tarefa_id) {
@@ -138,6 +204,12 @@ module.exports = {
   PASSO_MAX,
   TAREFA_ID_MAX,
   TAREFA_ID_RE,
+  TAREFAS_FIXAS,
+  idDeAssistir,
+  tarefasDoPasso,
+  paresDoCatalogo,
+  ehDoCatalogo,
+  copiarTarefas,
   ensureScriptTarefasTable,
   tarefaPutSchema,
   parsePasso,

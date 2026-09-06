@@ -497,7 +497,7 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
 
       <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-2">
         <label htmlFor="cohort-prazo-materiais" className="text-xs text-white/60 sm:w-64">
-          Prazo dos materiais <span className="text-white/40">(aparece no "Como funciona" da tela Materiais; vazio esconde)</span>
+          Prazo dos materiais <span className="text-white/40">(aparece no "Como funciona" da tela Materiais; vazio esconde. Escreva a data: depois que ela passa a linha some sozinha, e "hoje" ou "amanhã" não vão para a tela)</span>
         </label>
         <input
           id="cohort-prazo-materiais"

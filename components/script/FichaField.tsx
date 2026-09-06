@@ -7,7 +7,8 @@
 import React from 'react';
 import type { ScriptFieldView } from '../../data/script-ficha-fields';
 import { SCRIPT_FIELD_BY_KEY } from '../../data/script-ficha-fields';
-import type { FieldDecision } from '../../hooks/useScriptFicha';
+import type { FieldConflito, FieldDecision } from '../../hooks/useScriptFicha';
+import { AvisoSocio, RespondidoPor } from './AvisoSocio';
 import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
 import { Button } from '../ui/Button';
 import { FieldEditor, useFieldEditor } from './widgets/editor';
@@ -35,6 +36,12 @@ interface FichaFieldProps {
   contexto?: Record<string, ScriptFieldView>;
   /** Recarrega a ficha (flush + GET) depois de pedir uma nova sugestão com contexto. */
   onRecarregar?: () => Promise<void> | void;
+  /** Escrita concorrente: o sócio respondeu este campo antes desta tela gravar. */
+  conflito?: FieldConflito | null;
+  onManterDoSocio?: (key: string) => void;
+  onUsarAMinha?: (key: string) => void;
+  /** E-mail de quem está logado (a linha "respondido por" só aparece quando foi o sócio). */
+  meuEmail?: string;
 }
 
 // Alvo de toque no celular: 44 px de altura minima (desktop mantem o tamanho do Button)
@@ -109,7 +116,10 @@ export function statusDaTela(campo: ScriptFieldView): ScriptFieldView['status'] 
   return campo.status === 'sugerido' && sugestaoVazia(campo.sugerido) ? 'vazio' : campo.status;
 }
 
-export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnly = false, contexto, onRecarregar }) => {
+export const FichaField: React.FC<FichaFieldProps> = ({
+  campo, onDecide, readOnly = false, contexto, onRecarregar,
+  conflito = null, onManterDoSocio, onUsarAMinha, meuEmail = '',
+}) => {
   const editor = useFieldEditor(campo, contexto);
   const { editing, canSave } = editor;
 
@@ -167,7 +177,17 @@ export const FichaField: React.FC<FichaFieldProps> = ({ campo, onDecide, readOnl
         </div>
         <h4 className="font-serif text-lg sm:text-xl text-white leading-snug">{campo.pergunta}</h4>
         <PorQueImporta campo={campo} />
+        <RespondidoPor campo={campo} meuEmail={meuEmail} />
       </div>
+
+      {/* O sócio respondeu antes: aviso que não bloqueia, com as duas saídas */}
+      {conflito && !readOnly && (
+        <AvisoSocio
+          conflito={conflito}
+          onManter={() => onManterDoSocio?.(campo.key)}
+          onUsarMinha={() => onUsarAMinha?.(campo.key)}
+        />
+      )}
 
       {/* (d) a resposta, por estado */}
       {editing ? renderEditor(true) : (

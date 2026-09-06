@@ -62,6 +62,12 @@ export interface ScriptAlternativa {
 
 /** Campo como vem do GET /api/script/ficha: definicao + estado. */
 /** Achado do worker em cima de um campo já decidido (aprofundamento): o mentor incorpora ou dispensa. */
+/** Quem respondeu o campo, quando foi uma pessoa (o sócio ou você). Sem nome conhecido, a tela usa o e-mail. */
+export interface ScriptAutorCampo {
+  email: string;
+  nome: string;
+}
+
 export interface ScriptComplemento {
   sugerido: string;
   fonte: string;
@@ -99,6 +105,10 @@ export interface ScriptFieldView {
   decidido: boolean;
   atualizado_por: string | null;
   atualizado_em: string | null;
+  /** Versão do campo: a tela devolve no PUT para o servidor barrar a escrita por cima do sócio. */
+  rev?: number;
+  /** Quem respondeu, quando foi uma pessoa (a tela mostra "respondido por Fulano há ..."). */
+  decidido_por?: ScriptAutorCampo | null;
   nota_interna?: string;
   passo?: string;
   fontes_precedencia?: string;

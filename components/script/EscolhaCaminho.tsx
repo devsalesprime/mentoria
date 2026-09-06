@@ -1,7 +1,8 @@
 /**
  * Escolha na entrada (SPEC-workflow-v2-decisoes-06-09 §1 decisão 1 e §2): antes de Materiais, quem é do
  * Exclusive escolhe como quer construir o script. Dois cartões, um botão em cada:
- *   Essencial -> as 12 perguntas que fecham o cartão de bolso, para levar na reunião de amanhã
+ *   Essencial -> as perguntas essenciais que fecham o cartão de bolso, para levar na reunião de amanhã
+ *   (a copy não cita quantidade: o conjunto essencial muda com `essencial: true` em data/script-ficha-fields.json)
  *   Completo  -> a ficha inteira, com treinamento, roteiro de campo, apresentação e as aulas
  * A escolha grava `modo` na ficha do clube (PUT /api/script/ficha/modo) e leva para Materiais.
  * Do essencial dá para aprofundar depois; o caminho de volta não é oferecido.

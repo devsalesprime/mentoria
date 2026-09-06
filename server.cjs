@@ -9,10 +9,14 @@ const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
+const { compressao, estaticos } = require('./utils/static-assets.cjs');
 require('dotenv').config();
 
 const app = express();
 app.set('trust proxy', 1); // Trust first proxy (Nginx)
+
+// gzip antes de tudo: pega o HTML/JS/CSS do SPA e o JSON da API (utils/static-assets.cjs)
+app.use(compressao());
 const PORT = process.env.PORT || 3005;
 const VERSION = '1.2.0-DEBUG';
 
@@ -563,19 +567,8 @@ app.post('/api/client-error', clientErrorLimiter, (req, res) => {
 // ⭐ ARQUIVOS ESTÁTICOS E FALLBACK
 // ============================================
 
-// Servir arquivos estáticos da pasta dist
-app.use(express.static(path.join(__dirname, 'dist'), {
-  index: false,
-  setHeaders: (res, filePath) => {
-    // index.html nunca em cache (aponta para chunks com hash que mudam a cada deploy);
-    // assets com hash podem ser imutaveis.
-    if (filePath.endsWith('index.html')) {
-      res.setHeader('Cache-Control', 'no-store, must-revalidate');
-    } else if (/[\/]assets[\/]/.test(filePath)) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    }
-  },
-}));
+// Servir arquivos estáticos da pasta dist (index.html sem cache, /assets/ com hash = imutável por 1 ano)
+app.use(estaticos(path.join(__dirname, 'dist')));
 
 // Middleware de Erro Global (CAPTURAR 500s)
 app.use((err, req, res, next) => {

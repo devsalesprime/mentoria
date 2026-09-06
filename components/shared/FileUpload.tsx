@@ -178,7 +178,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         whileHover={{ scale: 1.005 }}
         whileTap={{ scale: 0.995 }}
       >
-        <span className="text-2xl">📁</span>
+        {/* icone em SVG: nada de emoji na tela do mentor */}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-white/50" aria-hidden="true">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg>
         <p className="text-sm text-white/60 font-sans text-center">
           {uploading ? 'Enviando...' : 'Arraste arquivos aqui ou clique para selecionar'}
         </p>

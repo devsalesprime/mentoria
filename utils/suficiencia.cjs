@@ -355,10 +355,10 @@ function autoConfirmar(fieldsRaw, { por = ORIGEM_AUTOMATICA, modo = 'completo' }
     // Numero deduzido (DER em campo numerico) nunca vira valor do script: fica em branco para o mentor
     const numeroDeduzido = NUMERICOS.includes(key) && cur.classe === 'DER';
     if (sug && !SF.isPlaceholder(sug) && !numeroDeduzido) {
-      next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, estrutura: null, autor: null, atualizado_por: por, atualizado_em: ts };
+      next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, estrutura: null, autor: null, rev: SF.proximaRev(cur), atualizado_por: por, atualizado_em: ts };
       confirmados.push(key);
     } else if (!criticos.includes(key)) {
-      next[key] = { ...cur, status: 'aceito_vazio', valor: '', estrutura: null, autor: null, atualizado_por: por, atualizado_em: ts };
+      next[key] = { ...cur, status: 'aceito_vazio', valor: '', estrutura: null, autor: null, rev: SF.proximaRev(cur), atualizado_por: por, atualizado_em: ts };
       vazios.push(key);
     } else {
       pendentes.push(key);
@@ -443,13 +443,17 @@ function resumoSuficiencia(suf) {
 async function aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, { job, status, result, appUrl = '', aplicar = true }) {
   const parse = safeJsonParse || parseJson;
   const slug = job.club_slug;
+  await SF.ensureModoColumn(dbRun);
   const ficha = await SF.ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
   const fields = parse(ficha.fields, {});
   // Modo escolhido na entrada: no essencial o gate olha so as 12 perguntas (SPEC-workflow-v2 §1, decisao 2)
   const modo = SF.normalizeModo(ficha.modo);
+  // Ficha sem escolha: o pre-preenchimento chegou antes da tela "Como você quer construir o seu script?"
+  const semEscolha = !SF.MODOS.includes(ficha.modo);
   const suf = avaliarSuficiencia(fields, { status, result, job_id: job.id, modo });
   let fichaStatus = ficha.ficha_status;
   let confirmadaPor = ficha.confirmada_por || null;
+  let modoGravado = SF.MODOS.includes(ficha.modo) ? ficha.modo : null;
   let scriptJob = null;
   let scriptExisting = false;
   const registro = { ...suf, aplicado: !!aplicar };
@@ -470,12 +474,25 @@ async function aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JO
       registro.auto_confirmada_em = nowIso();
       registro.campos_automaticos = ac.confirmados.length;
       registro.vazios_automaticos = ac.vazios.length;
+      // Sem escolha na entrada, o app fecha a ficha no caminho COMPLETO (o material bastou, entao vale o
+      // caminho mais fundo) e registra que quem escolheu foi ele: a tela oferece o essencial uma vez.
+      modoGravado = semEscolha ? 'completo' : ficha.modo;
+      registro.modo = modoGravado;
+      if (semEscolha) registro.modo_origem = SF.MODO_ORIGEM_AUTOMATICO;
+      const meta = semEscolha
+        ? JSON.stringify({
+          ...(parse(ficha.prefill_meta, null) || {}),
+          modo_origem: SF.MODO_ORIGEM_AUTOMATICO,
+          modo_definido_em: nowIso(),
+        })
+        : null;
       await dbRun(
         `UPDATE script_fichas
-            SET fields = ?, ficha_status = 'confirmada', confirmada_por = ?, suficiencia = ?,
+            SET fields = ?, ficha_status = 'confirmada', confirmada_por = ?, suficiencia = ?, modo = ?,
+                prefill_meta = COALESCE(?, prefill_meta),
                 reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
           WHERE club_slug = ?`,
-        [JSON.stringify(ac.fields), ORIGEM_AUTOMATICA, JSON.stringify(registro), slug]
+        [JSON.stringify(ac.fields), ORIGEM_AUTOMATICA, JSON.stringify(registro), modoGravado, meta, slug]
       );
       const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
       const r = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
@@ -496,7 +513,16 @@ async function aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JO
 
   const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
   const mensagem_mentor = mensagemMentor(registro.resultado, { faltam_n: registro.faltam.length, appUrl, nome: payload.nome || '' });
-  return { suficiencia: registro, ficha_status: fichaStatus, confirmada_por: confirmadaPor, script_job: scriptJob, script_existing: scriptExisting, mensagem_mentor };
+  return {
+    suficiencia: registro,
+    ficha_status: fichaStatus,
+    confirmada_por: confirmadaPor,
+    modo: modoGravado,
+    modo_origem: registro.modo_origem || null,
+    script_job: scriptJob,
+    script_existing: scriptExisting,
+    mensagem_mentor,
+  };
 }
 
 module.exports = {

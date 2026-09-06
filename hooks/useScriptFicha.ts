@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import type {
-  ScriptBlockView, ScriptFieldStatus, ScriptFieldView, ScriptHoje, ScriptProgresso, ScriptDayDef,
+  ScriptAutorCampo, ScriptBlockView, ScriptFieldStatus, ScriptFieldView, ScriptHoje, ScriptProgresso, ScriptDayDef,
   FichaStatus, MaterialsStatus, ScriptModo,
 } from '../data/script-ficha-fields';
 import { SCRIPT_DAYS, isDecided } from '../data/script-ficha-fields';
@@ -214,6 +214,8 @@ export interface ScriptFichaData {
   ficha_status: FichaStatus;
   /** Caminho escolhido na entrada: 'essencial' (12 perguntas) | 'completo' (34) | null antes da escolha. */
   modo?: ScriptModo | null;
+  /** 'automatico' = o app escolheu o completo sozinho (o material bastou antes da tela de escolha). */
+  modo_origem?: 'automatico' | null;
   /** 'automatica' | 'mentor' | 'admin:<quem>' | null (reaberta). */
   confirmada_por?: string | null;
   /** null antes de o pre-preenchimento terminar. */
@@ -241,6 +243,29 @@ export interface FieldDecision {
   valor?: string;
   /** JSON do widget (so com status 'editado'); o servidor guarda ao lado do valor. */
   estrutura?: Record<string, any>;
+  /** Versao do campo que esta tela viu; o servidor recusa (409) se o socio respondeu depois. */
+  rev?: number;
+  /** "Usar a minha": grava por cima da resposta do socio, com o aviso ja lido. */
+  forcar?: boolean;
+}
+
+/**
+ * Campo que o socio respondeu enquanto esta tela estava aberta (409 do PUT fields).
+ * A tela mostra um aviso que nao bloqueia nada: "Manter a resposta dele" ou "Usar a minha".
+ */
+export interface FieldConflito {
+  field_key: string;
+  /** Versao atual no servidor (a que o "Usar a minha" precisa mandar). */
+  rev: number;
+  status: ScriptFieldStatus;
+  /** O que o socio deixou no campo. */
+  valor: string;
+  valor_efetivo: string;
+  sugerido: string;
+  decidido_por: ScriptAutorCampo | null;
+  atualizado_em: string | null;
+  /** A decisao que esta tela tentou gravar (o "Usar a minha" reenvia esta). */
+  minha: FieldDecision;
 }
 
 export type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
@@ -364,7 +389,10 @@ export function mergeFichaData(prev: ScriptFichaData, fresh: ScriptFichaData, op
     campos: b.campos.map((local) => {
       const remoto = freshByKey[local.key];
       if (!remoto) return local;
-      const lateral = { contexto_count: remoto.contexto_count, refinando: remoto.refinando };
+      // `rev` fica de fora de proposito: campo decidido aqui guarda a versao que ESTA tela viu, senao a
+      // gravacao passaria por cima do socio sem avisar. Quem nao esta decidido recebe a versao nova junto
+      // com a sugestao (o `...remoto` abaixo).
+      const lateral = { contexto_count: remoto.contexto_count, refinando: remoto.refinando, decidido_por: remoto.decidido_por ?? null };
       if (local.decidido) {
         const chegou = !!remoto.complemento && !mesmoComplemento(local.complemento || null, remoto.complemento);
         if (chegou) alteradas.push(local.key);
@@ -392,6 +420,8 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   const [saveState, setSaveState] = useState<SaveState>('idle');
   /** Momento (ms) da ultima leitura bem-sucedida do servidor ("Atualizado há 20 s" no painel). */
   const [ultimaSincronia, setUltimaSincronia] = useState<number | null>(null);
+  /** Campos que o socio respondeu enquanto esta tela estava aberta (409 do PUT fields), por chave. */
+  const [conflitos, setConflitos] = useState<Record<string, FieldConflito>>({});
 
   const pendingRef = useRef<Record<string, FieldDecision>>({});
   /** Campos com editor aberto, avisados pela tela (alem da leitura do DOM em campoEmEdicaoNaTela). */
@@ -466,6 +496,68 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
   }, []);
 
+  /** Aplica no estado local o resumo que o PUT devolveu (contadores, status da ficha e a `rev` de cada campo gravado). */
+  const aplicarResposta = useCallback((corpo: any) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const summary: Record<number, any> = Object.fromEntries((corpo?.blocos || []).map((b: any) => [b.numero, b]));
+      const revs: Record<string, number> = corpo?.revs || {};
+      const blocos = prev.blocos.map((b) => {
+        const campos = b.campos.map((c) => (revs[c.key] != null ? { ...c, rev: revs[c.key] } : c));
+        return summary[b.numero] ? { ...b, ...summary[b.numero], campos } : { ...b, campos };
+      });
+      return { ...prev, blocos, ficha_status: corpo?.ficha_status || prev.ficha_status, progresso: corpo?.progresso || prev.progresso, hoje: corpo?.hoje || prev.hoje };
+    });
+  }, []);
+
+  /**
+   * O socio respondeu estes campos antes: o servidor nao gravou nenhum deles. A tela recebe a resposta
+   * dele no campo (nada se perde: a decisao desta tela fica guardada no aviso, atras do "Usar a minha").
+   */
+  const aplicarConflitos = useCallback((lista: any[], tentativas: Record<string, FieldDecision>) => {
+    const novos: Record<string, FieldConflito> = {};
+    for (const c of lista || []) {
+      if (!c || !c.field_key) continue;
+      novos[c.field_key] = {
+        field_key: c.field_key,
+        rev: Number(c.rev) || 0,
+        status: c.status,
+        valor: c.valor_efetivo || c.valor || '',
+        valor_efetivo: c.valor_efetivo || c.valor || '',
+        sugerido: c.sugerido || '',
+        decidido_por: c.decidido_por || null,
+        atualizado_em: c.atualizado_em || null,
+        minha: tentativas[c.field_key] || { status: 'sugerido' },
+      };
+    }
+    if (!Object.keys(novos).length) return;
+    setConflitos((prev) => ({ ...prev, ...novos }));
+    setData((prev) => {
+      if (!prev) return prev;
+      const blocos = prev.blocos.map((b) => ({
+        ...b,
+        campos: b.campos.map((c) => {
+          const conf = novos[c.key];
+          if (!conf) return c;
+          const valor = conf.status === 'confirmado' ? conf.sugerido : conf.valor;
+          return {
+            ...c,
+            status: conf.status,
+            valor,
+            valor_efetivo: conf.valor_efetivo,
+            decidido: isDecided(conf.status),
+            rev: conf.rev,
+            decidido_por: conf.decidido_por,
+            atualizado_em: conf.atualizado_em,
+            atualizado_por: conf.decidido_por?.email ?? c.atualizado_por,
+            nova_sugestao: false,
+          };
+        }),
+      }));
+      return { ...prev, ...recomputeView(blocos) };
+    });
+  }, []);
+
   const flush = useCallback(async () => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     const updates = pendingRef.current;
@@ -475,12 +567,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     try {
       const res = await axios.put('/api/script/ficha/fields', { updates }, { ...authHeaders(token), timeout: 30000 });
       if (res.data?.success) {
-        setData((prev) => {
-          if (!prev) return prev;
-          const summary: Record<number, any> = Object.fromEntries((res.data.blocos || []).map((b: any) => [b.numero, b]));
-          const blocos = prev.blocos.map((b) => summary[b.numero] ? { ...b, ...summary[b.numero], campos: b.campos } : b);
-          return { ...prev, blocos, ficha_status: res.data.ficha_status || prev.ficha_status, progresso: res.data.progresso || prev.progresso, hoje: res.data.hoje || prev.hoje };
-        });
+        aplicarResposta(res.data);
         setSaveState('saved');
         if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
         savedTimerRef.current = setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2500);
@@ -488,12 +575,20 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
         throw new Error(res.data?.message || 'Falha ao salvar');
       }
     } catch (e: any) {
+      // Escrita concorrente: o resto do lote entrou; o campo do socio volta como aviso, sem retentar sozinho
+      const corpo = e?.response?.data;
+      if (e?.response?.status === 409 && Array.isArray(corpo?.conflitos)) {
+        aplicarResposta(corpo);
+        aplicarConflitos(corpo.conflitos, updates);
+        setSaveState('idle');
+        return;
+      }
       // Mantem as decisoes na fila para a proxima tentativa
       pendingRef.current = { ...updates, ...pendingRef.current };
       setSaveState('error');
-      setError(e?.response?.data?.message || e?.message || 'Erro ao salvar');
+      setError(corpo?.message || e?.message || 'Erro ao salvar');
     }
-  }, [token]);
+  }, [token, aplicarResposta, aplicarConflitos]);
 
   const schedule = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -502,6 +597,9 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   }, [flush]);
 
   const decide = useCallback((key: string, decision: FieldDecision) => {
+    // A `rev` que esta tela viu vai junto: o servidor recusa (409) se o socio respondeu depois disso
+    const atual = (dataRef.current?.blocos || []).flatMap((b) => b.campos).find((c) => c.key === key);
+    const comRev: FieldDecision = decision.rev != null || atual?.rev == null ? decision : { ...decision, rev: atual.rev };
     setData((prev) => {
       if (!prev) return prev;
       const blocos = prev.blocos.map((b) => ({
@@ -516,9 +614,25 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
       const confirmada_por = prev.ficha_status === 'confirmada' ? null : prev.confirmada_por ?? null;
       return { ...prev, ...rec, ficha_status, confirmada_por };
     });
-    pendingRef.current[key] = decision;
+    pendingRef.current[key] = comRev;
     schedule();
   }, [schedule, userEmail]);
+
+  /** "Manter a resposta dele": o campo fica como o sócio deixou e o aviso some. */
+  const manterDoSocio = useCallback((key: string) => {
+    setConflitos((prev) => {
+      const { [key]: _fora, ...resto } = prev;
+      return resto;
+    });
+  }, []);
+
+  /** "Usar a minha": grava a decisão desta tela por cima, com a versão nova e o aviso já lido. */
+  const usarAMinha = useCallback((key: string) => {
+    const conf = conflitos[key];
+    if (!conf) return;
+    manterDoSocio(key);
+    decide(key, { ...conf.minha, rev: conf.rev, forcar: true });
+  }, [conflitos, decide, manterDoSocio]);
 
   const toJobInfo = (j: any): ScriptJobInfo | null => (j
     ? { id: j.id, tipo: j.tipo, status: j.status, attempts: j.attempts, progresso: j.progresso ?? null, error: j.error ?? null, created_at: j.created_at, started_at: j.started_at, finished_at: j.finished_at }
@@ -810,6 +924,11 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     enabled: enabled && serverEnabled !== false,
     error,
     saveState,
+    /** E-mail de quem está logado: a ficha usa para saber o que é resposta do sócio. */
+    meuEmail: userEmail,
+    conflitos,
+    manterDoSocio,
+    usarAMinha,
     decide,
     flush,
     flushKeepalive,

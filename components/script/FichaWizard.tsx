@@ -11,7 +11,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { UseScriptFicha } from '../../hooks/useScriptFicha';
+import type { FieldConflito, UseScriptFicha } from '../../hooks/useScriptFicha';
+import { AvisoSocio, RespondidoPor } from './AvisoSocio';
 import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-fields';
 import { campoRefinando, sugestaoVazia } from '../../hooks/useContextoCampo';
 import { Button } from '../ui/Button';
@@ -220,10 +221,16 @@ interface CampoPassoProps {
   onPerguntas?: () => void;
   onRecarregar?: () => Promise<void> | void;
   onEditingChange?: (editing: boolean) => void;
+  /** Escrita concorrente: o sócio respondeu este campo antes desta tela gravar. */
+  conflito?: FieldConflito | null;
+  onManterDoSocio?: (key: string) => void;
+  onUsarAMinha?: (key: string) => void;
+  meuEmail?: string;
 }
 
 const CampoPasso: React.FC<CampoPassoProps> = ({
   campo, contexto, decide, par = false, feito = null, onConcluir, onAvancar, onVoltar, podeVoltar = true, onPerguntas, onRecarregar, onEditingChange,
+  conflito = null, onManterDoSocio, onUsarAMinha, meuEmail = '',
 }) => {
   const editor = useFieldEditor(campo, contexto);
   const { editing, canSave } = editor;
@@ -342,9 +349,17 @@ const CampoPasso: React.FC<CampoPassoProps> = ({
   // (f) contexto por pergunta; a transcrição ou a nota pode virar a resposta
   const contextoCampo = <ContextoCampo campo={campo} onRecarregar={onRecarregar} compacto={par} onUsarTexto={(t: string) => editor.startTexto(t)} />;
 
+  // O sócio respondeu antes: aviso que não bloqueia, com as duas saídas
+  const avisoSocio = conflito
+    ? <AvisoSocio conflito={conflito} onManter={() => onManterDoSocio?.(campo.key)} onUsarMinha={() => onUsarAMinha?.(campo.key)} />
+    : null;
+  const linhaAutor = <RespondidoPor campo={campo} meuEmail={meuEmail} />;
+
   if (par) {
     return (
       <div className="space-y-3" data-testid={`wizard-campo-${campo.key}`}>
+        {linhaAutor}
+        {avisoSocio}
         {corpo}
         <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
           {principal}
@@ -358,6 +373,8 @@ const CampoPasso: React.FC<CampoPassoProps> = ({
   const podePular = !editing && !feitoAtual && !campo.decidido;
   return (
     <div className="space-y-6" data-testid={`wizard-campo-${campo.key}`}>
+      {linhaAutor}
+      {avisoSocio}
       {corpo}
       {contextoCampo}
       <BarraAcoes
@@ -648,6 +665,10 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
             onPerguntas={abrirPerguntas}
             onRecarregar={onRecarregar}
             onEditingChange={marcarEditing}
+            conflito={ficha.conflitos?.[c.key] || null}
+            onManterDoSocio={ficha.manterDoSocio}
+            onUsarAMinha={ficha.usarAMinha}
+            meuEmail={ficha.meuEmail}
           />
         </div>
       );
@@ -671,7 +692,19 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
             {passo.campos.map((c, k) => (
               <div key={c.key} className={`min-w-0 space-y-3 border-l-2 pl-4 ${k === 1 ? 'border-prosperus-gold-dark/60' : 'border-white/15'}`} data-testid={`janela-${c.key}`}>
                 <p className="text-sm text-white/70 font-sans">{c.pergunta}</p>
-                <CampoPasso key={c.key} campo={c} contexto={contexto} decide={decide} par onRecarregar={onRecarregar} onEditingChange={marcarEditing} />
+                <CampoPasso
+                  key={c.key}
+                  campo={c}
+                  contexto={contexto}
+                  decide={decide}
+                  par
+                  onRecarregar={onRecarregar}
+                  onEditingChange={marcarEditing}
+                  conflito={ficha.conflitos?.[c.key] || null}
+                  onManterDoSocio={ficha.manterDoSocio}
+                  onUsarAMinha={ficha.usarAMinha}
+                  meuEmail={ficha.meuEmail}
+                />
               </div>
             ))}
           </div>

@@ -263,7 +263,15 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
           const r = await SUF.aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
             job, status: req.body.status, result: req.body.result, appUrl: appUrl(req), aplicar: true,
           });
-          suficiencia = { ...SUF.resumoSuficiencia(r.suficiencia), motivos: r.suficiencia.motivos, ficha_status: r.ficha_status, script_job_id: r.script_job ? r.script_job.id : null };
+          suficiencia = {
+            ...SUF.resumoSuficiencia(r.suficiencia),
+            motivos: r.suficiencia.motivos,
+            ficha_status: r.ficha_status,
+            // Caminho da ficha e quem escolheu ('automatico' = o app, porque o material bastou antes da escolha)
+            modo: r.modo || SUF.resumoSuficiencia(r.suficiencia).modo,
+            modo_origem: r.modo_origem,
+            script_job_id: r.script_job ? r.script_job.id : null,
+          };
           const base = job.result && typeof job.result === 'object' && !Array.isArray(job.result) ? job.result : {};
           const result = { ...base, suficiencia, mensagem_mentor: r.mensagem_mentor };
           await dbRun(`UPDATE cohort_jobs SET result = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [JSON.stringify(result), job.id]);

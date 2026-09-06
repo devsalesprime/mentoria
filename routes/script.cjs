@@ -166,8 +166,34 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return agora - fim <= PREFILL_DONE_VISIVEL_MS ? job : null;
   }
 
+  /**
+   * Nomes das pessoas do clube por e-mail ({ "a@x.com": "Ana" }): o campo da ficha diz quem respondeu
+   * quando foi o socio, e o aviso de escrita concorrente chama a pessoa pelo nome. Nome do cohort primeiro
+   * (o admin edita la), depois o da conta.
+   */
+  async function nomesDoClube(clubSlug) {
+    const linhas = await dbAll(
+      `SELECT cm.email AS email, cm.nome AS nome, u.name AS user_name
+         FROM cohort_members cm
+         LEFT JOIN users u ON lower(u.email) = cm.email
+        WHERE cm.club_slug = ?
+        UNION
+       SELECT lower(u.email) AS email, NULL AS nome, u.name AS user_name
+         FROM users u WHERE u.club_slug = ?`,
+      [clubSlug, clubSlug]
+    );
+    const out = {};
+    for (const l of linhas) {
+      const email = String(l.email || '').trim().toLowerCase();
+      const nome = String(l.nome || l.user_name || '').trim();
+      if (email && nome && !out[email]) out[email] = nome;
+    }
+    return out;
+  }
+
   function fichaPayload(ficha, user, files, config, job, extra = {}) {
-    const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: false });
+    const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: false, nomes: extra.nomes || null });
+    const prefillMeta = safeJsonParse(ficha.prefill_meta, null) || {};
     const materials = VM.normalizeMaterials(ficha.materials);
     const mine = VM.memberMaterialsView(materials, user.email);
     // Por campo: quantos itens de contexto o clube anexou e se ha job `refinar` na fila para ele
@@ -182,6 +208,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       ficha_status: ficha.ficha_status,
       // Caminho escolhido na entrada: 'essencial' (12 perguntas) | 'completo' (34) | null (ainda nao escolheu)
       modo: ficha.modo === 'essencial' || ficha.modo === 'completo' ? ficha.modo : null,
+      // 'automatico' quando o app escolheu o completo sozinho (os materiais bastaram antes da tela de escolha):
+      // a ficha mostra uma vez "Você está no caminho completo. Prefere o essencial?"
+      modo_origem: prefillMeta.modo_origem === SF.MODO_ORIGEM_AUTOMATICO ? SF.MODO_ORIGEM_AUTOMATICO : null,
       // 'automatica' quando os materiais bastaram e o app fechou a ficha sozinho; 'mentor' quando ele fechou; null reaberta
       confirmada_por: ficha.confirmada_por || null,
       // Gates de suficiencia (GATES-suficiencia.md): { resultado, faltam, motivos, ... } depois do pre-preenchimento; null antes
@@ -226,7 +255,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
-      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis] = await Promise.all([
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
         JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
@@ -235,11 +264,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         SV.scriptSummary({ dbGet }, slug),
         JOBS.findLatestJob({ dbGet }, { tipo: 'script', club_slug: slug }),
         SV.entregaveisPorVersao({ dbAll }, slug, entregavelUrl),
+        nomesDoClube(slug),
       ]);
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
@@ -254,9 +284,20 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.put('/api/script/ficha/modo', authMiddleware, cohortGuard, validateBody(modoSchema), async (req, res) => {
     try {
       const modo = SF.normalizeModo(req.body.modo);
+      // A escolha passou a ser da pessoa: a marca de "quem escolheu foi o app" sai junto (a oferta do
+      // essencial nao volta depois que ela decidiu).
+      const meta = safeJsonParse(req.ficha.prefill_meta, null);
+      let metaJson = null;
+      if (meta && typeof meta === 'object' && meta.modo_origem) {
+        const { modo_origem: _fora, modo_definido_em: _tambem, ...resto } = meta;
+        metaJson = JSON.stringify({ ...resto, modo_escolhido_em: new Date().toISOString() });
+      }
       await dbRun(
-        `UPDATE script_fichas SET modo = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
-        [modo, req.cohort.club_slug]
+        `UPDATE script_fichas
+            SET modo = ?, prefill_meta = COALESCE(?, prefill_meta),
+                last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE club_slug = ?`,
+        [modo, metaJson, req.cohort.club_slug]
       );
       res.json({ success: true, modo });
     } catch (error) {
@@ -287,12 +328,14 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // PUT /api/script/ficha/fields  { updates: { "3.3": { valor, status } } }
+  // PUT /api/script/ficha/fields  { updates: { "3.3": { valor, status, rev?, forcar? } } }
+  // Escrita concorrente de socios: cada campo carrega `rev`; se o socio respondeu depois da leitura desta
+  // tela, o campo nao e gravado e volta em `conflitos` (resposta 409) para a pessoa escolher qual fica.
   router.put('/api/script/ficha/fields', authMiddleware, cohortGuard, validateBody(scriptFieldsUpdateSchema), async (req, res) => {
     try {
       const { updates } = req.body;
       const current = safeJsonParse(req.ficha.fields, {});
-      const { fields, applied, rejected } = SF.applyUpdates(current, updates, req.cohort.email);
+      const { fields, applied, rejected, conflitos } = SF.applyUpdates(current, updates, req.cohort.email, { checarRev: true });
 
       if (applied.length) {
         // Primeira acao do mentor move a ficha para em_revisao; alterar depois de confirmada reabre (e limpa quem confirmou).
@@ -310,11 +353,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       }
 
       const fresh = await dbGet(`SELECT * FROM script_fichas WHERE club_slug = ?`, [req.cohort.club_slug]);
-      const view = SF.buildFichaView(safeJsonParse(fresh.fields, {}));
-      res.json({
-        success: true,
+      const nomes = conflitos.length ? await nomesDoClube(req.cohort.club_slug) : null;
+      const view = SF.buildFichaView(safeJsonParse(fresh.fields, {}), { nomes });
+      const campos = view.blocos.flatMap((b) => b.campos);
+      const corpo = {
+        success: !conflitos.length,
         applied,
         rejected,
+        // Versao de cada campo gravado: a tela guarda para o proximo PUT
+        revs: Object.fromEntries(applied.map((k) => [k, (campos.find((c) => c.key === k) || {}).rev || 0])),
         ficha_status: fresh.ficha_status,
         progresso: view.progresso,
         hoje: view.hoje,
@@ -322,7 +369,27 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
           numero: b.numero, decididos: b.decididos, total: b.total,
           obrigatorios: b.obrigatorios, obrigatorios_decididos: b.obrigatorios_decididos, fechado: b.fechado,
         })),
-      });
+      };
+      if (conflitos.length) {
+        corpo.message = conflitos.length === 1
+          ? 'O seu sócio respondeu este campo antes de você.'
+          : 'O seu sócio respondeu estes campos antes de você.';
+        corpo.conflitos = conflitos.map((c) => {
+          const campo = campos.find((x) => x.key === c.key) || {};
+          return {
+            field_key: c.key,
+            rev: c.rev,
+            status: c.status,
+            valor: c.valor,
+            sugerido: c.sugerido,
+            valor_efetivo: campo.valor_efetivo != null ? campo.valor_efetivo : c.valor,
+            decidido_por: SF.autorDoCampo({ atualizado_por: c.atualizado_por }, nomes),
+            atualizado_em: c.atualizado_em,
+          };
+        });
+        return res.status(409).json(corpo);
+      }
+      res.json(corpo);
     } catch (error) {
       console.error('Error in PUT /api/script/ficha/fields:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });

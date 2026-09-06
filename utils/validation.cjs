@@ -53,6 +53,10 @@ const scriptFieldUpdateSchema = z.object({
     status: z.enum(['confirmado', 'editado', 'aceito_vazio', 'sugerido', 'vazio']),
     // JSON do widget (components/script/widgets); guardado ao lado do valor quando status = editado
     estrutura: z.record(z.string(), z.any()).optional(),
+    // Versao do campo que a tela viu (escrita concorrente de socios): o servidor recusa com 409 se ja passou
+    rev: z.number().int().min(0).max(1000000).optional(),
+    // "Usar a minha": grava por cima do que o socio respondeu, com o aviso ja lido
+    forcar: z.boolean().optional(),
 });
 
 const scriptFieldsUpdateSchema = z.object({
