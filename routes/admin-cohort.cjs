@@ -383,6 +383,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
         nome_clube: club.nome,
         versao: n,
         email: (membro && membro.email) || `admin@${club.slug}`,
+        forcar: true,
       });
       if (!r) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
       res.json({ success: true, versao: n, job: { ...r.job, existing: r.existing } });

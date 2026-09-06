@@ -358,6 +358,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
         job_id: req.job.id,
         club: club ? { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 } : { slug, nome: null, ativo: null },
         ficha_status: ficha.ficha_status,
+        modo: ficha.modo || null,
         confirmada_por: ficha.confirmada_por || null,
         suficiencia: safeJsonParse(ficha.suficiencia, null),
         prefill_meta: safeJsonParse(ficha.prefill_meta, null),

@@ -364,7 +364,7 @@ async function ultimoNotifyPhone({ dbGet }, club_slug, email) {
  * payload = { versao, content_md, club_slug, nome_clube, email, notify_phone, aprovada, ficha_md }.
  * Devolve null quando a versao nao existe.
  */
-async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, { club_slug, nome_clube = null, versao, email, aprovada = null }) {
+async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, { club_slug, nome_clube = null, versao, email, aprovada = null, forcar = false }) {
   const v = await getVersion({ dbGet }, club_slug, versao, { withContent: true });
   if (!v) return null;
   const parse = safeJsonParse || ((s, f) => parseJson(s, f));
@@ -380,6 +380,8 @@ async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
     notify_phone,
     aprovada: aprovada == null ? v.status === 'aprovado' : !!aprovada,
     ficha_md: fichaMd(parse(ficha ? ficha.fields : null, {})),
+    // admin "Gerar slides" em versao nao aprovada: o runner so aceita `aprovada: false` com `forcar: true`
+    forcar: !!forcar,
   };
   return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo: 'slides', club_slug, email: key, notify_phone, payload });
 }
