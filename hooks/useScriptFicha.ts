@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import type {
   ScriptBlockView, ScriptFieldStatus, ScriptFieldView, ScriptHoje, ScriptProgresso, ScriptDayDef,
-  FichaStatus, MaterialsStatus,
+  FichaStatus, MaterialsStatus, ScriptModo,
 } from '../data/script-ficha-fields';
 import { SCRIPT_DAYS, isDecided } from '../data/script-ficha-fields';
 
@@ -182,16 +182,25 @@ export interface Suficiencia {
 /** Origem do fechamento da ficha: os materiais bastaram ('automatica'), o mentor fechou ('mentor'), o admin forcou ('admin:<quem>'). */
 export const ORIGEM_AUTOMATICA = 'automatica';
 
-export type RotaScript = 'script_materiais' | 'script_ficha' | 'script_script';
+export type RotaScript = 'script_escolha' | 'script_materiais' | 'script_ficha' | 'script_script';
 
 /**
- * Onde o membro do Exclusive cai ao abrir o app: Materiais com a ficha vazia; "Seu script" quando a ficha esta
- * fechada ou os materiais bastaram (suficiente); a Ficha nos outros casos (parcial abre so o que falta).
+ * Onde o membro do Exclusive cai ao abrir o app:
+ * sem `modo` -> a tela de escolha (essencial ou completo), antes de tudo;
+ * com modo e a ficha vazia -> Materiais, a nao ser que a pessoa ja tenha enviado ou pulado os materiais;
+ * "Seu script" quando a ficha esta fechada ou os materiais bastaram (suficiente);
+ * a Ficha nos outros casos (parcial abre so o que falta).
  */
-export function rotaInicialDoClube(d: Pick<ScriptFichaData, 'ficha_status' | 'suficiencia'> | null | undefined): RotaScript {
-  if (!d || d.ficha_status === 'vazia') return 'script_materiais';
+export function rotaInicialDoClube(
+  d: Pick<ScriptFichaData, 'ficha_status' | 'suficiencia'> & Partial<Pick<ScriptFichaData, 'modo' | 'materials_status'>> | null | undefined,
+): RotaScript {
+  if (!d) return 'script_materiais';
+  if (!d.modo) return 'script_escolha';
   if (d.ficha_status === 'confirmada') return 'script_script';
   if (d.suficiencia?.resultado === 'suficiente' && d.ficha_status !== 'em_revisao') return 'script_script';
+  if (d.ficha_status === 'vazia') {
+    return d.materials_status === 'submitted' || d.materials_status === 'skipped' ? 'script_ficha' : 'script_materiais';
+  }
   return 'script_ficha';
 }
 
@@ -203,11 +212,13 @@ export function fichaEhSecundaria(d: Pick<ScriptFichaData, 'ficha_status' | 'suf
 export interface ScriptFichaData {
   club: { slug: string; nome: string };
   ficha_status: FichaStatus;
+  /** Caminho escolhido na entrada: 'essencial' (12 perguntas) | 'completo' (34) | null antes da escolha. */
+  modo?: ScriptModo | null;
   /** 'automatica' | 'mentor' | 'admin:<quem>' | null (reaberta). */
   confirmada_por?: string | null;
   /** null antes de o pre-preenchimento terminar. */
   suficiencia?: Suficiencia | null;
-  /** Por pessoa: "submitted" quando ESTE membro clicou em "Enviei o que tinha". */
+  /** Por pessoa: "submitted" com "Enviei o que tinha"; "skipped" com "Não tenho materiais, ir para a ficha". */
   materials_status: MaterialsStatus;
   materials_submitted_at: string | null;
   materials: ScriptMaterials;
@@ -659,6 +670,38 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [token]);
 
+  /**
+   * Escolha na entrada (e o "Aprofundar para o completo" depois): grava `modo` na ficha do clube.
+   * Otimista: a tela troca na hora; se o servidor recusar, volta ao valor anterior.
+   */
+  const definirModo = useCallback(async (modo: ScriptModo): Promise<{ ok: boolean; message?: string }> => {
+    const anterior = dataRef.current?.modo ?? null;
+    setData((prev) => (prev ? { ...prev, modo } : prev));
+    try {
+      const res = await axios.put('/api/script/ficha/modo', { modo }, authHeaders(token));
+      if (res.data?.success) return { ok: true };
+      setData((prev) => (prev ? { ...prev, modo: anterior } : prev));
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      setData((prev) => (prev ? { ...prev, modo: anterior } : prev));
+      return { ok: false, message: e?.response?.data?.message || e?.message || 'Não deu para salvar a escolha agora.' };
+    }
+  }, [token]);
+
+  /** "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa e NÃO manda ler material nenhum. */
+  const pularMateriais = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const res = await axios.post('/api/script/ficha/materials/skip', {}, authHeaders(token));
+      if (res.data?.success) {
+        setData((prev) => (prev ? { ...prev, materials_status: res.data.materials_status || 'skipped' } : prev));
+        return { ok: true };
+      }
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      return { ok: false, message: e?.response?.data?.message || e?.message || 'Não deu para seguir agora. Tente de novo.' };
+    }
+  }, [token]);
+
   /** A tela avisa que o editor de um campo abriu/fechou (o merge do poll deixa esse campo em paz). */
   const setFieldEditing = useCallback((key: string, editing: boolean) => {
     if (editing) editingRef.current.add(key); else editingRef.current.delete(key);
@@ -746,6 +789,8 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     pedirRevisao,
     refinar,
     setContextoCount,
+    definirModo,
+    pularMateriais,
     saveMaterials,
     submitMaterials,
     setFiles,

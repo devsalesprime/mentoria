@@ -23,6 +23,26 @@ import {
 /** Valores da ficha que o sumario mostra quando o cabecalho do script nao os traz. */
 export interface FichaResumo { oferta?: string; promessa?: string; quemConduz?: string; paraQuem?: string; }
 
+/**
+ * Apresentacao comercial no Cartao de bolso (SPEC-workflow-v2-decisoes-06-09 §1, decisao 3): o cartao e o que
+ * o mentor leva para a reuniao, entao o PPTX mora aqui, com a instrucao de modo apresentador e duas telas.
+ *   'pronta'  -> "Baixar apresentação (PPTX)" + como usar
+ *   'montando'-> "Apresentação sendo montada" (job `slides` na fila ou rodando)
+ *   'ausente' -> "Gerar apresentação" (o mesmo pedido do menu "Mais")
+ */
+export type EstadoApresentacao = 'pronta' | 'montando' | 'ausente';
+export interface ApresentacaoCartao {
+  estado: EstadoApresentacao;
+  onBaixar?: () => void;
+  onGerar?: () => void;
+  gerando?: boolean;
+}
+
+export const COPY_PPTX_BAIXAR = 'Baixar apresentação (PPTX)';
+export const COPY_PPTX_MONTANDO = 'Apresentação sendo montada';
+export const COPY_PPTX_GERAR = 'Gerar apresentação';
+export const COPY_PPTX_COMO_USAR = 'Abra no PowerPoint, escolha Modo de apresentador e conecte uma segunda tela: os slides vão para o cliente e o roteiro do script fica com você, nas notas.';
+
 interface ScriptReaderProps {
   doc: ScriptDoc;
   clubNome: string;
@@ -35,6 +55,8 @@ interface ScriptReaderProps {
   comentariosDo: (passo: number) => React.ReactNode;
   ficha?: FichaResumo;
   onImprimirCartao?: () => void;
+  /** Apresentação comercial (PPTX) no Cartão de bolso; ausente = a tela não mostra o bloco. */
+  apresentacao?: ApresentacaoCartao;
   totalGrifos: number;
   onAbrirGrifos?: () => void;
   rootRef: React.RefObject<HTMLDivElement | null>;
@@ -74,7 +96,42 @@ const Intro: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p className="script-tela-intro">{children}</p>
 );
 
-const TelaCartao: React.FC<{ doc: ScriptDoc; onImprimir?: () => void }> = ({ doc, onImprimir }) => (
+/** Bloco da apresentacao comercial embaixo do cartao: o PPTX com o roteiro nas notas. */
+const BlocoApresentacao: React.FC<{ apresentacao: ApresentacaoCartao }> = ({ apresentacao }) => (
+  <section className="script-no-print rounded-lg border border-white/10 bg-prosperus-navy-panel p-4 space-y-2" aria-label="Apresentação comercial" data-testid="cartao-apresentacao">
+    <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Apresentação comercial</p>
+    {apresentacao.estado === 'pronta' ? (
+      <>
+        <button
+          type="button"
+          onClick={apresentacao.onBaixar}
+          className="min-h-[44px] inline-flex items-center justify-center rounded-lg bg-prosperus-gold-dark px-5 text-sm font-bold text-black hover:bg-prosperus-gold-hover transition"
+          data-testid="cartao-pptx-baixar"
+        >
+          {COPY_PPTX_BAIXAR}
+        </button>
+        <p className="text-sm text-white/70 font-sans leading-relaxed" data-testid="cartao-pptx-como-usar">{COPY_PPTX_COMO_USAR}</p>
+      </>
+    ) : apresentacao.estado === 'montando' ? (
+      <p className="text-sm text-white/70 font-sans" data-testid="cartao-pptx-montando">{COPY_PPTX_MONTANDO}</p>
+    ) : (
+      <>
+        <button
+          type="button"
+          onClick={apresentacao.onGerar}
+          disabled={apresentacao.gerando}
+          className="min-h-[44px] inline-flex items-center justify-center rounded-lg border border-white/20 px-5 text-sm font-semibold text-white/85 hover:bg-white/10 transition disabled:opacity-50"
+          data-testid="cartao-pptx-gerar"
+        >
+          {COPY_PPTX_GERAR}
+        </button>
+        <p className="text-sm text-white/70 font-sans leading-relaxed">Os slides saem com as falas do script nas notas do apresentador.</p>
+      </>
+    )}
+  </section>
+);
+
+const TelaCartao: React.FC<{ doc: ScriptDoc; onImprimir?: () => void; apresentacao?: ApresentacaoCartao }> = ({ doc, onImprimir, apresentacao }) => (
   <div data-tela={TELA_CARTAO} data-documento="campo" className="space-y-4">
     <Intro>O que cabe numa folha dobrada, para levar na reunião. Copie ou imprima; o script inteiro vem nas telas seguintes.</Intro>
     {doc.cartao ? (
@@ -89,6 +146,7 @@ const TelaCartao: React.FC<{ doc: ScriptDoc; onImprimir?: () => void }> = ({ doc
     ) : (
       <p className="text-sm text-prosperus-navy-panel/70">Esta versão veio sem cartão de bolso.</p>
     )}
+    {apresentacao && <BlocoApresentacao apresentacao={apresentacao} />}
   </div>
 );
 
@@ -279,7 +337,7 @@ const TelaPreparacao: React.FC<{ doc: ScriptDoc }> = ({ doc }) => {
 };
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
-  doc, clubNome, tela, onTela, documento, onDocumento, marcadas, comentariosDo, ficha, onImprimirCartao, totalGrifos, onAbrirGrifos, rootRef,
+  doc, clubNome, tela, onTela, documento, onDocumento, marcadas, comentariosDo, ficha, onImprimirCartao, apresentacao, totalGrifos, onAbrirGrifos, rootRef,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
   const primeiraRef = useRef(true);
@@ -314,7 +372,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   const nomeDoPasso = (n: number) => nomeDoPassoEm(doc, n);
 
   let conteudo: React.ReactNode;
-  if (tela === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onImprimir={onImprimirCartao} />;
+  if (tela === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onImprimir={onImprimirCartao} apresentacao={apresentacao} />;
   else if (tela === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={onTela} comentarios={comentariosDo(0)} />;
   else if (ehTelaDePasso(tela)) conteudo = <TelaPasso doc={doc} tela={tela} documento={documento} onDocumento={onDocumento} comentarios={comentariosDo(passoNaTela(tela))} onVerAula={abrirAula} />;
   else conteudo = <TelaPreparacao doc={doc} />;

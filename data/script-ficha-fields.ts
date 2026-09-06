@@ -26,6 +26,8 @@ export interface ScriptFieldDef {
   previa?: string | Record<string, string>;
   /** Ajuda curta embaixo da pergunta. */
   ajuda?: string;
+  /** Uma das 12 perguntas da ficha essencial (SPEC-workflow-v2-decisoes-06-09 §2). */
+  essencial?: boolean;
 }
 
 export interface ScriptBlockDef {
@@ -44,7 +46,14 @@ export interface ScriptDayDef {
 export type ScriptFieldStatus = 'sugerido' | 'confirmado' | 'editado' | 'vazio' | 'aceito_vazio';
 export type ScriptFieldClass = 'Fato' | 'DER' | 'VZ';
 export type FichaStatus = 'vazia' | 'pre_preenchida' | 'em_revisao' | 'confirmada';
-export type MaterialsStatus = 'pending' | 'submitted';
+/** 'skipped' = a pessoa clicou em "Não tenho materiais, ir para a ficha" (sem leitura dos materiais). */
+export type MaterialsStatus = 'pending' | 'submitted' | 'skipped';
+/**
+ * Caminho escolhido na entrada (SPEC-workflow-v2-decisoes-06-09 §1 e §2):
+ * 'essencial' = as 12 perguntas que fecham o cartão de bolso; 'completo' = a ficha inteira.
+ */
+export type ScriptModo = 'essencial' | 'completo';
+export const SCRIPT_MODOS: ScriptModo[] = ['essencial', 'completo'];
 
 export interface ScriptAlternativa {
   sugerido: string;
@@ -69,6 +78,8 @@ export interface ScriptFieldView {
   tipo: ScriptFieldType;
   tipoRaw: string;
   obrigatorio: boolean;
+  /** Entra na ficha essencial (as 12 perguntas). Vem do GET /api/script/ficha. */
+  essencial?: boolean;
   minutos: number;
   opcoes: string[] | null;
   widget?: string | null;
@@ -139,7 +150,14 @@ export const SCRIPT_BLOCKS: ScriptBlockDef[] = raw.blocos as ScriptBlockDef[];
 export const SCRIPT_DAYS: ScriptDayDef[] = raw.dias as ScriptDayDef[];
 export const SCRIPT_FIELD_KEYS: string[] = SCRIPT_FIELDS.map((f) => f.key);
 export const SCRIPT_REQUIRED_KEYS: string[] = SCRIPT_FIELDS.filter((f) => f.obrigatorio).map((f) => f.key);
+/** As 12 perguntas da ficha essencial, na ordem da ficha (algumas viram duas chaves). */
+export const SCRIPT_ESSENCIAL_KEYS: string[] = SCRIPT_FIELDS.filter((f) => f.essencial).map((f) => f.key);
 export const SCRIPT_FIELD_BY_KEY: Record<string, ScriptFieldDef> = Object.fromEntries(SCRIPT_FIELDS.map((f) => [f.key, f]));
+
+/** O campo entra na ficha essencial? Vale a marca do servidor e, sem ela, a definição local. */
+export function ehEssencial(campo: { key: string; essencial?: boolean }): boolean {
+  return campo.essencial ?? !!SCRIPT_FIELD_BY_KEY[campo.key]?.essencial;
+}
 
 export const DECIDED_STATUSES: ScriptFieldStatus[] = ['confirmado', 'editado', 'aceito_vazio'];
 
@@ -174,6 +192,12 @@ export const FICHA_STATUS_LABEL: Record<FichaStatus, string> = {
 export const MATERIALS_STATUS_LABEL: Record<MaterialsStatus, string> = {
   pending: 'Aguardando',
   submitted: 'Enviados',
+  skipped: 'Sem materiais',
+};
+
+export const MODO_LABEL: Record<ScriptModo, string> = {
+  essencial: 'Ficha essencial',
+  completo: 'Ficha do Script',
 };
 
 export const SCRIPT_MATERIAL_CATEGORIES: { id: string; label: string; hint: string }[] = [

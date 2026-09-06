@@ -94,6 +94,8 @@ export function useBlocosAbertos(blocoAtual: number | null): [number[], (n: numb
 
 /** Título do grupo recolhido com o que os materiais já responderam (modo "completar o que falta"). */
 export const COPY_GRUPO_MATERIAIS = 'Preenchido pelos seus materiais';
+/** Título do grupo recolhido com as perguntas fora das 12 (modo essencial). */
+export const COPY_GRUPO_APROFUNDAR = 'Aprofundar (opcional)';
 
 interface NavegadorFichaProps {
   blocos: ScriptBlockView[];
@@ -105,14 +107,17 @@ interface NavegadorFichaProps {
   onIr: (indice: number) => void;
   idPrefixo?: string;
   /**
-   * Modo "completar o que falta": ids dos passos que precisam da resposta do mentor. Só eles aparecem nos blocos;
-   * os demais ficam recolhidos em "Preenchido pelos seus materiais" (editáveis sob demanda). null = ficha inteira.
+   * Subconjunto em foco: ids dos passos do fluxo (modo "completar o que falta" ou ficha essencial). Só eles
+   * aparecem nos blocos; os demais ficam recolhidos no grupo `rotuloOutros` (editáveis sob demanda) e os blocos
+   * que ficam sem nenhum passo somem. null = ficha inteira.
    */
   focoIds?: string[] | null;
+  /** Título do grupo recolhido com o que está fora do foco. */
+  rotuloOutros?: string;
 }
 
 /** Seções (blocos) e itens (perguntas), com as classes do menu lateral do app. */
-export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, atual, blocoAtual, abertos, onToggle, onIr, idPrefixo = '', focoIds = null }) => {
+export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, atual, blocoAtual, abertos, onToggle, onIr, idPrefixo = '', focoIds = null, rotuloOutros = COPY_GRUPO_MATERIAIS }) => {
   const foco = focoIds ? new Set(focoIds) : null;
   const noFoco = (p: PassoNav) => !foco || foco.has(p.id);
   const outros = foco ? passos.map((p, j) => ({ p, j })).filter(({ p }) => !foco.has(p.id)) : [];
@@ -180,7 +185,7 @@ export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, 
       );
     })}
     {foco && outros.length > 0 && (
-      <section aria-label={COPY_GRUPO_MATERIAIS} data-testid={`${idPrefixo}nav-outros`}>
+      <section aria-label={rotuloOutros} data-testid={`${idPrefixo}nav-outros`}>
         <button
           type="button"
           onClick={() => setOutrosAberto((v) => !v)}
@@ -189,8 +194,8 @@ export const NavegadorFicha: React.FC<NavegadorFichaProps> = ({ blocos, passos, 
           className="min-h-[44px] w-full flex items-center justify-between gap-2 px-2 rounded text-[10px] sm:text-xs font-bold uppercase tracking-wide text-gray-400 hover:text-white transition"
         >
           <span className="flex items-center gap-2 min-w-0">
-            <IconeCheck className="text-prosperus-gold-light shrink-0" title={COPY_GRUPO_MATERIAIS} />
-            <span className="truncate">{COPY_GRUPO_MATERIAIS}</span>
+            <IconeCheck className="text-prosperus-gold-light shrink-0" title={rotuloOutros} />
+            <span className="truncate">{rotuloOutros}</span>
           </span>
           <span className="flex items-center gap-2 shrink-0">
             <span className="font-sans normal-case tracking-normal text-[11px] text-white/50" data-testid={`${idPrefixo}nav-outros-contagem`}>{outros.reduce((s, { p }) => s + p.campos.length, 0)}</span>

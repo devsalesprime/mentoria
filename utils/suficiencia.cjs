@@ -4,11 +4,18 @@
  * completa so o que faltou (`parcial`) ou precisa de mais material (`insuficiente`).
  *
  * avaliarSuficiencia(fields, jobInfo) -> { resultado, faltam: [keys], motivos: [pt-BR, sem codigo],
- *   criticos_ok, fontes_distintas, obrigatorios_faltando, avaliado_em, job_id }
+ *   criticos_ok, fontes_distintas, obrigatorios_faltando, modo, avaliado_em, job_id }
  *
- * Criterios (secao 2 do doc):
+ * DOIS PERFIS (SPEC-workflow-v2-decisoes-06-09 §1, decisao 2). `jobInfo.modo` e opcional e vale
+ * 'completo' por padrao (compatibilidade com quem ja chamava com dois argumentos):
+ *   'completo'  -> escopo = os 34 campos; obrigatorios = os 27; criticos = a lista inteira (regra atual)
+ *   'essencial' -> escopo = as 12 perguntas essenciais (SF.ESSENCIAL_KEYS); obrigatorios = so elas;
+ *                  criticos = os criticos que estao dentro do essencial. O que esta fora do essencial
+ *                  nao entra em `faltam`, nao conta como obrigatorio e nunca segura o script.
+ *
+ * Criterios (secao 2 do doc), sempre dentro do escopo do modo:
  *   2.1 criticos precisam ser Fato com fonte ou decididos pelo mentor (nunca vazios) -> senao no maximo parcial
- *   2.2 27 obrigatorios decididos ou Fato: ate 3 em DER/VZ = suficiente; 4 a 9 = parcial; 10+ = insuficiente
+ *   2.2 obrigatorios decididos ou Fato: ate 3 em DER/VZ = suficiente; 4 a 9 = parcial; 10+ = insuficiente
  *   2.3 numero so com fonte; campo numerico em DER nunca conta; 5.3 com precos divergentes = parcial
  *   2.4 6.2 identifica o condutor; 4.3 aponta para um item de 4.2; 5.5 nunca bloqueia; confianca baixa/needs_human rebaixa 1 nivel
  *   2.5 placeholder ("a definir"), palavra vetada ("diagnostico") e travessao na sugestao = campo para o mentor olhar
@@ -17,6 +24,8 @@
 const SF = require('./script-ficha.cjs');
 
 const CRITICOS = ['1.1', '2.1', '3.1', '3.3', '4.1', '4.2', '5.1', '5.2', '5.3', '6.2'];
+/** Criticos que continuam criticos na ficha essencial (1.1 fica de fora: nao esta entre as 12). */
+const CRITICOS_ESSENCIAL = CRITICOS.filter((k) => SF.ESSENCIAL_SET.has(k));
 /** Campos numericos (tipoRaw com "nº" ou tipo num): 5.3, 5.5, 6.7. Em DER nunca contam como preenchidos. */
 const NUMERICOS = SF.FIELDS.filter((f) => /n[º°]/.test(String(f.tipoRaw || '')) || f.tipo === 'num').map((f) => f.key);
 /** 5.5 (retorno financeiro) so entra como Fato com fonte; sem fonte fica vazio e nao bloqueia. */
@@ -144,11 +153,18 @@ function condutorDe(st) {
 }
 
 /**
- * Avalia a ficha. jobInfo = { status?: 'done'|'needs_human', result?: { confianca? }, confianca?, needs_human?, job_id? }.
+ * Avalia a ficha. jobInfo = { status?: 'done'|'needs_human', result?: { confianca? }, confianca?, needs_human?,
+ * job_id?, modo?: 'essencial'|'completo' (default 'completo') }.
  * Nunca muda os campos: so le.
  */
 function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
   const fields = SF.normalizeFields(fieldsRaw);
+  const modo = SF.normalizeModo((jobInfo || {}).modo);
+  const essencial = modo === 'essencial';
+  /** Campos que o gate olha neste modo (fora do escopo nao entra em `faltam` nem rebaixa nada). */
+  const escopo = essencial ? SF.ESSENCIAL_KEYS : SF.FIELD_KEYS;
+  const criticos = essencial ? CRITICOS_ESSENCIAL : CRITICOS;
+  const obrigatorios = essencial ? SF.ESSENCIAL_KEYS : SF.REQUIRED_KEYS;
   const faltam = new Set();
   const motivos = [];
   const sinalizados = new Set(); // sugestoes com placeholder, palavra vetada ou travessao (viram "para o mentor olhar")
@@ -156,7 +172,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
   const rebaixa = (nivel) => { if (NIVEIS.indexOf(nivel) < NIVEIS.indexOf(teto)) teto = nivel; };
 
   // 2.5 placeholders e vocabulario (so em campos sem decisao do mentor)
-  for (const key of SF.FIELD_KEYS) {
+  for (const key of escopo) {
     const st = fields[key];
     if (SF.isDecided(st)) continue;
     const sug = String(st.sugerido || '');
@@ -181,7 +197,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
   const preenchido = (key) => {
     const st = fields[key];
     if (SF.isDecided(st)) {
-      if (st.status === 'aceito_vazio') return !CRITICOS.includes(key);
+      if (st.status === 'aceito_vazio') return !criticos.includes(key);
       return !!String(SF.effectiveValue(st) || '').trim();
     }
     if (sinalizados.has(key)) return false;
@@ -191,7 +207,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
 
   // 2.1 criticos
   const criticosFaltando = [];
-  for (const key of CRITICOS) {
+  for (const key of criticos) {
     if (preenchido(key)) continue;
     criticosFaltando.push(key);
     faltam.add(key);
@@ -204,9 +220,9 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
   const criticos_ok = criticosFaltando.length === 0;
   if (!criticos_ok) rebaixa('parcial');
 
-  // 2.2 cobertura dos obrigatorios (5.5 nunca bloqueia)
-  const obrigFaltando = SF.REQUIRED_KEYS.filter((k) => !NAO_BLOQUEIA.includes(k) && !preenchido(k));
-  const naoCriticos = obrigFaltando.filter((k) => !CRITICOS.includes(k) && !sinalizados.has(k));
+  // 2.2 cobertura dos obrigatorios do modo (5.5 nunca bloqueia)
+  const obrigFaltando = obrigatorios.filter((k) => !NAO_BLOQUEIA.includes(k) && !preenchido(k));
+  const naoCriticos = obrigFaltando.filter((k) => !criticos.includes(k) && !sinalizados.has(k));
   for (const k of naoCriticos) faltam.add(k);
   if (naoCriticos.length) {
     motivos.push(`${naoCriticos.length === 1 ? 'Falta 1 resposta obrigatória' : `Faltam ${naoCriticos.length} respostas obrigatórias`} que não estavam nos materiais: ${naoCriticos.map(nomeDoCampo).join('; ')}.`);
@@ -215,7 +231,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
   else if (obrigFaltando.length >= LIMITE_PARCIAL) rebaixa('parcial');
 
   // 2.3 numeros so com fonte; 5.3 com precos divergentes
-  for (const key of SF.FIELD_KEYS) {
+  for (const key of escopo) {
     const st = fields[key];
     if (SF.isDecided(st) || NAO_BLOQUEIA.includes(key) || sinalizados.has(key)) continue;
     const sug = String(st.sugerido || '');
@@ -224,9 +240,9 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
       faltam.add(key);
       motivos.push(`${nomeDoCampo(key)}: traz um número sem fonte; confirme.`);
       rebaixa('parcial');
-    } else if (NUMERICOS.includes(key) && st.classe === 'DER' && SF.FIELD_BY_KEY[key].obrigatorio) {
+    } else if (NUMERICOS.includes(key) && st.classe === 'DER' && obrigatorios.includes(key)) {
       faltam.add(key);
-      if (!CRITICOS.includes(key)) motivos.push(`${nomeDoCampo(key)}: o valor é uma dedução, não um fato; confirme.`);
+      if (!criticos.includes(key)) motivos.push(`${nomeDoCampo(key)}: o valor é uma dedução, não um fato; confirme.`);
       rebaixa('parcial');
     }
   }
@@ -261,7 +277,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
       }
     }
   }
-  {
+  if (escopo.includes('4.3')) {
     const st43 = fields['4.3'];
     const texto43 = textoDoCampo(st43);
     if (texto43.trim() && !sinalizados.has('4.3')) {
@@ -276,7 +292,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
 
   // 2.6 fontes distintas entre os criticos (o texto do mentor conta como uma fonte)
   const docs = new Set();
-  for (const key of CRITICOS) {
+  for (const key of criticos) {
     const st = fields[key];
     if (SF.isDecided(st)) {
       if (st.status === 'editado') docs.add('mentor');
@@ -311,6 +327,7 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
     criticos_ok,
     fontes_distintas,
     obrigatorios_faltando: obrigFaltando.length,
+    modo,
     avaliado_em: nowIso(),
     job_id: info.job_id || null,
   };
@@ -319,15 +336,19 @@ function avaliarSuficiencia(fieldsRaw, jobInfo = {}) {
 /**
  * Confirma em nome do mentor o que os materiais trouxeram: sugestao -> `confirmado` (atualizado_por 'automatica');
  * campo sem sugestao e nao critico -> `aceito_vazio`. Campo decidido nunca muda; critico vazio fica pendente.
+ * No modo `essencial` so as 12 perguntas sao tocadas: o resto continua em aberto para quando a pessoa aprofundar.
  * @returns {{ fields, confirmados: string[], vazios: string[], pendentes: string[] }}
  */
-function autoConfirmar(fieldsRaw, { por = ORIGEM_AUTOMATICA } = {}) {
+function autoConfirmar(fieldsRaw, { por = ORIGEM_AUTOMATICA, modo = 'completo' } = {}) {
   const next = SF.normalizeFields(fieldsRaw);
+  const essencial = SF.normalizeModo(modo) === 'essencial';
+  const escopo = essencial ? SF.ESSENCIAL_KEYS : SF.FIELD_KEYS;
+  const criticos = essencial ? CRITICOS_ESSENCIAL : CRITICOS;
   const confirmados = [];
   const vazios = [];
   const pendentes = [];
   const ts = nowIso();
-  for (const key of SF.FIELD_KEYS) {
+  for (const key of escopo) {
     const cur = next[key];
     if (SF.isDecided(cur)) continue;
     const sug = String(cur.sugerido || '').trim();
@@ -336,7 +357,7 @@ function autoConfirmar(fieldsRaw, { por = ORIGEM_AUTOMATICA } = {}) {
     if (sug && !SF.isPlaceholder(sug) && !numeroDeduzido) {
       next[key] = { ...cur, status: 'confirmado', valor: cur.sugerido, estrutura: null, autor: null, atualizado_por: por, atualizado_em: ts };
       confirmados.push(key);
-    } else if (!CRITICOS.includes(key)) {
+    } else if (!criticos.includes(key)) {
       next[key] = { ...cur, status: 'aceito_vazio', valor: '', estrutura: null, autor: null, atualizado_por: por, atualizado_em: ts };
       vazios.push(key);
     } else {
@@ -405,6 +426,7 @@ function resumoSuficiencia(suf) {
     faltam_n: (suf.faltam || []).length,
     criticos_ok: !!suf.criticos_ok,
     fontes_distintas: suf.fontes_distintas || 0,
+    modo: suf.modo || 'completo',
     forcado_por: suf.forcado_por || null,
     avaliado_em: suf.avaliado_em || null,
   };
@@ -423,7 +445,9 @@ async function aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JO
   const slug = job.club_slug;
   const ficha = await SF.ensureFichaRow({ dbGet, dbRun, uuidv4 }, slug);
   const fields = parse(ficha.fields, {});
-  const suf = avaliarSuficiencia(fields, { status, result, job_id: job.id });
+  // Modo escolhido na entrada: no essencial o gate olha so as 12 perguntas (SPEC-workflow-v2 §1, decisao 2)
+  const modo = SF.normalizeModo(ficha.modo);
+  const suf = avaliarSuficiencia(fields, { status, result, job_id: job.id, modo });
   let fichaStatus = ficha.ficha_status;
   let confirmadaPor = ficha.confirmada_por || null;
   let scriptJob = null;
@@ -432,7 +456,7 @@ async function aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JO
 
   const podeConfirmar = aplicar && suf.resultado === 'suficiente' && ficha.ficha_status !== 'confirmada' && suf.criticos_ok;
   if (podeConfirmar) {
-    const ac = autoConfirmar(fields);
+    const ac = autoConfirmar(fields, { modo });
     // Doutrina de papeis: 6.2 vazio nunca gera script (o critico ja garante, mas o guardrail fica explicito)
     const quemVende = ac.fields['6.2'];
     if (ac.pendentes.length || !String(SF.effectiveValue(quemVende) || '').trim()) {
@@ -477,6 +501,7 @@ async function aplicarResultadoPrefill({ dbGet, dbRun, uuidv4, safeJsonParse, JO
 
 module.exports = {
   CRITICOS,
+  CRITICOS_ESSENCIAL,
   NUMERICOS,
   NAO_BLOQUEIA,
   TOLERANCIA_SUFICIENTE,

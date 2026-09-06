@@ -29,9 +29,10 @@ import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
 import { FichaScreen } from './script/FichaScreen';
 import { MateriaisScreen } from './script/MateriaisScreen';
 import { ScriptScreen } from './script/ScriptScreen';
+import { EscolhaCaminho } from './script/EscolhaCaminho';
 import { useScriptFicha, rotaInicialDoClube, fichaEhSecundaria } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
-import type { FichaStatus, MaterialsStatus } from '../data/script-ficha-fields';
+import type { FichaStatus, MaterialsStatus, ScriptModo } from '../data/script-ficha-fields';
 
 // ─── URL slug ↔ internal module ID mapping ───────────────────────────────────
 const SLUG_TO_ID: Record<string, string> = {
@@ -47,6 +48,7 @@ const SLUG_TO_ID: Record<string, string> = {
   'suggestions': 'suggestions',
   'insights': 'insights',
   // Script 7 Passos (cohort Exclusive)
+  'escolha': 'script_escolha',
   'materiais': 'script_materiais',
   'ficha': 'script_ficha',
   'script': 'script_script',
@@ -97,6 +99,8 @@ type ScriptMenuState = {
   scriptState?: 'aprovado' | 'rascunho' | 'escrevendo' | null;
   /** Os materiais bastaram (suficiente): "Ficha" vira opcao secundaria depois de "Seu script", nao uma etapa. */
   fichaSecundaria?: boolean;
+  /** Caminho escolhido na entrada: no essencial a etapa da ficha se chama "Ficha essencial". */
+  modo?: ScriptModo | null;
 };
 
 // ─── Dynamic sidebar menu ──────────────────────────────────────────────────────
@@ -140,18 +144,23 @@ const getSidebarMenu = (
       script.scriptState === 'aprovado' ? 'green' :
       script.scriptState === 'rascunho' ? 'gold' :
       script.scriptState === 'escrevendo' ? 'yellow' : 'gray';
+    // "Enviei o que tinha" e "Não tenho materiais" fecham a etapa dos materiais do mesmo jeito
+    const materiaisDot: 'green' | 'yellow' =
+      script.materialsStatus === 'submitted' || script.materialsStatus === 'skipped' ? 'green' : 'yellow';
+    // No caminho essencial a etapa se chama "Ficha essencial" (são as 12 perguntas, não a ficha inteira)
+    const fichaLabel = script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha do Script';
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
       items: script.fichaSecundaria
         ? [
-          { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
+          { id: 'script_materiais', label: 'Materiais', statusDot: materiaisDot },
           { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
-          { id: 'script_ficha', label: 'Ficha', secondary: true },
+          { id: 'script_ficha', label: script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha', secondary: true },
         ]
         : [
-          { id: 'script_materiais', label: 'Materiais', statusDot: script.materialsStatus === 'submitted' ? 'green' : 'yellow' },
-          { id: 'script_ficha', label: 'Ficha do Script', statusDot: fichaDot },
+          { id: 'script_materiais', label: 'Materiais', statusDot: materiaisDot },
+          { id: 'script_ficha', label: fichaLabel, statusDot: fichaDot },
           { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
         ],
     });
@@ -315,6 +324,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
         : s?.job && (s.job.status === 'queued' || s.job.status === 'running') ? 'escrevendo'
         : null,
       fichaSecundaria: fichaEhSecundaria(scriptFicha.data),
+      modo: scriptFicha.data?.modo ?? null,
     };
   }, [cohortEfetivo, scriptFicha.enabled, scriptFicha.data]);
 
@@ -701,6 +711,14 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     }
 
     // ─── Script 7 Passos (cohort Exclusive) ─────────────────────────────────
+
+    if (activeItem === 'script_escolha') {
+      return (
+        <ModuleErrorBoundary moduleName="Escolha do caminho">
+          <EscolhaCaminho ficha={scriptFicha} onNavigate={(id) => navigateTo(id)} />
+        </ModuleErrorBoundary>
+      );
+    }
 
     if (activeItem === 'script_materiais') {
       return (

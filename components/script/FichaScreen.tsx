@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion';
 import type { UseScriptFicha } from '../../hooks/useScriptFicha';
 import type { ScriptBlockView, ScriptFieldView } from '../../data/script-ficha-fields';
+import { ehEssencial } from '../../data/script-ficha-fields';
 import { campoRefinando } from '../../hooks/useContextoCampo';
 import { FichaField } from './FichaField';
-import { FichaWizard, textoFaltamRespostas, type FocoWizard } from './FichaWizard';
-import { BLOCK_INTRO } from './FichaNavegador';
+import { COPY_APROFUNDAR, FichaWizard, textoFaltamEssenciais, textoFaltamRespostas, type FocoWizard } from './FichaWizard';
+import { BLOCK_INTRO, COPY_GRUPO_APROFUNDAR } from './FichaNavegador';
 import { ToastStack } from './contexto/ToastStack';
 import { emitirToast } from './contexto/toast';
 import { ProgressoPreenchimento } from './ProgressoPreenchimento';
@@ -61,7 +62,7 @@ export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já 
 export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo escrito.';
 
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
-  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento, pedirRevisao } = ficha;
+  const { data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia, complemento, pedirRevisao, definirModo } = ficha;
   const [openBlock, setOpenBlock] = useState<number | null>(null);
   const [modo, setModo] = useState<Modo>(() => {
     try { return window.localStorage.getItem(MODO_KEY) === 'tudo' ? 'tudo' : 'passo'; } catch { return 'passo'; }
@@ -100,7 +101,9 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   useEffect(() => {
     if (!data || initializedRef.current) return;
     initializedRef.current = true;
-    const first = data.blocos.find((b) => !b.fechado)?.numero ?? data.blocos[0]?.numero ?? 1;
+    // No modo essencial só os blocos que têm pergunta essencial entram na lista do "Ver tudo"
+    const candidatos = data.modo === 'essencial' ? data.blocos.filter((b) => b.campos.some(ehEssencial)) : data.blocos;
+    const first = candidatos.find((b) => !b.fechado)?.numero ?? candidatos[0]?.numero ?? 1;
     setOpenBlock(first);
     prevClosedRef.current = Object.fromEntries(data.blocos.map((b) => [b.numero, b.fechado]));
   }, [data]);
@@ -215,7 +218,41 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     decide(key, decision);
   }, [decide]);
   const fichaDoWizard = useMemo<UseScriptFicha>(() => (modoCompletar ? { ...ficha, decide: decideFoco } : ficha), [modoCompletar, ficha, decideFoco]);
-  const foco = useMemo<FocoWizard | null>(() => (modoCompletar ? { keys: focoKeys, pendentes: pendentesFoco } : null), [modoCompletar, focoKeys, pendentesFoco]);
+
+  // ── Ficha essencial (SPEC-workflow-v2-decisoes-06-09 §1 decisão 1 e §2) ──
+  /** Caminho escolhido na entrada; sem escolha (fichas antigas) vale 'completo'. */
+  const modoEssencial = data?.modo === 'essencial';
+  /** As 12 perguntas essenciais (algumas valem duas chaves), na ordem da ficha. */
+  const essenciaisKeys = useMemo(
+    () => (data?.blocos || []).flatMap((b) => b.campos.filter(ehEssencial).map((c) => c.key)),
+    [data],
+  );
+  const pendentesEssenciais = useMemo(() => essenciaisKeys.filter((k) => !contexto[k]?.decidido), [essenciaisKeys, contexto]);
+  const [aprofundando, setAprofundando] = useState(false);
+  /** "Aprofundar para o completo": mesma ficha, mesmas chaves; só abre as outras perguntas. Nada se perde. */
+  const aprofundar = useCallback(async () => {
+    if (aprofundando) return;
+    setAprofundando(true);
+    const r = await definirModo('completo');
+    setAprofundando(false);
+    emitirToast(r.ok
+      ? 'Pronto: a ficha completa está aberta. O que você já respondeu continua salvo.'
+      : (r.message || 'Não deu para abrir a ficha completa agora. Tente de novo.'));
+  }, [aprofundando, definirModo]);
+
+  const foco = useMemo<FocoWizard | null>(() => {
+    if (modoCompletar) return { keys: focoKeys, pendentes: pendentesFoco };
+    if (modoEssencial && essenciaisKeys.length) {
+      return {
+        keys: essenciaisKeys,
+        pendentes: pendentesEssenciais,
+        essencial: true,
+        rotuloOutros: COPY_GRUPO_APROFUNDAR,
+        onAprofundar: aprofundar,
+      };
+    }
+    return null;
+  }, [modoCompletar, focoKeys, pendentesFoco, modoEssencial, essenciaisKeys, pendentesEssenciais, aprofundar]);
   // Última resposta decidida: fecha a ficha sozinha (sem botão) e mostra o estado do script
   const autoFechouRef = useRef(false);
   useEffect(() => {
@@ -302,14 +339,25 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     return out;
   };
 
+  /**
+   * "Ver tudo" no modo essencial: cada bloco mostra só as perguntas essenciais (bloco sem nenhuma some) e o
+   * resto vai para o acordeão recolhido "Aprofundar (opcional)", editável quando a pessoa quiser.
+   */
+  const blocosDaTela = modoEssencial
+    ? blocos
+        .map((b) => ({ ...b, campos: b.campos.filter(ehEssencial) }))
+        .filter((b) => b.campos.length > 0)
+    : blocos;
+  const camposAprofundar = modoEssencial ? blocos.flatMap((b) => b.campos.filter((c) => !ehEssencial(c))) : [];
+
   const renderBlock = (b: ScriptBlockView) => (
     <AccordionSection
       key={b.numero}
       title={`${b.numero}. ${b.nome}`}
       icon={String(b.numero)}
       badge={b.fechado ? 'optional' : 'recommended'}
-      badgeLabel={`${b.decididos} de ${b.total}`}
-      isComplete={b.fechado}
+      badgeLabel={modoEssencial ? `${b.campos.filter((c) => c.decidido).length} de ${b.campos.length}` : `${b.decididos} de ${b.total}`}
+      isComplete={modoEssencial ? b.campos.every((c) => c.decidido) : b.fechado}
       isOpen={openBlock === b.numero}
       onToggle={() => setOpenBlock((prev) => (prev === b.numero ? null : b.numero))}
     >
@@ -320,7 +368,9 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-white/50 font-sans">{b.descricao}</p>
           <p className="text-[11px] text-white/40 font-sans">
-            {b.obrigatorios_decididos} de {b.obrigatorios} obrigatórios
+            {modoEssencial
+              ? `${b.campos.filter((c) => c.decidido).length} de ${b.campos.length} essenciais`
+              : `${b.obrigatorios_decididos} de ${b.obrigatorios} obrigatórios`}
           </p>
         </div>
 
@@ -356,15 +406,22 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Script 7 Passos · {data.club.nome}</p>
-            <h2 className="font-serif text-2xl sm:text-3xl text-white mt-1">Ficha do Script</h2>
+            <h2 className="font-serif text-2xl sm:text-3xl text-white mt-1" data-testid="ficha-titulo">{modoEssencial ? 'Ficha essencial' : 'Ficha do Script'}</h2>
           </div>
           <SaveIndicator state={saveState} />
         </div>
-        <p className="text-sm text-white/70 font-sans leading-relaxed">
-          Revise o que já encontramos sobre a sua mentoria. Confirme, edite ou preencha. Cada resposta mostra de onde veio.
-          Faltou algo? Grave um áudio, mande uma foto ou escreva uma nota e peça uma nova sugestão.
-          Com a ficha fechada, a gente escreve o seu script dos 7 passos, na sua voz.
-        </p>
+        {modoEssencial ? (
+          <p className="text-sm text-white/70 font-sans leading-relaxed">
+            São as 12 perguntas que fecham o seu cartão de bolso: as falas-chave dos 7 passos, o investimento total e a pergunta de
+            recomendação. Confirme, edite ou preencha. As outras perguntas ficam em "Aprofundar (opcional)", para quando você quiser.
+          </p>
+        ) : (
+          <p className="text-sm text-white/70 font-sans leading-relaxed">
+            Revise o que já encontramos sobre a sua mentoria. Confirme, edite ou preencha. Cada resposta mostra de onde veio.
+            Faltou algo? Grave um áudio, mande uma foto ou escreva uma nota e peça uma nova sugestão.
+            Com a ficha fechada, a gente escreve o seu script dos 7 passos, na sua voz.
+          </p>
+        )}
 
         {isConfirmed && !closedNow && (
           fechadaPelosMateriais
@@ -477,7 +534,25 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
         <FichaWizard ficha={fichaDoWizard} contexto={contexto} onFecharFicha={handleClose} fechandoFicha={closingFicha} onRecarregar={recarregar} foco={foco} />
       ) : (
         <div className="space-y-3">
-          {blocos.map(renderBlock)}
+          {blocosDaTela.map(renderBlock)}
+          {camposAprofundar.length > 0 && (
+            <AccordionSection
+              title={COPY_GRUPO_APROFUNDAR}
+              icon="+"
+              badge="optional"
+              badgeLabel={`${camposAprofundar.length}`}
+              isComplete={false}
+              isOpen={openBlock === 0}
+              onToggle={() => setOpenBlock((prev) => (prev === 0 ? null : 0))}
+            >
+              <div className="space-y-4" data-testid="tudo-aprofundar">
+                <p className="text-xs text-white/50 font-sans">
+                  Estas perguntas não entram no cartão de bolso. Responda quando quiser: elas ficam salvas para o script completo.
+                </p>
+                {renderFields(camposAprofundar)}
+              </div>
+            </AccordionSection>
+          )}
         </div>
       )}
 
@@ -490,6 +565,11 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
                 {textoFaltamRespostas(pendentesFoco.length)}
                 <span className="text-white/40"> · o resto veio dos seus materiais</span>
               </p>
+            ) : modoEssencial ? (
+              <p className="text-sm text-white font-sans" data-testid="rodape-essencial">
+                {essenciaisKeys.length - pendentesEssenciais.length} de {essenciaisKeys.length} perguntas essenciais decididas
+                <span className="text-white/40"> · {textoFaltamEssenciais(pendentesEssenciais.length).toLowerCase()}</span>
+              </p>
             ) : (
               <p className="text-sm text-white font-sans">
                 {progresso.obrigatorios_decididos} de {progresso.obrigatorios} obrigatórios decididos
@@ -498,6 +578,12 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
             )}
             {modoCompletar ? (
               <p className="text-xs text-white/50 font-sans mt-1">Ao responder a última, a gente já começa a escrever o seu script. Não precisa fechar a ficha.</p>
+            ) : modoEssencial ? (
+              pendentesEssenciais.length > 0 && (
+                <p className="text-xs text-white/50 font-sans mt-1">
+                  Para fechar, cada pergunta essencial precisa de uma decisão: confirmar, editar ou deixar em branco por enquanto.
+                </p>
+              )
             ) : !allRequiredDone && (
               <p className="text-xs text-white/50 font-sans mt-1">
                 Para fechar, cada campo obrigatório precisa de uma decisão: confirmar, editar ou deixar em branco por enquanto.
@@ -513,19 +599,33 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
                 variant="primary"
                 size="lg"
                 onClick={handleClose}
-                disabled={!allRequiredDone || isConfirmed}
+                disabled={(modoEssencial ? pendentesEssenciais.length > 0 : !allRequiredDone) || isConfirmed}
                 loading={closingFicha}
               >
-                {isConfirmed ? 'Ficha fechada' : 'Fechar ficha'}
+                {modoEssencial
+                  ? (isConfirmed ? 'Ficha essencial confirmada' : 'Fechar ficha essencial')
+                  : (isConfirmed ? 'Ficha fechada' : 'Fechar ficha')}
               </Button>
             )}
           </div>
         </div>
         {closeError && <p className="text-xs text-red-400 font-sans">{closeError}</p>}
+        {modoEssencial && (
+          <div className="flex flex-wrap items-center gap-2" data-testid="aprofundar-ficha">
+            <p className="text-xs text-white/40 font-sans">Quer a anatomia de cada fala, o roteiro de campo e as aulas da Dani?</p>
+            <Button variant="link" size="sm" onClick={aprofundar} loading={aprofundando} disabled={aprofundando} data-testid="aprofundar-completo">
+              {COPY_APROFUNDAR}
+            </Button>
+          </div>
+        )}
         <div className="w-full bg-white/10 rounded-full h-1.5">
           <div
             className="h-full bg-gradient-to-r from-prosperus-gold-dark to-prosperus-gold-light rounded-full transition-all"
-            style={{ width: `${progresso.obrigatorios ? Math.round((progresso.obrigatorios_decididos / progresso.obrigatorios) * 100) : 0}%` }}
+            style={{
+              width: modoEssencial
+                ? `${essenciaisKeys.length ? Math.round(((essenciaisKeys.length - pendentesEssenciais.length) / essenciaisKeys.length) * 100) : 0}%`
+                : `${progresso.obrigatorios ? Math.round((progresso.obrigatorios_decididos / progresso.obrigatorios) * 100) : 0}%`,
+            }}
           />
         </div>
       </div>

@@ -4,7 +4,7 @@ import { Button } from '../ui/Button';
 import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo } from '../../hooks/useScriptFicha';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
 import { ScriptPaper } from './script/ScriptPaper';
-import { ScriptReader, type FichaResumo } from './script/ScriptReader';
+import { ScriptReader, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
 import { TELA_CARTAO, TOTAL_TELAS, clampTela, ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId } from './script/telas';
 import { useGrifos } from './grifos/useGrifos';
 import { GrifoBubble } from './grifos/GrifoBubble';
@@ -106,6 +106,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const [aprovando, setAprovando] = useState(false);
   const [pedindo, setPedindo] = useState(false);
   const [gerandoSlides, setGerandoSlides] = useState(false);
+  const [aprofundando, setAprofundando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [docAtivo, setDocAtivo] = useState<DocumentoId>('treinamento');
   // leitor em telas
@@ -199,6 +200,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     [slides]
   );
   const itensDaApresentacao = useMemo(() => SLIDES_ITENS.filter((it) => !!arquivoDoSlides(it.campo)), [arquivoDoSlides]);
+  const pptx = useMemo(() => arquivoDoSlides('pptx'), [arquivoDoSlides]);
 
   // Enquanto o job esta na fila/rodando (sem versao, escrevendo a proxima ou montando a apresentacao), consulta de novo a cada 20 s
   const scriptJobAtivo = !!job && (job.status === 'queued' || job.status === 'running');
@@ -421,6 +423,29 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     } finally {
       setGerandoSlides(false);
     }
+  };
+
+  /**
+   * Bloco da apresentacao no Cartao de bolso (SPEC-workflow-v2-decisoes-06-09 §1, decisao 3): o cartao e o que
+   * vai para a reuniao, entao o PPTX fica ali, com a instrucao de modo apresentador e duas telas. Mesmo pedido
+   * do menu "Mais" (POST /api/script/versoes/:versao/slides).
+   */
+  const apresentacao: ApresentacaoCartao = pptx
+    ? { estado: 'pronta', onBaixar: () => abrirEntregavel(pptx, false) }
+    : slidesJobAtivo
+    ? { estado: 'montando' }
+    : { estado: 'ausente', onGerar: gerarSlides, gerando: gerandoSlides };
+
+  /** "Aprofundar para o completo": quem entrou pelo essencial abre a ficha inteira sem perder o que respondeu. */
+  const modoEssencial = ficha.data?.modo === 'essencial';
+  const aprofundar = async () => {
+    if (aprofundando) return;
+    setAprofundando(true);
+    const r = await ficha.definirModo('completo');
+    setAprofundando(false);
+    setAviso(r.ok
+      ? 'Pronto: a ficha completa está aberta. O que você já respondeu continua salvo.'
+      : (r.message || 'Não deu para abrir a ficha completa agora. Tente de novo.'));
   };
 
   const enviarComentario = async (passo: number) => {
@@ -774,7 +799,20 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                 <div className="script-menu-sep" />
                 <button type="button" className="script-menu-item" onClick={download} disabled={!versao?.content_md}>Baixar o texto</button>
                 {onNavigate && (
-                  <button type="button" className="script-menu-item" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">Revisar a ficha</button>
+                  <button type="button" className="script-menu-item" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">
+                    {modoEssencial ? 'Revisar a ficha essencial' : 'Revisar a ficha'}
+                  </button>
+                )}
+                {modoEssencial && (
+                  <button
+                    type="button"
+                    className="script-menu-item"
+                    data-testid="aprofundar-completo"
+                    disabled={aprofundando}
+                    onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); aprofundar(); }}
+                  >
+                    Aprofundar para o completo
+                  </button>
                 )}
                 <div className="script-menu-sep" />
                 <button
@@ -828,6 +866,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               comentariosDo={renderComentarios}
               ficha={fichaResumo}
               onImprimirCartao={imprimirCartao}
+              apresentacao={apresentacao}
               totalGrifos={grifos.length}
               onAbrirGrifos={() => setPainelAberto(true)}
               rootRef={readerRef}

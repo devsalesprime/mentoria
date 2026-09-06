@@ -26,7 +26,8 @@ import {
 import { BadgeRefinando, ContextoCampo } from './contexto/ContextoCampo';
 import { IconeCheck } from './contexto/icones';
 import {
-  BLOCK_INTRO, NavegadorLateral, NavegadorSheet, PREVIA_SCRIPT, pendenteNav, useBlocosAbertos, type PassoNav,
+  BLOCK_INTRO, COPY_GRUPO_APROFUNDAR, COPY_GRUPO_MATERIAIS, NavegadorLateral, NavegadorSheet, PREVIA_SCRIPT,
+  pendenteNav, useBlocosAbertos, type PassoNav,
 } from './FichaNavegador';
 
 export { BLOCK_INTRO, PREVIA_SCRIPT } from './FichaNavegador';
@@ -45,13 +46,21 @@ type Tela =
 export const COPY_VER_PREVIA = 'Ver a prévia do script';
 
 /**
- * Modo "completar o que falta" (suficiência parcial): só os campos em `keys` entram no fluxo; `pendentes` são os que
- * ainda precisam da resposta do mentor (um campo já decidido mas sinalizado conta até ele mexer). Os demais campos
- * ficam recolhidos em "Preenchido pelos seus materiais" no navegador, editáveis sob demanda.
+ * Subconjunto em foco. Dois usos:
+ *   - "completar o que falta" (suficiência parcial): `keys` são os campos que o mentor precisa decidir e
+ *     `pendentes` os que ainda esperam a resposta dele (um campo decidido mas sinalizado conta até ele mexer);
+ *   - ficha essencial (`essencial: true`): `keys` são as 12 perguntas que fecham o cartão de bolso.
+ * Os demais campos ficam recolhidos no navegador (rótulo `rotuloOutros`), editáveis sob demanda.
  */
 export interface FocoWizard {
   keys: string[];
   pendentes: string[];
+  /** Ficha essencial: o fim da ficha ganha o botão de fechar e a copy das 12 perguntas. */
+  essencial?: boolean;
+  /** Título do grupo recolhido no navegador com o que está fora do foco. */
+  rotuloOutros?: string;
+  /** "Aprofundar para o completo": abre a ficha inteira sem perder nada do que já foi respondido. */
+  onAprofundar?: () => void;
 }
 
 /** "Faltam N respostas suas para o seu script" (modo completar). */
@@ -59,6 +68,17 @@ export function textoFaltamRespostas(n: number): string {
   if (n <= 0) return 'Suas respostas estão completas';
   return n === 1 ? 'Falta 1 resposta sua para o seu script' : `Faltam ${n} respostas suas para o seu script`;
 }
+
+/** "Faltam N perguntas essenciais" (ficha essencial). */
+export function textoFaltamEssenciais(n: number): string {
+  if (n <= 0) return 'As 12 perguntas essenciais estão respondidas';
+  return n === 1 ? 'Falta 1 pergunta essencial' : `Faltam ${n} perguntas essenciais`;
+}
+
+/** Fim da ficha essencial depois de fechada. */
+export const COPY_ESSENCIAL_CONFIRMADA = 'Ficha essencial confirmada';
+/** Link discreto que troca o caminho essencial pelo completo. */
+export const COPY_APROFUNDAR = 'Aprofundar para o completo';
 
 /** Tempo do estado "Confirmado" (o valor recolhido numa linha) antes da próxima pergunta entrar. */
 export const CONFIRMADO_MS = 400;
@@ -513,6 +533,13 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   };
   const pendentesNoFoco = focoKeys ? passos.slice(0, limite).filter(pendente).length : 0;
   const foraDoFoco = !!focoKeys && i >= limite;
+  /** Ficha essencial: as 12 perguntas são o fluxo; o resto fica em "Aprofundar (opcional)". */
+  const focoEssencial = !!focoKeys && !!foco?.essencial;
+  /** Campos essenciais (uma pergunta pode valer duas chaves) e quantos já têm decisão. */
+  const essenciaisTotal = focoEssencial ? passos.slice(0, limite).reduce((s, p) => s + p.campos.length, 0) : 0;
+  const essenciaisDecididos = focoEssencial
+    ? passos.slice(0, limite).reduce((s, p) => s + p.campos.filter((c) => c.decidido).length, 0)
+    : 0;
 
   // Posição dentro do bloco: "Pergunta 3 de 9" (o par conta as duas chaves)
   const camposDoBloco = bloco.campos;
@@ -534,7 +561,9 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           {emPasso && algumRefinando && <BadgeRefinando />}
           {emPasso && foraDoFoco && <span className="text-[11px] text-prosperus-gold-light/80 font-sans" data-testid="chip-fora-do-foco">Preenchido pelos seus materiais</span>}
         </div>
-        {focoKeys
+        {focoEssencial
+          ? <p className="text-xs text-white/70 font-sans" data-testid="contador-faltam" aria-live="polite">{textoFaltamEssenciais(pendentesNoFoco)}</p>
+          : focoKeys
           ? <p className="text-xs text-white/70 font-sans" data-testid="contador-faltam" aria-live="polite">{textoFaltamRespostas(pendentesNoFoco)}</p>
           : <ContadorFaltam n={faltam} className="text-xs text-white/70" />}
       </div>
@@ -669,6 +698,45 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   /** Fim da ficha: quantos campos faltam para o script e um único link "Ver o que falta"; o mapa fica no navegador. */
   const renderFim = () => {
+    // Ficha essencial: fecha com as 12 respondidas; o resto continua editável em "Aprofundar (opcional)"
+    if (focoEssencial) {
+      const pronta = pendentesNoFoco === 0;
+      const titulo = isConfirmed ? COPY_ESSENCIAL_CONFIRMADA : pronta ? 'Tudo pronto para o seu cartão de bolso' : textoFaltamEssenciais(pendentesNoFoco);
+      return (
+        <div className={`${CARTAO} pb-6 text-center`} data-testid="wizard-fim">
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Ficha essencial</p>
+            <h3 className="font-serif text-2xl sm:text-3xl text-white leading-snug" data-testid="wizard-faltam">{titulo}</h3>
+            <p className="text-sm text-white/70 font-sans" data-testid="wizard-progresso-essencial">
+              {essenciaisDecididos} de {essenciaisTotal} perguntas essenciais decididas
+            </p>
+            <p className="text-sm text-white/70 font-sans">
+              {isConfirmed
+                ? 'O seu cartão de bolso está sendo escrito. As outras perguntas continuam abertas em "Aprofundar (opcional)".'
+                : pronta
+                ? 'Com isso a gente já escreve o cartão de bolso dos 7 passos, na sua voz. Dá para aprofundar depois: nada se perde.'
+                : 'São as perguntas que fecham o cartão de bolso. As outras ficam em "Aprofundar (opcional)", para quando você quiser.'}
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-1">
+            {pronta && onFecharFicha && (
+              <Button variant="primary" size="lg" className={PRIMARIO} onClick={onFecharFicha} disabled={isConfirmed} loading={fechandoFicha}>
+                <IconeCheck />{isConfirmed ? 'Ficha essencial confirmada' : 'Fechar ficha essencial'}
+              </Button>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-x-1">
+              {pendentesNoFoco > 0 && <Sec onClick={irParaObrigatorioPendente}>Ver o que falta</Sec>}
+              <Sec onClick={abrirPrevia}>{COPY_VER_PREVIA}</Sec>
+              <Sec onClick={voltar}>Voltar</Sec>
+              <Sec className="lg:hidden" onClick={abrirPerguntas}>Perguntas</Sec>
+            </div>
+            {foco?.onAprofundar && (
+              <Sec className="!text-white/50" onClick={foco.onAprofundar} data-testid="aprofundar-wizard">{COPY_APROFUNDAR}</Sec>
+            )}
+          </div>
+        </div>
+      );
+    }
     if (focoKeys) {
       // Modo completar: sem botão de fechar (ao decidir a última resposta, o script é gerado sozinho)
       return (
@@ -751,11 +819,12 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   const chave = tela.tipo === 'passo' ? passo.id : tela.tipo === 'bloco' ? `bloco-${tela.de}-${tela.para}` : tela.tipo;
   const emPrevia = tela.tipo === 'previa';
-  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso, onPrevia: abrirPrevia, previaAtiva: emPrevia, focoIds };
+  const rotuloOutros = foco?.rotuloOutros ?? (focoEssencial ? COPY_GRUPO_APROFUNDAR : COPY_GRUPO_MATERIAIS);
+  const nav = { blocos, passos, atual: emPasso ? i : -1, blocoAtual, abertos, onToggle: toggleBloco, onIr: irParaPasso, onPrevia: abrirPrevia, previaAtiva: emPrevia, focoIds, rotuloOutros };
   const temPendente = focoKeys ? pendentesNoFoco > 0 : undefined;
 
   return (
-    <div className="ficha-scroll" data-testid="ficha-wizard" data-modo={focoKeys ? 'completar' : 'inteira'}>
+    <div className="ficha-scroll" data-testid="ficha-wizard" data-modo={focoEssencial ? 'essencial' : focoKeys ? 'completar' : 'inteira'}>
       <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6 lg:items-start">
         <NavegadorLateral {...nav} onProximaPendente={proximaPendente} temPendente={temPendente} />
         <div className="w-full max-w-[720px] mx-auto min-w-0 space-y-4">

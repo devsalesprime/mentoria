@@ -44,6 +44,8 @@ const EMAIL = 'ana@exemplo.com';
 const FICHA = {
   club: { slug: 'elos', nome: 'Elos Club' },
   ficha_status: 'pre_preenchida',
+  // Já escolheu o caminho na entrada; sem `modo` o app cai na tela de escolha
+  modo: 'completo',
   confirmada_por: null,
   suficiencia: null,
   materials_status: 'submitted',

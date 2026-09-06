@@ -42,6 +42,8 @@ function fichaMock(over: Record<string, unknown>) {
   return {
     club: { slug: 'elos', nome: 'Elos Club' },
     ficha_status: 'pre_preenchida',
+    // Quem já escolheu o caminho na entrada; sem `modo` a rota inicial é a tela de escolha
+    modo: 'completo',
     confirmada_por: null,
     suficiencia: null,
     materials_status: 'submitted',
@@ -81,17 +83,31 @@ function renderDashboard() {
 
 describe('rotaInicialDoClube / fichaEhSecundaria', () => {
   it('vazia -> Materiais; suficiente ou confirmada -> Seu script; parcial / insuficiente / sem avaliação -> Ficha; reaberta -> Ficha', () => {
-    expect(rotaInicialDoClube({ ficha_status: 'vazia', suficiencia: null })).toBe('script_materiais');
-    expect(rotaInicialDoClube({ ficha_status: 'pre_preenchida', suficiencia: null })).toBe('script_ficha');
-    expect(rotaInicialDoClube({ ficha_status: 'confirmada', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe('script_script');
-    expect(rotaInicialDoClube({ ficha_status: 'confirmada', suficiencia: null })).toBe('script_script');
-    expect(rotaInicialDoClube({ ficha_status: 'pre_preenchida', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe('script_script');
-    expect(rotaInicialDoClube({ ficha_status: 'pre_preenchida', suficiencia: { resultado: 'parcial', faltam: ['3.3'], motivos: [] } })).toBe('script_ficha');
-    expect(rotaInicialDoClube({ ficha_status: 'pre_preenchida', suficiencia: { resultado: 'insuficiente', faltam: [], motivos: [] } })).toBe('script_ficha');
-    expect(rotaInicialDoClube({ ficha_status: 'em_revisao', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe('script_ficha');
+    const c = { modo: 'completo' as const };
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'vazia', suficiencia: null })).toBe('script_materiais');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'pre_preenchida', suficiencia: null })).toBe('script_ficha');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'confirmada', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe('script_script');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'confirmada', suficiencia: null })).toBe('script_script');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'pre_preenchida', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe('script_script');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'pre_preenchida', suficiencia: { resultado: 'parcial', faltam: ['3.3'], motivos: [] } })).toBe('script_ficha');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'pre_preenchida', suficiencia: { resultado: 'insuficiente', faltam: [], motivos: [] } })).toBe('script_ficha');
+    expect(rotaInicialDoClube({ ...c, ficha_status: 'em_revisao', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe('script_ficha');
     expect(fichaEhSecundaria({ ficha_status: 'confirmada', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe(true);
     expect(fichaEhSecundaria({ ficha_status: 'em_revisao', suficiencia: { resultado: 'suficiente', faltam: [], motivos: [] } })).toBe(false);
     expect(fichaEhSecundaria({ ficha_status: 'pre_preenchida', suficiencia: { resultado: 'parcial', faltam: ['3.3'], motivos: [] } })).toBe(false);
+  });
+
+  it('sem `modo`: a tela de escolha vem antes de tudo; com modo, materiais pulados levam à ficha', () => {
+    // Ninguém escolheu o caminho: a escolha vence até a ficha confirmada
+    expect(rotaInicialDoClube({ ficha_status: 'vazia', suficiencia: null })).toBe('script_escolha');
+    expect(rotaInicialDoClube({ ficha_status: 'confirmada', suficiencia: null })).toBe('script_escolha');
+    expect(rotaInicialDoClube({ ficha_status: 'pre_preenchida', suficiencia: { resultado: 'parcial', faltam: ['3.3'], motivos: [] } })).toBe('script_escolha');
+    // Escolheu: segue o fluxo normal (materiais -> ficha -> script)
+    expect(rotaInicialDoClube({ modo: 'essencial', ficha_status: 'vazia', suficiencia: null, materials_status: 'pending' })).toBe('script_materiais');
+    // "Não tenho materiais, ir para a ficha" fecha a etapa dos materiais igual a "Enviei o que tinha"
+    expect(rotaInicialDoClube({ modo: 'essencial', ficha_status: 'vazia', suficiencia: null, materials_status: 'skipped' })).toBe('script_ficha');
+    expect(rotaInicialDoClube({ modo: 'completo', ficha_status: 'vazia', suficiencia: null, materials_status: 'submitted' })).toBe('script_ficha');
+    expect(rotaInicialDoClube({ modo: 'essencial', ficha_status: 'confirmada', suficiencia: null })).toBe('script_script');
   });
 });
 
@@ -124,12 +140,34 @@ describe('Dashboard: rota inicial pelo resultado da suficiência', () => {
     expect(screen.queryByText('ScriptScreen')).toBeNull();
   });
 
+  it('sem `modo`: abre a tela de escolha (Essencial ou Completo) antes de Materiais', async () => {
+    mockApi(fichaMock({ modo: null, ficha_status: 'vazia', materials_status: 'pending', materials_submitted_at: null }));
+    renderDashboard();
+    expect(await screen.findByTestId('escolha-caminho')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Como você quer construir o seu script?' })).toBeInTheDocument();
+    expect(screen.getByTestId('escolher-essencial')).toHaveTextContent('Começar pelo essencial');
+    expect(screen.getByTestId('escolher-completo')).toHaveTextContent('Construir o completo');
+    expect(screen.queryByText('MateriaisScreen')).toBeNull();
+    expect(screen.queryByText('FichaScreen')).toBeNull();
+  });
+
+  it('modo essencial: a etapa do menu se chama "Ficha essencial" e materiais pulados contam como feitos', async () => {
+    mockApi(fichaMock({ modo: 'essencial', ficha_status: 'vazia', materials_status: 'skipped', materials_submitted_at: null }));
+    renderDashboard();
+    expect(await screen.findByText('FichaScreen')).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
+    const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(itens).toContain('Ficha essencial');
+    expect(itens).not.toContain('Ficha do Script');
+  });
+
   it('insuficiente: cai na Ficha; ficha vazia: cai em Materiais', async () => {
     mockApi(fichaMock({ suficiencia: { resultado: 'insuficiente', faltam: [], motivos: [] } }));
     const { unmount } = renderDashboard();
     expect(await screen.findByText('FichaScreen')).toBeInTheDocument();
     unmount();
-    mockApi(fichaMock({ ficha_status: 'vazia' }));
+    // Ficha vazia e materiais ainda não enviados nem pulados: a etapa dos materiais vem primeiro
+    mockApi(fichaMock({ ficha_status: 'vazia', materials_status: 'pending', materials_submitted_at: null }));
     renderDashboard();
     await waitFor(() => expect(screen.getByText('MateriaisScreen')).toBeInTheDocument());
   });

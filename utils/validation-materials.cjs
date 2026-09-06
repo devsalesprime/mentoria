@@ -184,6 +184,8 @@ function sanitizePessoa(p) {
         acessos: Array.isArray(o.acessos) ? o.acessos : [],
         submitted_at: typeof o.submitted_at === 'string' && o.submitted_at ? o.submitted_at : null,
     };
+    // "Não tenho materiais, ir para a ficha": segue para a ficha sem leitura de material nenhum
+    if (typeof o.skipped_at === 'string' && o.skipped_at) out.skipped_at = o.skipped_at;
     if (typeof o.nome === 'string' && o.nome) out.nome = o.nome;
     if (typeof o.notify_phone === 'string' && o.notify_phone) out.notify_phone = o.notify_phone;
     if (o.resposta_ia && typeof o.resposta_ia === 'object' && typeof o.resposta_ia.texto === 'string') {
@@ -233,13 +235,20 @@ function pessoaFor(materials, email) {
 function memberMaterialsView(materials, email) {
     const p = pessoaFor(materials, email);
     const out = { links: p.links, observacoes: p.observacoes, acessos: p.acessos, submitted_at: p.submitted_at };
+    if (p.skipped_at) out.skipped_at = p.skipped_at;
     if (p.resposta_ia) out.resposta_ia = p.resposta_ia;
     if (p.notify_phone) out.notify_phone = p.notify_phone;
     return out;
 }
 
+/**
+ * Estado dos materiais DESTA pessoa: 'submitted' (clicou em "Enviei o que tinha"),
+ * 'skipped' ("Não tenho materiais, ir para a ficha") ou 'pending'. Enviar vence pular.
+ */
 function memberMaterialsStatus(materials, email) {
-    return pessoaFor(materials, email).submitted_at ? 'submitted' : 'pending';
+    const p = pessoaFor(materials, email);
+    if (p.submitted_at) return 'submitted';
+    return p.skipped_at ? 'skipped' : 'pending';
 }
 
 function countSubmitted(materials) {

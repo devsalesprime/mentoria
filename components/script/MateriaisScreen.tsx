@@ -58,8 +58,11 @@ function plural(n: number, um: string, varios: string) {
  * Materiais do Script 7 Passos. Tudo aqui e POR PESSOA: arquivos, links, observacoes e acessos
  * sao so de quem esta logado (socios nao veem uns aos outros; o admin ve tudo).
  */
+/** "Não tenho materiais, ir para a ficha": vale nos dois caminhos (essencial e completo). */
+export const COPY_PULAR_MATERIAIS = 'Não tenho materiais, ir para a ficha';
+
 export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, onNavigate }) => {
-  const { data, loading, loaded, error, saveMaterials, submitMaterials, setFiles } = ficha;
+  const { data, loading, loaded, error, saveMaterials, submitMaterials, setFiles, pularMateriais } = ficha;
   const [openCat, setOpenCat] = useState<string | null>(MATERIAL_CATEGORIAS[0].id);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkLabel, setLinkLabel] = useState('');
@@ -67,6 +70,8 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const [linkError, setLinkError] = useState('');
   const [obs, setObs] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pulando, setPulando] = useState(false);
+  const [erroPular, setErroPular] = useState<string | null>(null);
 
   if (loading && !data) {
     return (
@@ -92,6 +97,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const acessos = data.materials?.acessos || [];
   const observacoes = obs ?? data.materials?.observacoes ?? '';
   const isSubmitted = data.materials_status === 'submitted';
+  const isSkipped = data.materials_status === 'skipped';
   const job = data.job || null;
   const processing = !!job && (job.status === 'queued' || job.status === 'running');
   const totalItems = files.length + links.length + acessos.length;
@@ -143,6 +149,21 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   // Depois de "Confirmar e ir para a ficha": a Ficha mostra o painel de marcos e as sugestoes chegam bloco a bloco.
   // O aviso fica guardado ate a pilha de toasts da Ficha montar (contexto/toast.ts).
   const navigate = useNavigate();
+
+  // "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa, não manda ler nada e abre a ficha.
+  const pularParaFicha = async () => {
+    setPulando(true);
+    setErroPular(null);
+    const r = await pularMateriais();
+    setPulando(false);
+    if (!r.ok) {
+      setErroPular(r.message || 'Não deu para seguir agora. Tente de novo.');
+      return;
+    }
+    navigate('/dashboard/ficha');
+    onNavigate?.('script_ficha');
+  };
+
   const goToFicha = (existing?: boolean) => {
     setConfirmOpen(false);
     emitirToast(existing
@@ -300,14 +321,34 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
               : `Você enviou ${plural(files.length, 'arquivo', 'arquivos')}, ${plural(links.length, 'link', 'links')} e ${plural(acessos.length, 'acesso', 'acessos')}.`}
           </p>
           <div className="flex flex-wrap gap-2">
-            {onNavigate && (
+            {(isSubmitted || isSkipped) && onNavigate && (
               <Button variant="ghost" size="md" onClick={() => onNavigate('script_ficha')}>Ir para a ficha</Button>
+            )}
+            {/* quem já enviou ou já pulou tem "Ir para a ficha" ali do lado; o atalho some para não repetir */}
+            {!isSubmitted && !isSkipped && (
+              <Button
+                variant="ghost"
+                size="md"
+                className="min-h-[44px]"
+                data-testid="pular-materiais"
+                onClick={pularParaFicha}
+                loading={pulando}
+                disabled={pulando}
+              >
+                {COPY_PULAR_MATERIAIS}
+              </Button>
             )}
             <Button variant="primary" size="lg" className="min-h-[44px]" onClick={handleSubmit}>
               {isSubmitted ? 'Enviei mais coisas' : 'Enviei o que tinha'}
             </Button>
           </div>
         </div>
+        {erroPular && <p className="text-xs text-red-400 font-sans">{erroPular}</p>}
+        {isSkipped && !isSubmitted && (
+          <p className="text-xs text-white/50 font-sans" data-testid="materiais-pulados">
+            Você seguiu sem materiais. A ficha está aberta e você pode enviar material aqui quando quiser.
+          </p>
+        )}
         {processing && (
           <p className="text-xs text-prosperus-gold-light font-sans">Já estamos lendo o que você enviou. Pode continuar mandando material e ir revisando a ficha.</p>
         )}

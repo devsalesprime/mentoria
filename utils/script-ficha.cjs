@@ -14,6 +14,18 @@ const FIELDS = DEFS.campos;
 const FIELD_KEYS = FIELDS.map((f) => f.key);
 const FIELD_BY_KEY = Object.fromEntries(FIELDS.map((f) => [f.key, f]));
 const REQUIRED_KEYS = FIELDS.filter((f) => f.obrigatorio).map((f) => f.key);
+/**
+ * Ficha essencial (SPEC-workflow-v2-decisoes-06-09 §2): as 12 perguntas que fecham o cartao de bolso,
+ * marcadas com `essencial: true` no JSON. Subconjunto da ficha completa: mesmas chaves, mesmo estado,
+ * por isso o que a pessoa respondeu no essencial ja esta la quando ela aprofunda para o completo.
+ */
+const ESSENCIAL_KEYS = FIELDS.filter((f) => f.essencial).map((f) => f.key);
+const ESSENCIAL_SET = new Set(ESSENCIAL_KEYS);
+const MODOS = ['essencial', 'completo'];
+/** Modo da ficha guardado em script_fichas.modo; qualquer outro valor le como 'completo'. */
+function normalizeModo(m) {
+  return m === 'essencial' ? 'essencial' : 'completo';
+}
 const BLOCKS = DEFS.blocos;
 const DAYS = DEFS.dias;
 
@@ -461,6 +473,33 @@ function missingRequired(fields) {
   return REQUIRED_KEYS.filter((k) => !isDecided(f[k]));
 }
 
+/** Chaves essenciais ainda sem decisao (o que segura a ficha essencial). */
+function missingEssencial(fields) {
+  const f = normalizeFields(fields);
+  return ESSENCIAL_KEYS.filter((k) => !isDecided(f[k]));
+}
+
+/** O que segura a ficha no modo pedido: essencial = as 12 perguntas; completo = os obrigatorios. */
+function missingPorModo(fields, modo) {
+  return normalizeModo(modo) === 'essencial' ? missingEssencial(fields) : missingRequired(fields);
+}
+
+/**
+ * Coluna `modo` em script_fichas ('essencial' | 'completo' | NULL antes da escolha).
+ * ALTER idempotente ("duplicate column" ignorado). Registro: migrations/023_script_fichas_modo.sql
+ */
+const SCRIPT_FICHAS_MODO_DDL = [`ALTER TABLE script_fichas ADD COLUMN modo TEXT`];
+
+async function ensureModoColumn(dbRun) {
+  for (const ddl of SCRIPT_FICHAS_MODO_DDL) {
+    try {
+      await dbRun(ddl);
+    } catch (e) {
+      if (!/duplicate column/i.test(String(e && e.message))) throw e;
+    }
+  }
+}
+
 function roundMinutes(m) {
   return Math.max(1, Math.round(m));
 }
@@ -484,6 +523,8 @@ function buildFichaView(fieldsRaw, { includeInternal = false } = {}) {
         tipo: def.tipo,
         tipoRaw: def.tipoRaw,
         obrigatorio: def.obrigatorio,
+        // Entra na ficha essencial (as 12 perguntas); o front filtra por aqui no modo essencial
+        essencial: !!def.essencial,
         minutos: def.minutos,
         opcoes: def.opcoes || null,
         widget: def.widget || null,
@@ -585,6 +626,12 @@ module.exports = {
   FIELD_KEYS,
   FIELD_BY_KEY,
   REQUIRED_KEYS,
+  ESSENCIAL_KEYS,
+  ESSENCIAL_SET,
+  MODOS,
+  normalizeModo,
+  SCRIPT_FICHAS_MODO_DDL,
+  ensureModoColumn,
   BLOCKS,
   DAYS,
   FIELD_STATUSES,
@@ -612,6 +659,8 @@ module.exports = {
   ensureFichaRow,
   importPrefill,
   missingRequired,
+  missingEssencial,
+  missingPorModo,
   buildFichaView,
   summarize,
 };

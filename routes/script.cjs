@@ -30,6 +30,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
   SG.ensureScriptGrifosTable(dbRun).catch((e) => console.error('script_grifos DDL error:', e.message));
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
+  SF.ensureModoColumn(dbRun).catch((e) => console.error('script_fichas modo DDL error:', e.message));
 
   // Mesmo diskStorage de routes/files.cjs (data/uploads/<userId>/<timestamp>-<nome>); limite por tipo em CTX.fileError
   const contextStorage = multerLib.diskStorage({
@@ -51,6 +52,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     field_key: z.string().trim().min(3).max(8),
     pedido: z.string().trim().max(2000).optional().default(''),
   });
+
+  // PUT /api/script/ficha/modo  { modo: 'essencial' | 'completo' }
+  const modoSchema = z.object({ modo: z.enum(['essencial', 'completo']) });
 
   // POST /api/script/versoes/:versao/revisar  { pedido?, comentarios? }
   // comentarios = os grifos ja convertidos pelo front ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9); opcional.
@@ -174,12 +178,14 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return {
       club: { slug: user.club_slug, nome: user.club_nome },
       ficha_status: ficha.ficha_status,
+      // Caminho escolhido na entrada: 'essencial' (12 perguntas) | 'completo' (34) | null (ainda nao escolheu)
+      modo: ficha.modo === 'essencial' || ficha.modo === 'completo' ? ficha.modo : null,
       // 'automatica' quando os materiais bastaram e o app fechou a ficha sozinho; 'mentor' quando ele fechou; null reaberta
       confirmada_por: ficha.confirmada_por || null,
       // Gates de suficiencia (GATES-suficiencia.md): { resultado, faltam, motivos, ... } depois do pre-preenchimento; null antes
       suficiencia: safeJsonParse(ficha.suficiencia, null),
-      // Por pessoa: "submitted" quando ESTE membro clicou em "Enviei o que tinha"
-      materials_status: mine.submitted_at ? 'submitted' : 'pending',
+      // Por pessoa: "submitted" com "Enviei o que tinha"; "skipped" com "Não tenho materiais, ir para a ficha"
+      materials_status: VM.memberMaterialsStatus(materials, user.email),
       materials_submitted_at: mine.submitted_at,
       materials: mine,
       // Ultimo job de pre-preenchimento DESTA pessoa (queued/running = "ja estamos processando")
@@ -235,6 +241,24 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // PUT /api/script/ficha/modo  { modo: 'essencial' | 'completo' }
+  // Escolha na entrada (SPEC-workflow-v2-decisoes-06-09 §1 e §2): 'essencial' abre so as 12 perguntas que
+  // fecham o cartao de bolso; 'completo' abre a ficha inteira. Do essencial da para aprofundar para o completo
+  // quando quiser (mesmas chaves, mesmo estado: nada se perde). O caminho de volta nao e oferecido na tela.
+  router.put('/api/script/ficha/modo', authMiddleware, cohortGuard, validateBody(modoSchema), async (req, res) => {
+    try {
+      const modo = SF.normalizeModo(req.body.modo);
+      await dbRun(
+        `UPDATE script_fichas SET modo = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
+        [modo, req.cohort.club_slug]
+      );
+      res.json({ success: true, modo });
+    } catch (error) {
+      console.error('Error in PUT /api/script/ficha/modo:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
@@ -372,11 +396,13 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // o resto do que os materiais trouxeram e confirmado em nome dele (origem 'automatica') na hora de fechar.
   router.post('/api/script/ficha/complete', authMiddleware, cohortGuard, async (req, res) => {
     try {
+      // Modo essencial: fecha com as 12 perguntas decididas; o resto fica em aberto para quando aprofundar
+      const modo = SF.normalizeModo(req.ficha.modo);
       let fields = safeJsonParse(req.ficha.fields, {});
-      let missing = SF.missingRequired(fields);
+      let missing = SF.missingPorModo(fields, modo);
       let automaticos = [];
       const suf = safeJsonParse(req.ficha.suficiencia, null);
-      if (missing.length && suf && ['parcial', 'suficiente'].includes(suf.resultado)) {
+      if (modo === 'completo' && missing.length && suf && ['parcial', 'suficiente'].includes(suf.resultado)) {
         const norm = SF.normalizeFields(fields);
         const pendentes = (suf.faltam || []).filter((k) => SF.FIELD_BY_KEY[k] && !SF.isDecided(norm[k]));
         if (pendentes.length) {
@@ -394,7 +420,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       if (missing.length) {
         return res.status(400).json({
           success: false,
-          message: `Ainda faltam ${missing.length} campos obrigatórios com decisão.`,
+          message: modo === 'essencial'
+            ? `Ainda faltam ${missing.length} perguntas essenciais com decisão.`
+            : `Ainda faltam ${missing.length} campos obrigatórios com decisão.`,
           faltam: missing,
         });
       }
@@ -410,7 +438,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         [JSON.stringify(fields), req.cohort.club_slug]
       );
       const { job, existing } = await enqueueScriptJob(req, 'complete');
-      res.json({ success: true, ficha_status: 'confirmada', confirmada_por: 'mentor', automaticos, job: { ...jobView(job), existing } });
+      res.json({ success: true, ficha_status: 'confirmada', confirmada_por: 'mentor', modo, automaticos, job: { ...jobView(job), existing } });
     } catch (error) {
       console.error('Error in POST /api/script/ficha/complete:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
@@ -422,7 +450,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.post('/api/script/ficha/gerar-script', authMiddleware, cohortGuard, async (req, res) => {
     try {
       if (req.ficha.ficha_status !== 'confirmada') {
-        const missing = SF.missingRequired(safeJsonParse(req.ficha.fields, {}));
+        const missing = SF.missingPorModo(safeJsonParse(req.ficha.fields, {}), req.ficha.modo);
         return res.status(400).json({
           success: false,
           message: missing.length ? `Feche a ficha antes: faltam ${missing.length} campos obrigatórios.` : 'Feche a ficha antes de pedir o script.',
@@ -954,6 +982,32 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       });
     } catch (error) {
       console.error('Error in POST /api/script/ficha/materials/submit:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // POST /api/script/ficha/materials/skip
+  // "Não tenho materiais, ir para a ficha" (SPEC-workflow-v2-decisoes-06-09 §1, decisao 1): marca o pulo
+  // DESTA pessoa (`por_pessoa[e-mail].skipped_at`) e NAO enfileira leitura de material nenhuma. O estado do
+  // clube (`materials_status`) nao muda: quem enviou continua enviado. Quem ja enviou recebe 'submitted'.
+  router.post('/api/script/ficha/materials/skip', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const key = VM.normEmail(req.cohort.email);
+      const materials = await freshMaterials(req.cohort.club_slug);
+      const cur = materials.por_pessoa[key] || VM.emptyPessoa();
+      const skippedAt = new Date().toISOString();
+      materials.por_pessoa[key] = { ...cur, skipped_at: cur.skipped_at || skippedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      await dbRun(
+        `UPDATE script_fichas SET materials = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
+        [JSON.stringify(materials), req.cohort.club_slug]
+      );
+      res.json({
+        success: true,
+        materials_status: VM.memberMaterialsStatus(materials, req.cohort.email),
+        materials_skipped_at: materials.por_pessoa[key].skipped_at,
+      });
+    } catch (error) {
+      console.error('Error in POST /api/script/ficha/materials/skip:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
