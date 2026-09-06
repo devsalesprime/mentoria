@@ -177,7 +177,7 @@ describe('contexto por pergunta', () => {
     expect(campos.find((c) => c.key === '3.3')).toMatchObject({ contexto_count: 2, refinando: true });
     expect(campos.find((c) => c.key === '3.4')).toMatchObject({ contexto_count: 1, refinando: false });
     expect(campos.find((c) => c.key === '1.1')).toMatchObject({ contexto_count: 0, refinando: false });
-    expect(f.data.data.script).toEqual({ versoes: 0, ultima: null, aprovada: null, job: null });
+    expect(f.data.data.script).toMatchObject({ versoes: 0, ultima: null, aprovada: null, job: null }); // chaves novas (entregaveis, slides) nao quebram o contrato antigo
   });
 });
 
@@ -332,7 +332,7 @@ describe('complete -> job script; worker any; PUT campo; PUT script', () => {
     expect(det.data.data.contexto['3.3']).toHaveLength(2);
     expect(det.data.data.contexto['3.4'][0].download_url).toMatch(/^\/api\/admin\/files\//);
     expect(det.data.data.blocos[2].campos.find((c) => c.key === '3.3').contexto_count).toBe(2);
-    expect(det.data.data.jobs.map((j) => j.tipo).sort()).toEqual(['refinar', 'script', 'script']);
+    expect(det.data.data.jobs.map((j) => j.tipo).sort()).toEqual(['refinar', 'script', 'script', 'slides']); // aprovar enfileira o job slides
     expect(det.data.data.files).toEqual([]); // contexto nao e material
     const v1 = await api('GET', '/api/admin/clubs/clube-x/script-versoes/1', 'admin');
     expect(v1.data.versao.content_md).toMatch(/## Passo 1/);
