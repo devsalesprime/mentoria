@@ -30,9 +30,9 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
       expect(lista.length, `passo ${p}`).toBeLessThanOrEqual(2);
       expect(new Set(lista.map((t) => t.id)).size).toBe(lista.length);
     }
-    // Passo 6 e Passo 7 têm um só: é o que sobrou acima de 1 hora no tema
+    // Passo 6 tem um só: é o que sobrou acima de 1 hora no tema; o Passo 7 ganhou a palestra do Prospere 2023
     expect(treinamentosDoPasso(6)).toHaveLength(1);
-    expect(treinamentosDoPasso(7)).toHaveLength(1);
+    expect(treinamentosDoPasso(7)).toHaveLength(2);
     expect(treinamentosDoPasso(0)).toEqual([]);
     expect(treinamentosDoPasso(8)).toEqual([]);
     expect(treinamentosDoPasso(null)).toEqual([]);
@@ -102,7 +102,7 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
         ['Os Seis Porquês da Decisão - Com Dani Martins', '351d4990-e6ae-4a22-be99-e37cf9daec30', 61.2],
       ],
       6: [['Follow Up - Com Cláudio Rosa', '2b21162d-5d92-4bb1-91e9-08d1fe344c38', 60.6]],
-      7: [['Recomendação', '8a8cc7d2-7b67-4d09-8352-13df7625bf4e', 63.9]],
+      7: [['Recomendação', '8a8cc7d2-7b67-4d09-8352-13df7625bf4e', 63.9], ['Palestra Dani Martins · Técnicas avançadas de venda', 'a88d0d5f-73da-43a9-aa73-b63aa1f46618', 95.6]],
     };
     for (const p of PASSOS) {
       expect(treinamentosDoPasso(p).map((t) => [t.titulo, t.bunnyGuid, t.duracaoMin])).toEqual(esperado[p]);
@@ -172,7 +172,7 @@ describe('tarefas do movimento (components/script/script/tarefas.ts)', () => {
     expect(contagemDoPasso(3, feitas)).toEqual({ feitas: 1, total: 5 });
     expect(contagemDoPasso(6, feitas)).toEqual({ feitas: 0, total: 4 });
     const todas = new Set(tarefasDoPasso(7).map((t) => chaveTarefa(7, t.id)));
-    expect(contagemDoPasso(7, todas)).toEqual({ feitas: 4, total: 4 });
+    expect(contagemDoPasso(7, todas)).toEqual({ feitas: 5, total: 5 });
     expect(chaveTarefa(4, 'aplicar-reuniao')).toBe('4:aplicar-reuniao');
   });
 });

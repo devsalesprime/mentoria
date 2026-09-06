@@ -255,7 +255,7 @@ describe('ScriptReader · tarefas e contagem', () => {
     const { reader } = abrirReader(TELA_SUMARIO, { tarefasConcluidas: feitas });
     const chips = within(reader).getAllByTestId('chip-tarefas');
     expect(chips).toHaveLength(7);
-    expect(chips.map((c) => c.textContent)).toEqual(['2/5', '0/5', '0/5', '0/5', '0/5', '4/4', '0/4']);
+    expect(chips.map((c) => c.textContent)).toEqual(['2/5', '0/5', '0/5', '0/5', '0/5', '4/4', '0/5']);
     expect(chips[0]).toHaveAttribute('aria-label', 'Passo 1: 2 de 5 tarefas');
     expect(chips[5].className).toContain('script-chip-tarefas-cheio');
     expect(chips[0].className).not.toContain('script-chip-tarefas-cheio');
@@ -343,7 +343,7 @@ describe('ScriptScreen · tarefas gravadas no servidor', () => {
     const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
     fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
     const chips = await screen.findAllByTestId('chip-tarefas');
-    expect(chips.map((c) => c.textContent)).toEqual(['0/5', '0/5', '0/5', '1/5', '0/5', '0/4', '0/4']);
+    expect(chips.map((c) => c.textContent)).toEqual(['0/5', '0/5', '0/5', '1/5', '0/5', '0/4', '0/5']);
   });
 
   it('quando o servidor recusa, o checkbox volta como estava e a pessoa é avisada', async () => {
