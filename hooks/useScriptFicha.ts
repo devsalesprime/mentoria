@@ -688,17 +688,46 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [token]);
 
-  /** "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa e NÃO manda ler material nenhum. */
-  const pularMateriais = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
+  /**
+   * "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa e NÃO manda ler material nenhum.
+   * O WhatsApp é opcional e vale para os avisos (pendências, script pronto, janela de ajuste), igual ao do envio.
+   */
+  const pularMateriais = useCallback(async (opts: SubmitMaterialsOptions = {}): Promise<{ ok: boolean; message?: string }> => {
     try {
-      const res = await axios.post('/api/script/ficha/materials/skip', {}, authHeaders(token));
+      const body: SubmitMaterialsOptions = {};
+      if (opts.notify_phone !== undefined) body.notify_phone = opts.notify_phone;
+      if (opts.notify !== undefined) body.notify = opts.notify;
+      const res = await axios.post('/api/script/ficha/materials/skip', body, authHeaders(token));
       if (res.data?.success) {
-        setData((prev) => (prev ? { ...prev, materials_status: res.data.materials_status || 'skipped' } : prev));
+        setData((prev) => (prev ? {
+          ...prev,
+          materials_status: res.data.materials_status || 'skipped',
+          materials: { ...prev.materials, ...(res.data.notify_phone ? { notify_phone: res.data.notify_phone } : {}) },
+        } : prev));
         return { ok: true };
       }
       return { ok: false, message: res.data?.message };
     } catch (e: any) {
       return { ok: false, message: e?.response?.data?.message || e?.message || 'Não deu para seguir agora. Tente de novo.' };
+    }
+  }, [token]);
+
+  /** WhatsApp dos avisos, salvo fora do envio (fim da ficha de quem pulou os materiais). Vazio apaga o que estava lá. */
+  const salvarNotifyPhone = useCallback(async (notify_phone: string): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const res = await axios.put('/api/script/ficha/notify-phone', { notify_phone }, authHeaders(token));
+      if (res.data?.success) {
+        const salvo: string | null = res.data.notify_phone || null;
+        setData((prev) => (prev ? {
+          ...prev,
+          materials: { ...prev.materials, notify_phone: salvo },
+        } : prev));
+        return { ok: true };
+      }
+      return { ok: false, message: res.data?.message };
+    } catch (e: any) {
+      const message = e?.response?.data?.errors?.join('; ') || e?.response?.data?.message || e?.message;
+      return { ok: false, message: message || 'Não deu para salvar o WhatsApp agora. Tente de novo.' };
     }
   }, [token]);
 
@@ -791,6 +820,7 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     setContextoCount,
     definirModo,
     pularMateriais,
+    salvarNotifyPhone,
     saveMaterials,
     submitMaterials,
     setFiles,

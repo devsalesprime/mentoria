@@ -1005,11 +1005,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     try {
       const phone = VM.normalizePhone(req.body.notify_phone);
       if (!phone.ok) return res.status(400).json({ success: false, message: phone.message, errors: [phone.message] });
-      const notifyPhone = req.body.notify === false ? null : phone.phone;
 
       const key = VM.normEmail(req.cohort.email);
       const materials = await freshMaterials(req.cohort.club_slug);
       const cur = materials.por_pessoa[key] || VM.emptyPessoa();
+      // Sem numero digitado, vale o que a pessoa ja tinha deixado (inclusive no "Não tenho materiais").
+      const notifyPhone = req.body.notify === false ? null : (phone.phone || cur.notify_phone || null);
       const submittedAt = new Date().toISOString();
       const next = { ...cur, submitted_at: submittedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
       if (notifyPhone) next.notify_phone = notifyPhone;
@@ -1044,17 +1045,25 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // POST /api/script/ficha/materials/skip
+  // POST /api/script/ficha/materials/skip  { notify_phone?, notify? }
   // "Não tenho materiais, ir para a ficha" (SPEC-workflow-v2-decisoes-06-09 §1, decisao 1): marca o pulo
   // DESTA pessoa (`por_pessoa[e-mail].skipped_at`) e NAO enfileira leitura de material nenhuma. O estado do
   // clube (`materials_status`) nao muda: quem enviou continua enviado. Quem ja enviou recebe 'submitted'.
+  // O WhatsApp e opcional e vai para o MESMO campo do envio (`notify_phone`): sem ele, o runner nao tem por
+  // onde avisar pendencia, script pronto nem janela de ajuste de quem pulou os materiais.
   router.post('/api/script/ficha/materials/skip', authMiddleware, cohortGuard, async (req, res) => {
     try {
+      const body = req.body || {};
+      const phone = VM.normalizePhone(body.notify_phone);
+      if (!phone.ok) return res.status(400).json({ success: false, message: phone.message, errors: [phone.message] });
       const key = VM.normEmail(req.cohort.email);
       const materials = await freshMaterials(req.cohort.club_slug);
       const cur = materials.por_pessoa[key] || VM.emptyPessoa();
+      const notifyPhone = body.notify === false ? null : (phone.phone || cur.notify_phone || null);
       const skippedAt = new Date().toISOString();
-      materials.por_pessoa[key] = { ...cur, skipped_at: cur.skipped_at || skippedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      const next = { ...cur, skipped_at: cur.skipped_at || skippedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      if (notifyPhone) next.notify_phone = notifyPhone;
+      materials.por_pessoa[key] = next;
       await dbRun(
         `UPDATE script_fichas SET materials = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
         [JSON.stringify(materials), req.cohort.club_slug]
@@ -1063,9 +1072,31 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         success: true,
         materials_status: VM.memberMaterialsStatus(materials, req.cohort.email),
         materials_skipped_at: materials.por_pessoa[key].skipped_at,
+        notify_phone: notifyPhone,
       });
     } catch (error) {
       console.error('Error in POST /api/script/ficha/materials/skip:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // PUT /api/script/ficha/notify-phone  { notify_phone }
+  // WhatsApp dos avisos pedido fora do envio (fim da ficha de quem pulou os materiais): mesma validacao e o
+  // mesmo lugar do "Enviei o que tinha" (`por_pessoa[e-mail].notify_phone`). Numero vazio apaga o guardado.
+  router.put('/api/script/ficha/notify-phone', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const phone = VM.normalizePhone((req.body || {}).notify_phone);
+      if (!phone.ok) return res.status(400).json({ success: false, message: phone.message, errors: [phone.message] });
+      const key = VM.normEmail(req.cohort.email);
+      const materials = await freshMaterials(req.cohort.club_slug);
+      const next = { ...(materials.por_pessoa[key] || VM.emptyPessoa()), ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      if (phone.phone) next.notify_phone = phone.phone;
+      else delete next.notify_phone;
+      materials.por_pessoa[key] = next;
+      await touchActivity(req.cohort.club_slug, ', materials = ?', [JSON.stringify(materials)]);
+      res.json({ success: true, notify_phone: phone.phone });
+    } catch (error) {
+      console.error('Error in PUT /api/script/ficha/notify-phone:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

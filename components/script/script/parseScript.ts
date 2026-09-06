@@ -294,13 +294,21 @@ export function classificaColchete(dentro: string): Exclude<TrechoTipo, 'texto'>
   return 'tag';
 }
 
-const COLCHETE_RE = /(\[[^\]]+\])/g;
+/** Colchete solto ou entre crases, com ou sem espaco dentro delas (`[ACIONAR MENTOR]`, ` [ACIONAR MENTOR] `). */
+const COLCHETE_RE = /(`[ \t]*\[[^\]\n`]+\][ \t]*`|\[[^\]]+\])/g;
+const COLCHETE_ENTRE_CRASES_RE = /^`[ \t]*(\[[^\]\n`]+\])[ \t]*`$/;
 
-/** Divide o texto de uma fala em trechos: texto corrido, etiquetas, campos de personalizacao e marcas proibidas. */
+/**
+ * Divide o texto de uma fala em trechos: texto corrido, etiquetas, campos de personalizacao e marcas proibidas.
+ * Crase em volta do colchete cai fora (o leitor mostra o chip, nao a crase); crase que nao envolve colchete
+ * (`codigo`) fica no texto, intacta.
+ */
 export function segmentar(texto: string): Trecho[] {
   return (texto || '').split(COLCHETE_RE).filter((p) => p !== '').map((p) => {
-    if (/^\[[^\]]+\]$/.test(p)) {
-      const dentro = p.slice(1, -1).trim();
+    const semCrase = COLCHETE_ENTRE_CRASES_RE.exec(p);
+    const colchete = semCrase ? semCrase[1] : p;
+    if (/^\[[^\]]+\]$/.test(colchete)) {
+      const dentro = colchete.slice(1, -1).trim();
       return { tipo: classificaColchete(dentro), valor: dentro };
     }
     return { tipo: 'texto' as const, valor: p };

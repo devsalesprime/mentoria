@@ -5,6 +5,7 @@ import { render, screen, waitFor, fireEvent, within, act } from '@testing-librar
 import axios from 'axios';
 import { ScriptScreen, emailDoToken } from '../../components/script/ScriptScreen';
 import { classificaColchete, extrairPremissa, grifoEncontrado, montarCartao, parseAnatomiaLinha, parseScript, segmentar, textoDaTela } from '../../components/script/script/parseScript';
+import { comTags } from '../../components/script/script/ScriptPaper';
 import { segmentarAnatomia, corDoComponente } from '../../components/script/script/AnatomiaFala';
 import { guardarTela, lerTelaLembrada, passoDaTela, telaDoPasso, rotuloCurto, nomeTela } from '../../components/script/script/telas';
 import { fraseResumo, grifoParaComentario, resumoGrifos } from '../../components/script/grifos/types';
@@ -218,6 +219,26 @@ describe('parseScript · doutrina 04/09', () => {
       { tipo: 'texto', valor: 'Oi ' }, { tipo: 'slot', valor: 'nome' }, { tipo: 'texto', valor: ', ' }, { tipo: 'tag', valor: 'Pausa.' },
       { tipo: 'texto', valor: ' tudo ' }, { tipo: 'proibido', valor: 'VALIDAR x' },
     ]);
+  });
+
+  it('crase em volta do chip nao chega ao leitor; codigo entre crases continua intacto', () => {
+    const esperado = [
+      { tipo: 'texto', valor: 'Peca ' }, { tipo: 'tag', valor: 'ACIONAR MENTOR' }, { tipo: 'texto', valor: ' na hora' },
+    ];
+    expect(segmentar('Peca `[ACIONAR MENTOR]` na hora')).toEqual(esperado);
+    expect(segmentar('Peca ` [ACIONAR MENTOR] ` na hora')).toEqual(esperado);
+    // campo de personalizacao entre crases: mesmo chip, sem crase
+    expect(segmentar('Oi `[nome]`')).toEqual([{ tipo: 'texto', valor: 'Oi ' }, { tipo: 'slot', valor: 'nome' }]);
+    // crase que nao envolve colchete e codigo: fica como estava
+    expect(segmentar('Rode `codigo` e depois [nome]')).toEqual([
+      { tipo: 'texto', valor: 'Rode `codigo` e depois ' }, { tipo: 'slot', valor: 'nome' },
+    ]);
+    // sumario ("Como usar este script"): o item chega ao leitor com o chip e sem crase nenhuma
+    const doc = parseScript('# Script\n\n## Como usar este script\n\n3. Peça `[ACIONAR MENTOR]` quando a mentora entrar.\n');
+    expect(doc.comoUsar).toHaveLength(1);
+    const { container } = render(<p>{comTags(doc.comoUsar[0])}</p>);
+    expect(container.textContent).not.toContain('`');
+    expect(within(container).getByText('ACIONAR MENTOR')).toBeInTheDocument();
   });
 
   it('premissa REP: caixa em blockquote (ou heading) antes do Passo 1, com a citacao separada', () => {

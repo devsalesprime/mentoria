@@ -16,6 +16,9 @@ vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { it
 
 import { FichaScreen } from '../../components/script/FichaScreen';
 import { COPY_APROFUNDAR, COPY_ESSENCIAL_CONFIRMADA, textoFaltamEssenciais } from '../../components/script/FichaWizard';
+import {
+  COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PERGUNTA, COPY_WHATS_SALVAR,
+} from '../../components/script/materiais/PromptWhatsApp';
 import { COPY_GRUPO_APROFUNDAR } from '../../components/script/FichaNavegador';
 import { recomputeView, type ScriptFichaData, type UseScriptFicha } from '../../hooks/useScriptFicha';
 import { SCRIPT_BLOCKS, SCRIPT_ESSENCIAL_KEYS, SCRIPT_FIELD_BY_KEY, ehEssencial, type ScriptBlockView, type ScriptFieldView } from '../../data/script-ficha-fields';
@@ -79,6 +82,14 @@ function fichaDe(data: ScriptFichaData, extra: Partial<UseScriptFicha> = {}): Us
 
 const lateral = () => screen.getByTestId('navegador-lateral');
 const P = (key: string) => SCRIPT_FIELD_BY_KEY[key].pergunta;
+
+/** As 3 essenciais decididas: o wizard abre direto no fim da ficha. */
+const DECIDIDOS = (): ScriptBlockView[] => [
+  blocoDe(1, [campoDe('1.1', 'Mentoria Sucessão'), campoDe('1.2', '')]),
+  blocoDe(3, [editado('3.3', 'Não consigo sair da clínica.'), campoDe('3.5', '')]),
+  blocoDe(4, [editado('4.1', 'Método Travessia: do balcão à mesa.')]),
+  blocoDe(6, [editado('6.2', 'Eu mesma conduzo; lead por indicação.')]),
+];
 
 beforeEach(() => { window.localStorage.clear(); });
 
@@ -178,6 +189,34 @@ describe('FichaScreen no modo essencial', () => {
     expect(screen.queryByTestId('aprofundar-ficha')).not.toBeInTheDocument();
     expect(within(lateral()).getByRole('region', { name: 'Bloco 1: Meta' })).toBeInTheDocument();
     expect(within(lateral()).queryByTestId('lateral-nav-outros')).not.toBeInTheDocument();
+  });
+
+  it('o fim da ficha pergunta o WhatsApp de quem não deixou número, sem travar o fechamento', async () => {
+    const salvarNotifyPhone = vi.fn().mockResolvedValue({ ok: true });
+    render(<FichaScreen ficha={fichaDe(dados({ blocos: DECIDIDOS() }), { salvarNotifyPhone })} onNavigate={vi.fn()} />);
+    const campo = () => screen.getByLabelText(COPY_WHATS_LABEL);
+    const salvar = () => screen.getByRole('button', { name: COPY_WHATS_SALVAR });
+    expect(screen.getByTestId('whatsapp-fim')).toHaveTextContent(COPY_WHATS_PERGUNTA);
+    // fechar a ficha essencial continua liberado sem responder nada
+    screen.getAllByRole('button', { name: /Fechar ficha essencial/ }).forEach((b) => expect(b).toBeEnabled());
+
+    // número incompleto: erro com a copy do envio, sem chamar o servidor
+    fireEvent.change(campo(), { target: { value: '123' } });
+    fireEvent.click(salvar());
+    expect(await screen.findByText(COPY_WHATS_ERRO)).toBeInTheDocument();
+    expect(salvarNotifyPhone).not.toHaveBeenCalled();
+
+    fireEvent.change(campo(), { target: { value: '(11) 98765-4321' } });
+    fireEvent.click(salvar());
+    await waitFor(() => expect(salvarNotifyPhone).toHaveBeenCalledWith('(11) 98765-4321'));
+    expect(await screen.findByTestId('whatsapp-fim-salvo')).toBeInTheDocument();
+  });
+
+  it('quem já tem WhatsApp guardado não é perguntado no fim da ficha', () => {
+    const materials = { links: [], observacoes: '', acessos: [], submitted_at: null, notify_phone: '5511987654321' };
+    render(<FichaScreen ficha={fichaDe(dados({ blocos: DECIDIDOS(), materials } as any))} onNavigate={vi.fn()} />);
+    expect(screen.getByTestId('wizard-fim')).toBeInTheDocument();
+    expect(screen.queryByTestId('whatsapp-fim')).toBeNull();
   });
 
   it('"Ver tudo": os blocos mostram só as essenciais e o resto vai para o acordeão "Aprofundar (opcional)"', () => {

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
+import {
+  COPY_WHATS_HINT, COPY_WHATS_LABEL, COPY_WHATS_PLACEHOLDER, COPY_WHATS_TOGGLE, WHATS_INPUT_CLASS, phoneError,
+} from './PromptWhatsApp';
 import type { SubmitMaterialsOptions, SubmitMaterialsResult } from '../../../hooks/useScriptFicha';
 
 interface ConfirmarEnvioModalProps {
@@ -14,21 +17,13 @@ interface ConfirmarEnvioModalProps {
   initialPhone?: string | null;
 }
 
-/** Mesma regra do servidor (utils/validation-materials.cjs normalizePhone): 10 a 13 digitos. */
-export function phoneDigits(raw: string): string {
-  return (raw || '').replace(/\D+/g, '');
-}
+// Copy, validação e classe do campo vivem em PromptWhatsApp (o mesmo campo aparece no pulo e no fim da ficha).
+export {
+  COPY_WHATS_ERRO, COPY_WHATS_HINT, COPY_WHATS_LABEL, COPY_WHATS_PLACEHOLDER, COPY_WHATS_TOGGLE,
+  WHATS_INPUT_CLASS, phoneDigits, phoneError,
+} from './PromptWhatsApp';
 
-export function phoneError(raw: string): string | null {
-  const d = phoneDigits(raw);
-  if (!d) return null;
-  if (d.length === 10 || d.length === 11) return null;
-  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) return null;
-  return 'Digite o DDD e o número, como (11) 99999-9999.';
-}
-
-const inputClass =
-  'w-full bg-prosperus-navy-mid border border-white/10 focus:border-prosperus-gold-dark/60 rounded-lg px-3 py-2.5 min-h-[44px] text-sm text-white placeholder-white/40 font-sans outline-none';
+const inputClass = WHATS_INPUT_CLASS;
 
 /**
  * Segunda confirmacao de "Enviei o que tinha": explica o pre-preenchimento e pede o WhatsApp para o aviso.
@@ -74,7 +69,7 @@ export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen
         </p>
 
         <div className="space-y-2">
-          <label htmlFor="notify-phone" className="block text-sm text-white/80 font-sans">Seu WhatsApp para o aviso (com DDD)</label>
+          <label htmlFor="notify-phone" className="block text-sm text-white/80 font-sans">{COPY_WHATS_LABEL}</label>
           <input
             id="notify-phone"
             type="tel"
@@ -83,7 +78,7 @@ export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen
             value={phone}
             onChange={(e) => { setPhone(e.target.value); setError(null); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); } }}
-            placeholder="(11) 99999-9999"
+            placeholder={COPY_WHATS_PLACEHOLDER}
             disabled={!notify || submitting}
             className={`${inputClass} ${!notify ? 'opacity-50' : ''}`}
           />
@@ -94,9 +89,9 @@ export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen
               onChange={(e) => { setNotify(e.target.checked); setError(null); }}
               className="w-5 h-5 accent-prosperus-gold-dark"
             />
-            Quero receber o aviso no WhatsApp
+            {COPY_WHATS_TOGGLE}
           </label>
-          <p className="text-xs text-white/40 font-sans">Opcional. Sem o número, você vê o resultado direto na ficha.</p>
+          <p className="text-xs text-white/40 font-sans">{COPY_WHATS_HINT}</p>
         </div>
         {error && <p className="text-xs text-red-400 font-sans">{error}</p>}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">

@@ -6,7 +6,8 @@
  * - GET /api/script/ficha devolve `modo` (null antes da escolha) e marca `essencial` em cada campo
  * - PUT /api/script/ficha/modo grava 'essencial' | 'completo' (coluna criada pelo ALTER idempotente da 023)
  * - POST /api/script/ficha/materials/skip ("Nao tenho materiais, ir para a ficha") marca skipped
- *   POR PESSOA, sem enfileirar leitura de material nenhuma
+ *   POR PESSOA, sem enfileirar leitura de material nenhuma, e guarda o WhatsApp opcional dos avisos
+ * - PUT /api/script/ficha/notify-phone grava o mesmo WhatsApp fora do envio (fim da ficha)
  * - POST /api/script/ficha/complete no modo essencial fecha com as 12 perguntas; no completo, 400 com `faltam`
  */
 import fs from 'fs';
@@ -157,6 +158,60 @@ describe('POST /api/script/ficha/materials/skip', () => {
     const dois = await api('POST', '/api/script/ficha/materials/skip', 'userS');
     expect(dois.status).toBe(200);
     expect(dois.data.materials_skipped_at).toBe(um.data.materials_skipped_at);
+  });
+
+  it('o WhatsApp opcional vai para o mesmo campo do envio (por_pessoa.notify_phone)', async () => {
+    const r = await api('POST', '/api/script/ficha/materials/skip', 'userS', { notify_phone: '(11) 98765-4321' });
+    expect(r.status).toBe(200);
+    expect(r.data.notify_phone).toBe('5511987654321');
+    const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-s'`);
+    expect(safeJsonParse(row.materials).por_pessoa['s@x.com'].notify_phone).toBe('5511987654321');
+    const ficha = await api('GET', '/api/script/ficha', 'userS');
+    expect(ficha.data.data.materials.notify_phone).toBe('5511987654321');
+    // continua sem leitura de material: pular nao enfileira pre-preenchimento
+    const jobs = await dbAll(`SELECT id FROM cohort_jobs WHERE club_slug = 'clube-s'`);
+    expect(jobs.length).toBe(0);
+  });
+
+  it('numero incompleto: 400 em portugues e o que estava guardado fica', async () => {
+    const r = await api('POST', '/api/script/ficha/materials/skip', 'userS', { notify_phone: '123' });
+    expect(r.status).toBe(400);
+    expect(r.data.message).toMatch(/WhatsApp inválido/);
+    expect(r.data.message).not.toMatch(/—/);
+    const ficha = await api('GET', '/api/script/ficha', 'userS');
+    expect(ficha.data.data.materials.notify_phone).toBe('5511987654321');
+  });
+});
+
+describe('PUT /api/script/ficha/notify-phone', () => {
+  it('grava o WhatsApp fora do envio e o GET passa a devolver', async () => {
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '11 98765-4321' });
+    expect(r.status).toBe(200);
+    expect(r.data.notify_phone).toBe('5511987654321');
+    const ficha = await api('GET', '/api/script/ficha', 'userE');
+    expect(ficha.data.data.materials.notify_phone).toBe('5511987654321');
+  });
+
+  it('numero invalido: 400 e o que estava salvo continua la', async () => {
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '99' });
+    expect(r.status).toBe(400);
+    expect(r.data.message).toMatch(/WhatsApp inválido/);
+    expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials.notify_phone).toBe('5511987654321');
+  });
+
+  it('vazio apaga o numero guardado (200)', async () => {
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '' });
+    expect(r.status).toBe(200);
+    expect(r.data.notify_phone).toBeNull();
+    expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials).not.toHaveProperty('notify_phone');
+  });
+
+  it('o numero de quem pulou vale para o pre-preenchimento: o submit sem numero reaproveita', async () => {
+    const sub = await api('POST', '/api/script/ficha/materials/submit', 'userS');
+    expect(sub.status).toBe(200);
+    expect(sub.data.notify_phone).toBe('5511987654321');
+    const job = await dbGet(`SELECT tipo, notify_phone FROM cohort_jobs WHERE club_slug = 'clube-s' ORDER BY created_at DESC, rowid DESC LIMIT 1`);
+    expect(job).toMatchObject({ tipo: 'prefill', notify_phone: '5511987654321' });
   });
 });
 

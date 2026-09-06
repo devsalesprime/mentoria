@@ -7,7 +7,8 @@ import { MATERIAL_CATEGORIAS, LINKS_DICA } from './materiais/categorias';
 import { ComoFunciona } from './materiais/ComoFunciona';
 import { AcessosPlataforma } from './materiais/AcessosPlataforma';
 import { PromptIA } from './materiais/PromptIA';
-import { ConfirmarEnvioModal } from './materiais/ConfirmarEnvioModal';
+import { ConfirmarEnvioModal, phoneError } from './materiais/ConfirmarEnvioModal';
+import { COPY_WHATS_PERGUNTA, PromptWhatsApp } from './materiais/PromptWhatsApp';
 import { AccordionSection } from '../shared/AccordionSection';
 import { FileUpload } from '../shared/FileUpload';
 import { SectionWarning } from '../shared/SectionWarning';
@@ -72,6 +73,9 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pulando, setPulando] = useState(false);
   const [erroPular, setErroPular] = useState<string | null>(null);
+  // WhatsApp dos avisos de quem vai pular os materiais (o mesmo campo do "Enviei o que tinha")
+  const [phone, setPhone] = useState('');
+  const [notify, setNotify] = useState(true);
 
   if (loading && !data) {
     return (
@@ -151,10 +155,13 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const navigate = useNavigate();
 
   // "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa, não manda ler nada e abre a ficha.
+  // O WhatsApp é opcional; sem ele a pessoa segue igual, só não recebe os avisos.
   const pularParaFicha = async () => {
+    const erroTelefone = notify ? phoneError(phone) : null;
+    if (erroTelefone) { setErroPular(erroTelefone); return; }
     setPulando(true);
     setErroPular(null);
-    const r = await pularMateriais();
+    const r = await pularMateriais({ notify_phone: notify ? phone : '', notify });
     setPulando(false);
     if (!r.ok) {
       setErroPular(r.message || 'Não deu para seguir agora. Tente de novo.');
@@ -343,6 +350,18 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
             </Button>
           </div>
         </div>
+        {!isSubmitted && !isSkipped && !data.materials?.notify_phone && (
+          <PromptWhatsApp
+            id="materiais-notify-phone"
+            titulo={COPY_WHATS_PERGUNTA}
+            phone={phone}
+            onPhone={(v) => { setPhone(v); setErroPular(null); }}
+            notify={notify}
+            onNotify={(v) => { setNotify(v); setErroPular(null); }}
+            disabled={pulando}
+            testId="whatsapp-materiais"
+          />
+        )}
         {erroPular && <p className="text-xs text-red-400 font-sans">{erroPular}</p>}
         {isSkipped && !isSubmitted && (
           <p className="text-xs text-white/50 font-sans" data-testid="materiais-pulados">
@@ -362,7 +381,7 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         onClose={() => setConfirmOpen(false)}
         onConfirm={(opts) => submitMaterials(opts)}
         onGoToFicha={goToFicha}
-        initialPhone={data.materials?.notify_phone || ''}
+        initialPhone={data.materials?.notify_phone || phone || ''}
       />
     </div>
   );

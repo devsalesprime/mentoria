@@ -22,6 +22,9 @@ vi.mock('framer-motion', () => ({
 vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { success: true, prompt: '' } }), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
 import { MateriaisScreen, COPY_PULAR_MATERIAIS } from '../../components/script/MateriaisScreen';
+import {
+  COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PERGUNTA, COPY_WHATS_TOGGLE,
+} from '../../components/script/materiais/PromptWhatsApp';
 import type { ScriptFichaData, UseScriptFicha } from '../../hooks/useScriptFicha';
 
 function dados(over: Partial<ScriptFichaData> = {}): ScriptFichaData {
@@ -93,5 +96,47 @@ describe('Materiais: pular para a ficha', () => {
   it('quem já enviou não vê o botão de pular (enviar vence pular)', () => {
     montar(fichaDe({}, dados({ materials_status: 'submitted', materials_submitted_at: '2026-09-05 10:00:00' })));
     expect(screen.queryByTestId('pular-materiais')).toBeNull();
+  });
+});
+
+/**
+ * Quem pula os materiais tambem precisa deixar o WhatsApp: sem ele o runner nao tem por onde avisar
+ * pendencia, script pronto nem janela de ajuste. Mesmo campo e mesma copy do "Enviei o que tinha".
+ */
+describe('Materiais: WhatsApp de quem pula', () => {
+  it('o campo aparece junto do pulo e o número digitado vai no mesmo pedido', async () => {
+    const pularMateriais = vi.fn().mockResolvedValue({ ok: true });
+    const onNavigate = montar(fichaDe({ pularMateriais }));
+    expect(screen.getByTestId('whatsapp-materiais')).toHaveTextContent(COPY_WHATS_PERGUNTA);
+    fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '(11) 98765-4321' } });
+    fireEvent.click(screen.getByTestId('pular-materiais'));
+    await waitFor(() => expect(pularMateriais).toHaveBeenCalledWith({ notify_phone: '(11) 98765-4321', notify: true }));
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_ficha'));
+  });
+
+  it('número incompleto não segue: erro com a copy do envio, sem chamar o servidor', async () => {
+    const pularMateriais = vi.fn();
+    const onNavigate = montar(fichaDe({ pularMateriais }));
+    fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '123' } });
+    fireEvent.click(screen.getByTestId('pular-materiais'));
+    expect(await screen.findByText(COPY_WHATS_ERRO)).toBeInTheDocument();
+    expect(pularMateriais).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('sem número o pulo continua de um clique só, e quem desmarca o aviso segue igual', async () => {
+    const pularMateriais = vi.fn().mockResolvedValue({ ok: true });
+    const onNavigate = montar(fichaDe({ pularMateriais }));
+    fireEvent.click(screen.getByLabelText(COPY_WHATS_TOGGLE));
+    fireEvent.click(screen.getByTestId('pular-materiais'));
+    await waitFor(() => expect(pularMateriais).toHaveBeenCalledWith({ notify_phone: '', notify: false }));
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_ficha'));
+  });
+
+  it('quem já deixou o número não é perguntado de novo', () => {
+    const materials = { links: [], observacoes: '', acessos: [], submitted_at: null, notify_phone: '5511987654321' };
+    montar(fichaDe({}, dados({ materials } as Partial<ScriptFichaData>)));
+    expect(screen.queryByTestId('whatsapp-materiais')).toBeNull();
+    expect(screen.getByTestId('pular-materiais')).toBeInTheDocument();
   });
 });
