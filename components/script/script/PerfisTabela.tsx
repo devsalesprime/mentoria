@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Bloco, PassoDoc } from './parseScript';
+import { TabelaSecao } from './secoes/TabelaSecao';
 
 /**
  * Tabela "Quem está do outro lado": o guia prático de perfis que o script traz no passo (no Passo 1 são o
@@ -92,26 +93,14 @@ export function extrairPerfis(passo: PassoDoc | null | undefined): { bloco: Bloc
   return null;
 }
 
-/** A tabela de verdade: cabeçalho em maiúsculas, zebra e rolagem horizontal no celular. */
+/**
+ * A tabela de verdade no desktop e um cartão por perfil abaixo de 768 px (onda E2, item 14 da SPEC):
+ * o desenho responsivo mora no `TabelaSecao`, que também serve qualquer outra tabela do passo.
+ */
 export const PerfisTabela: React.FC<{ tabela: TabelaPerfis }> = ({ tabela }) => (
-  <section className="min-w-0 mt-6" aria-label={tabela.titulo} data-testid="perfis-tabela">
+  <section className="script-secao min-w-0" aria-label={tabela.titulo} data-testid="perfis-tabela">
     <p className="script-nota-rotulo">{tabela.titulo}</p>
-    <div className="script-perfis-rolagem">
-      <table className="script-perfis">
-        <thead>
-          <tr>{tabela.colunas.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr>
-        </thead>
-        <tbody>
-          {tabela.linhas.map((linha, i) => (
-            <tr key={i}>
-              {linha.map((celula, j) => (
-                <td key={j} className={j === 0 ? 'script-perfis-chave' : undefined}>{celula}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <TabelaSecao tabela={tabela} rolagemClassName="script-perfis-rolagem" tabelaClassName="script-perfis" />
   </section>
 );
 

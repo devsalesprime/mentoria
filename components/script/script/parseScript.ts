@@ -53,11 +53,20 @@ export interface Bloco {
   inline: string;
   /** Itens (perguntas, sinais, objecoes) ou linhas extras de um bloco curto. */
   itens: string[];
+  /**
+   * Sub-listas de um bloco de lista: cada `### Titulo` dentro de "Perguntas recomendadas" vira um grupo
+   * (os quatro tipos do CNCS no Passo 2, a nota "Como usar estas perguntas"). Antes da onda E2 essas linhas
+   * eram coladas no ultimo item da lista.
+   */
+  grupos: GrupoLista[];
   /** Falas e sub-blocos (so em `dizer`). */
   dizer: DizerNode[];
   /** Markdown bruto do bloco (fallback e blocos `outro`). */
   md: string;
 }
+
+/** Um `### Titulo` com os itens dele, dentro de um bloco de lista. */
+export interface GrupoLista { titulo: string; itens: string[]; }
 
 export interface PassoDoc { n: number; nome: string; titulo: string; blocos: Bloco[]; }
 export interface SecaoExtra { titulo: string; slug: string; md: string; html: string; }
@@ -100,6 +109,7 @@ const H2_RE = /^##\s+(.+?)\s*$/;
 const H1_RE = /^#\s+(.+?)\s*$/;
 const ANATOMIA_TITULO_RE = /^>\s*\**\s*Anatomia da fala\s*\**\s*:?\s*$/i;
 const ANATOMIA_ITEM_RE = /^>\s*(?:[-*•]\s*)?\[([^\]]+)\]\s*[«"“]([^»"”]+)[»"”]\s*(?:[·:\-]\s*)?(?:por\s*qu[eê]\s*:?\s*)?(.*)$/i;
+const PERFIS_H3_RE = /^quem esta do outro lado\b/;
 const PREMISSA_RE = /Premissa\s+REP/i;
 const CITACAO_RE = /Hormozi|\$100M|fonte\s*:/i;
 const FRONT_MATTER_RE = /^---\n[\s\S]*?\n---\n/;
@@ -317,9 +327,28 @@ export function segmentar(texto: string): Trecho[] {
 
 interface BlocoBruto { tipo: BlocoTipo; rotulo: string; inline: string; lines: string[]; }
 
+/**
+ * Bloco de lista com sub-titulos: os itens antes do primeiro `### ` ficam soltos e cada `### Titulo`
+ * abre um grupo. E o que separa, no Passo 2, os quatro tipos de pergunta e a nota "Como usar estas perguntas".
+ */
+export function separarGrupos(lines: string[], inline: string): { itens: string[]; grupos: GrupoLista[] } {
+  const soltas: string[] = [];
+  const brutos: { titulo: string; lines: string[] }[] = [];
+  let atual: { titulo: string; lines: string[] } | null = null;
+  for (const line of lines) {
+    const h3 = H3_RE.exec(line);
+    if (h3) { atual = { titulo: h3[1].trim(), lines: [] }; brutos.push(atual); continue; }
+    (atual ? atual.lines : soltas).push(line);
+  }
+  return {
+    itens: collectItems(soltas, inline),
+    grupos: brutos.map((g) => ({ titulo: g.titulo, itens: collectItems(g.lines, '') })).filter((g) => g.itens.length > 0),
+  };
+}
+
 function finalizaBloco(b: BlocoBruto): Bloco {
   const md = [b.inline, ...b.lines].filter((l) => l && l.trim()).join('\n').trim();
-  const bloco: Bloco = { tipo: b.tipo, rotulo: b.rotulo, inline: '', itens: [], dizer: [], md };
+  const bloco: Bloco = { tipo: b.tipo, rotulo: b.rotulo, inline: '', itens: [], grupos: [], dizer: [], md };
   if (SINGLE_LINE.has(b.tipo)) {
     const marcados = b.lines.filter((l) => BULLET_RE.test(l) || ITEM_RE.test(l));
     if (marcados.length) {
@@ -329,7 +358,9 @@ function finalizaBloco(b: BlocoBruto): Bloco {
       bloco.inline = [b.inline, ...b.lines.map((l) => l.trim())].filter(Boolean).join(' ').trim();
     }
   } else if (LISTA.has(b.tipo)) {
-    bloco.itens = collectItems(b.lines, b.inline);
+    const separado = separarGrupos(b.lines, b.inline);
+    bloco.itens = separado.itens;
+    bloco.grupos = separado.grupos;
   } else if (b.tipo === 'dizer') {
     bloco.dizer = parseDizer(b.lines, b.inline);
   }
@@ -347,9 +378,15 @@ function parsePasso(titulo: string, bodyLines: string[]): PassoDoc {
     return b;
   };
   let cur: BlocoBruto | undefined;
+  // "Quem esta do outro lado" (v3) chega como `### ` logo depois das falas: vira bloco proprio para a tabela
+  // nao ser lida como fala e para o leitor poder tirar so ela do corpo do passo.
+  let emPerfis = false;
   for (const line of bodyLines) {
     const lm = LABEL_RE.exec(line);
-    if (lm) { cur = abre(tipoDoRotulo(lm[1]), lm[1].replace(/:\s*$/, '').trim(), lm[2].trim()); continue; }
+    if (lm) { emPerfis = false; cur = abre(tipoDoRotulo(lm[1]), lm[1].replace(/:\s*$/, '').trim(), lm[2].trim()); continue; }
+    const h3m = H3_RE.exec(line);
+    if (h3m && PERFIS_H3_RE.test(norm(h3m[1]))) { emPerfis = true; cur = abre('outro', h3m[1].trim(), ''); continue; }
+    if (h3m && emPerfis) { emPerfis = false; cur = abre('outro', '', ''); }
     if ((H3_RE.test(line) || ITEM_RE.test(line)) && (!cur || SINGLE_LINE.has(cur.tipo))) {
       cur = abre('dizer', 'O que dizer', '');
     }

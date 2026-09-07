@@ -1292,3 +1292,369 @@ input[type='range'].regua-nativa::-moz-range-thumb {
   white-space: nowrap;
 }
 .script-chip-tarefas-cheio { background: #CA9A43; border-color: #CA9A43; color: #0A2540; }
+
+/* ── Onda E2: moldes de seção do leitor (SPEC-workflow-v3-decisoes-07-09 §2, itens 11, 13 e 14) ──
+   Cada rótulo do markdown vira uma seção com o mesmo respiro (24 a 32 px), rótulo curto em maiúsculas com
+   ícone de linha e corpo de 17 px. Nada aqui muda o texto: muda só a moldura. */
+.script-secao { margin-top: 1.75rem; }
+@media (min-width: 640px) { .script-secao { margin-top: 2rem; } }
+.script-secao:first-child { margin-top: 0; }
+.script-secao-rotulo {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.script-secao-icone {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: #CA9A43;
+}
+
+/* Cabeçalho do passo: medalha, nome, objetivo em uma linha e a dupla estado + princípio. */
+.script-passo-cabecalho { margin-bottom: 0.25rem; }
+.script-passo-objetivo { margin-top: 1rem; }
+.script-cartoes-dupla {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+@media (min-width: 640px) { .script-cartoes-dupla { grid-template-columns: 1fr 1fr; } }
+.script-cartao-nota {
+  padding: 0.9rem 1.05rem;
+  border: 1px solid rgba(202, 154, 67, 0.4);
+  border-radius: 0.85rem;
+  background: #FFFDF8;
+}
+.script-cartao-nota-texto {
+  font-size: 17px;
+  line-height: 1.5;
+  color: #0A2540;
+}
+@media (min-width: 640px) { .script-cartao-nota-texto { font-size: 1rem; } }
+
+/* Falas: o subtítulo de um grupo (C · Contexto) respira antes do primeiro cartão. */
+.script-falas-sub { margin-top: 1.1rem; }
+
+/* Perguntas por tipo: um botão por tipo, alvo de 44 px, que abre a folha com a lista daquele tipo. */
+.script-perguntas-botoes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+}
+@media (min-width: 480px) { .script-perguntas-botoes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 640px) { .script-perguntas-botoes { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.script-perguntas-botao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid rgba(202, 154, 67, 0.55);
+  border-radius: 0.75rem;
+  background: #FFFDF8;
+  color: #0A2540;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.script-perguntas-botao:hover { background: rgba(202, 154, 67, 0.14); border-color: #CA9A43; }
+.script-perguntas-botao-nome {
+  font-family: var(--font-serif);
+  font-size: 1.02rem;
+  line-height: 1.25;
+  /* o nome do tipo quebra entre palavras, nunca no meio de "Consequência" */
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+.script-perguntas-botao-conta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(10, 37, 64, 0.08);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.script-perguntas-checklist { display: flex; flex-direction: column; gap: 0.45rem; }
+.script-perguntas-nota {
+  padding: 0.85rem 1rem;
+  border: 1px dashed rgba(202, 154, 67, 0.6);
+  border-radius: 0.75rem;
+  background: rgba(202, 154, 67, 0.07);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.script-perguntas-lista { display: flex; flex-direction: column; gap: 0.55rem; }
+.script-perguntas-item {
+  display: flex;
+  align-items: flex-start;
+  line-height: 1.5;
+  font-size: 17px;
+}
+
+/* Folha que abre por cima (lista de perguntas de um tipo). */
+.script-folha-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+@media (min-width: 640px) { .script-folha-fundo { align-items: center; padding: 1.5rem; } }
+.script-folha-cortina {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgba(8, 8, 8, 0.55);
+  cursor: default;
+}
+.script-folha {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 620px;
+  max-height: 86vh;
+  padding: 1.1rem 1.15rem 1rem;
+  border: 1px solid rgba(202, 154, 67, 0.5);
+  border-radius: 1.1rem 1.1rem 0 0;
+  background: #FCF7F0;
+  color: #0A2540;
+  box-shadow: 0 -12px 40px rgba(8, 8, 8, 0.35);
+}
+@media (min-width: 640px) { .script-folha { border-radius: 1.1rem; padding: 1.4rem 1.5rem 1.2rem; } }
+.script-folha-topo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid rgba(202, 154, 67, 0.4);
+}
+.script-folha-titulo {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  line-height: 1.2;
+  color: #0A2540;
+}
+.script-folha-fechar {
+  flex: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.85rem;
+  border: 1px solid rgba(10, 37, 64, 0.25);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: rgba(10, 37, 64, 0.8);
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.script-folha-fechar:hover { background: #0A2540; color: #FCF7F0; }
+.script-folha-corpo {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.9rem 0 0.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.script-folha-rodape {
+  padding-top: 0.8rem;
+  border-top: 1px solid rgba(202, 154, 67, 0.4);
+}
+.script-folha-copiar { min-height: 44px; padding: 0 1rem; }
+
+/* O que observar: um sinal por linha. */
+.script-sinais { display: flex; flex-direction: column; gap: 0.45rem; }
+.script-sinal { display: flex; align-items: flex-start; line-height: 1.5; }
+
+/* Avançar ou voltar: duas colunas de decisão. */
+.script-decisao {
+  display: grid;
+  gap: 0.75rem;
+}
+@media (min-width: 640px) { .script-decisao { grid-template-columns: 1fr 1fr; } }
+.script-decisao-lado {
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(10, 37, 64, 0.12);
+  font-size: 0.97rem;
+}
+.script-decisao-avance { background: rgba(58, 122, 90, 0.09); border-color: rgba(58, 122, 90, 0.32); }
+.script-decisao-avance .script-nota-rotulo { color: #2f6349; }
+.script-decisao-volte { background: rgba(202, 154, 67, 0.12); border-color: rgba(202, 154, 67, 0.45); }
+.script-decisao-volte .script-nota-rotulo { color: #8a6a22; }
+.script-decisao-unico {
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(10, 37, 64, 0.12);
+  border-radius: 0.75rem;
+  background: rgba(10, 37, 64, 0.045);
+  font-size: 0.97rem;
+}
+
+/* Objeções: uma por linha, a resposta abre no toque. */
+.script-objecoes {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(10, 37, 64, 0.12);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.script-objecao + .script-objecao { border-top: 1px solid rgba(10, 37, 64, 0.12); }
+.script-objecao-titulo {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.7rem 0.9rem;
+  background: transparent;
+  text-align: left;
+  font-size: 0.97rem;
+  line-height: 1.45;
+  color: #0A2540;
+  cursor: pointer;
+}
+.script-objecao-titulo:hover { background: rgba(10, 37, 64, 0.05); }
+.script-objecao-seta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: rgba(202, 154, 67, 0.2);
+  color: #0A2540;
+  font-weight: 700;
+}
+.script-objecao-resposta {
+  padding: 0 0.9rem 0.85rem 2.9rem;
+  font-family: var(--font-serif);
+  font-size: 1.08rem;
+  line-height: 1.5;
+  color: #0A2540;
+}
+
+/* Avisos de uma linha, cada um com o seu tom. */
+.script-callout {
+  padding: 0.9rem 1.05rem;
+  border: 1px solid rgba(10, 37, 64, 0.12);
+  border-left: 4px solid rgba(10, 37, 64, 0.25);
+  border-radius: 0.75rem;
+  background: rgba(10, 37, 64, 0.045);
+}
+.script-callout-texto { font-size: 0.97rem; line-height: 1.55; }
+.script-callout-silencio {
+  background: rgba(18, 63, 91, 0.06);
+  border-left-color: rgba(18, 63, 91, 0.45);
+}
+.script-callout-erro {
+  background: rgba(178, 96, 60, 0.09);
+  border-color: rgba(178, 96, 60, 0.3);
+  border-left-color: #b2603c;
+}
+.script-callout-erro .script-nota-rotulo, .script-callout-erro .script-secao-icone { color: #8f4a2a; }
+.script-callout-sucesso {
+  background: rgba(58, 122, 90, 0.09);
+  border-color: rgba(58, 122, 90, 0.3);
+  border-left-color: #3a7a5a;
+}
+.script-callout-sucesso .script-nota-rotulo, .script-callout-sucesso .script-secao-icone { color: #2f6349; }
+.script-callout-transicao {
+  background: #FFFDF8;
+  border-left-color: #CA9A43;
+}
+.script-callout-transicao .script-callout-texto { font-family: var(--font-serif); font-size: 1.1rem; }
+.script-callout-alerta {
+  background: rgba(178, 96, 60, 0.09);
+  border-color: rgba(178, 96, 60, 0.3);
+  border-left-color: #b2603c;
+}
+.script-callout-alerta .script-nota-rotulo, .script-callout-alerta .script-secao-icone { color: #8f4a2a; }
+.script-callout-proximo {
+  background: #0A2540;
+  border-color: #0A2540;
+  border-left-color: #CA9A43;
+  color: #FCF7F0;
+}
+.script-callout-proximo .script-nota-rotulo { color: #FFE39B; }
+.script-callout-proximo .script-secao-icone { color: #FFE39B; }
+.script-callout-proximo .script-callout-texto { font-family: var(--font-serif); font-size: 1.1rem; }
+
+/* Tabelas do passo: no desktop tabela de verdade com 15 px e largura mínima por coluna;
+   abaixo de 768 px, um cartão por linha, sem rolagem lateral e sem letra abaixo de 14 px. */
+.script-tabela-rolagem { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.script-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.script-tabela th {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 2px solid #CA9A43;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #0A2540;
+  min-width: 8rem;
+}
+.script-tabela th:first-child { min-width: 6.5rem; }
+.script-tabela td {
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid rgba(10, 37, 64, 0.12);
+  vertical-align: top;
+  min-width: 8rem;
+}
+.script-tabela tbody tr:nth-child(odd) { background: rgba(202, 154, 67, 0.07); }
+.script-tabela-chave { font-weight: 600; color: #0A2540; min-width: 6.5rem; }
+.script-tabela-cartoes { display: flex; flex-direction: column; gap: 0.7rem; }
+.script-tabela-cartao {
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(202, 154, 67, 0.4);
+  border-radius: 0.85rem;
+  background: #FFFDF8;
+}
+.script-tabela-cartao-titulo {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  line-height: 1.25;
+  color: #0A2540;
+  margin-bottom: 0.4rem;
+}
+.script-tabela-cartao-campo + .script-tabela-cartao-campo { margin-top: 0.55rem; }
+/* O nome da coluna vira o rótulo do campo: no cartão ele carrega o sentido, então não desce de 14 px. */
+.script-tabela-cartao-campo .script-nota-rotulo {
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+}
+.script-tabela-cartao-texto {
+  display: block;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #0A2540;
+}
+/* Texto legível também nas tabelas que continuam vindo de markdown (mapa de preparação). */
+.script-tela .script-md table, .script-tela .script-table table { font-size: 15px; }
+.script-tela .script-md th, .script-tela .script-table th { min-width: 7rem; }
+.script-tela .script-md td, .script-tela .script-table td { min-width: 7rem; }

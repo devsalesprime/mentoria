@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ScriptDoc } from './parseScript';
 import { documentoDe } from './parseScript';
-import { CartaoView, MapaSection, PassoCorpo, PremissaBox, comTags } from './ScriptPaper';
+import { CartaoView, MapaSection, PremissaBox, comTags } from './ScriptPaper';
+import { PassoSecoes } from './secoes/PassoSecoes';
 import { AulaDani } from './AulaDani';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
 import { TreinamentosPasso } from './TreinamentosPasso';
@@ -315,7 +316,6 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios
   const p1 = doc.documentos[0]?.passos.find((x) => x.n === n) || null;
   const nome = (p || p1)?.nome || nomeDoPassoEm(doc, n) || `Passo ${n}`;
   const objetivo = p1?.blocos.find((b) => b.tipo === 'objetivo') || null;
-  const mostraObjetivo = objetivo && !(p && p.blocos.some((b) => b.tipo === 'objetivo'));
   const docAtivo: DocumentoId = multiplos ? documento : 'treinamento';
   // Vista Campo: so o que o vendedor usa na reuniao (sem treinamentos e sem "Por que funciona")
   const campo = docAtivo === 'campo';
@@ -326,23 +326,14 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios
     : p;
   return (
     <div data-tela={tela} data-documento={docAtivo} className="script-passo-tela">
-      <header className="flex items-center gap-4 mb-4">
-        <span className="script-medalha" aria-hidden="true">{n}</span>
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">Passo {n} de 7</p>
-          <h2 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">{nome}</h2>
-        </div>
-      </header>
-      {mostraObjetivo && objetivo && (
-        <p className="script-objetivo mb-4">
-          <span className="script-nota-rotulo">{objetivo.rotulo}</span>
-          <span className="font-serif text-[1.15rem] leading-snug text-prosperus-navy-panel">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>
-        </p>
-      )}
-      <div key={`${docAtivo}-${n}`} className="mt-4">
-        {corpo ? <PassoCorpo passo={corpo} semAnatomia={campo} /> : (
-          <p className="text-sm text-prosperus-navy-panel/70">Este passo não está no script de {campo ? 'campo' : 'treinamento'} desta versão.</p>
-        )}
+      <div key={`${docAtivo}-${n}`}>
+        <PassoSecoes
+          passo={corpo}
+          n={n}
+          nome={nome}
+          objetivoAlternativo={objetivo ? (objetivo.inline || objetivo.itens.join(' ')) : ''}
+          campo={campo}
+        />
       </div>
       {perfis && <PerfisTabela tabela={perfis.tabela} />}
       <TarefasPasso passo={n} concluidas={tarefasConcluidas} onTarefa={onTarefa} />

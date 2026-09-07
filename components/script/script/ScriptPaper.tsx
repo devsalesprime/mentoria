@@ -86,7 +86,7 @@ export function comTags(texto: string): React.ReactNode {
  * Cartao de uma fala: a citacao grande e legivel; a "Anatomia da fala" (treinamento) fica fechada atras de
  * "Por que funciona" (sao dezenas de anatomias por script; abertas, atrapalham a leitura).
  */
-const FalaCard: React.FC<{ fala: Fala; passo: number; semAnatomia?: boolean }> = ({ fala, passo, semAnatomia }) => {
+export const FalaCard: React.FC<{ fala: Fala; passo: number; semAnatomia?: boolean }> = ({ fala, passo, semAnatomia }) => {
   const [ativo, setAtivo] = useState<number | null>(null);
   const [porque, setPorque] = useState(false);
   const temAnatomia = !semAnatomia && (fala.anatomia.length > 0 || fala.anatomiaBruta.length > 0);
@@ -178,6 +178,16 @@ const Checklist: React.FC<{ bloco: Bloco }> = ({ bloco }) => (
         <li key={i} className="flex items-start leading-relaxed text-[0.95rem]"><span className="script-check" aria-hidden="true" />{comTags(it)}</li>
       ))}
     </ul>
+    {bloco.grupos.map((g, i) => (
+      <div key={i} className="mt-3">
+        <h4 className="script-h3 font-serif text-[1.05rem] text-prosperus-navy-panel">{g.titulo}</h4>
+        <ul className="space-y-1.5 mt-1">
+          {g.itens.map((it, j) => (
+            <li key={j} className="flex items-start leading-relaxed text-[0.95rem]"><span className="script-check" aria-hidden="true" />{comTags(it)}</li>
+          ))}
+        </ul>
+      </div>
+    ))}
   </div>
 );
 

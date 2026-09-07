@@ -228,7 +228,8 @@ describe('ScriptScreen', () => {
     expect(within(reader).getByText('Mentora')).toBeInTheDocument();
     expect(within(reader).getByText('ACIONAR MENTORA')).toBeInTheDocument();
     expect(reader.querySelectorAll('.script-check').length).toBe(2);
-    expect(reader.querySelectorAll('.script-nota-erro').length).toBe(1);
+    // onda E2: "Erro a evitar" virou um aviso com molde próprio (vermelho), no lugar da nota genérica
+    expect(reader.querySelectorAll('.script-callout-erro').length).toBe(1);
     expect(within(reader).getByText('O que observar')).toBeInTheDocument();
 
     // vista Campo do mesmo passo, pela chave global da barra de cima
