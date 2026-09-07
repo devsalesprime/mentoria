@@ -194,8 +194,12 @@ describe('ScriptScreen', () => {
     expect(await screen.findByText('Script v1')).toBeInTheDocument();
     const reader = await screen.findByTestId('script-reader');
 
-    // primeira tela: cartao de bolso, com um botao so ("Baixar cartão")
-    expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
+    // onda E4: o script novo abre na tela de Início; o cartão de bolso é a tela seguinte
+    expect(within(reader).getByRole('heading', { name: 'O seu script está pronto' })).toBeInTheDocument();
+    fireEvent.click(within(reader).getByTestId('inicio-cartao'));
+
+    // segunda tela: cartao de bolso, com um botao so ("Baixar cartão")
+    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
     expect(within(reader).getByTestId('baixar-cartao-tela')).toHaveTextContent('Baixar cartão');
 
     // mapa: cartao, sumario, 7 passos, preparacao
@@ -359,8 +363,9 @@ describe('ScriptScreen', () => {
     mockVersao(v1);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="t" />);
     const reader = await screen.findByTestId('script-reader');
+    fireEvent.click(await within(reader).findByTestId('inicio-cartao'));
     // cartao montado a partir das falas
-    expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
+    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
     expect(within(reader).getByText(/Montado a partir do script de campo/)).toBeInTheDocument();
     await irParaPasso(3);
     expect(screen.queryByRole('tablist')).toBeNull();

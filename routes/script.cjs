@@ -227,6 +227,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         ...(extra.scriptSummary || { versoes: 0, ultima: null, aprovada: null }),
         job: jobView(extra.scriptJob),
         entregaveis: extra.entregaveis || {},
+        // Rodada de ajustes do clube (onda E4): quantos pedidos de nova versao ja sairam e qual e o teto
+        ajustes_usados: extra.ajustes ? extra.ajustes.usados : 0,
+        ajustes_limite: extra.ajustes ? extra.ajustes.limite : 1,
       },
       config,
       prefilled_at: ficha.prefilled_at,
@@ -255,7 +258,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
-      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes] = await Promise.all([
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
         JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
@@ -265,11 +268,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         JOBS.findLatestJob({ dbGet }, { tipo: 'script', club_slug: slug }),
         SV.entregaveisPorVersao({ dbAll }, slug, entregavelUrl),
         nomesDoClube(slug),
+        contarAjustes(slug),
       ]);
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
@@ -825,6 +829,42 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
+  // ─── Rodada de ajustes (onda E4) ─────────────────────────────────────────
+  // O clube tem UMA rodada de ajustes incluida: um pedido de nova versao feito pelo mentor
+  // (POST /api/script/versoes/:versao/revisar). Job forcado pelo admin ou nascido dentro do worker marca
+  // `payload.origem` diferente e nao entra na conta; o historico antigo (sem `origem`) conta como do mentor,
+  // entao clube que ja pediu revisao aparece com a rodada gasta.
+  const ORIGEM_MEMBRO = 'membro';
+  const AJUSTES_LIMITE_PADRAO = 1;
+  const COPY_LIMITE_AJUSTES = 'A sua rodada de ajustes já foi usada. Precisa de mais? Fale com a equipe.';
+
+  /** Teto de ajustes: `cohort_config.ajustes_limite` quando existir, senao 1. */
+  async function limiteDeAjustes() {
+    try {
+      const row = await dbGet(`SELECT value FROM cohort_config WHERE key = 'ajustes_limite'`);
+      const n = row == null ? NaN : Number(row.value);
+      return Number.isInteger(n) && n >= 0 ? n : AJUSTES_LIMITE_PADRAO;
+    } catch {
+      return AJUSTES_LIMITE_PADRAO;
+    }
+  }
+
+  /** { usados, limite } do clube. `usados` = jobs `revisar` pedidos pelo mentor, em qualquer status. */
+  async function contarAjustes(clubSlug) {
+    const limite = await limiteDeAjustes();
+    try {
+      const row = await dbGet(
+        `SELECT COUNT(*) AS n FROM cohort_jobs
+          WHERE tipo = 'revisar' AND club_slug = ?
+            AND COALESCE(json_extract(payload, '$.origem'), ?) = ?`,
+        [clubSlug, ORIGEM_MEMBRO, ORIGEM_MEMBRO]
+      );
+      return { usados: row ? Number(row.n) || 0 : 0, limite };
+    } catch {
+      return { usados: 0, limite };
+    }
+  }
+
   /**
    * Grifos -> comentarios da versao, para o payload do job `revisar`.
    * O front manda os grifos ja convertidos em `comentarios` ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9);
@@ -864,12 +904,24 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // POST /api/script/versoes/:versao/revisar  { pedido?, comentarios? }  -> "Pedir nova versao": job `revisar` (1 ativo por clube, junto com `script`)
   // payload = a versao base (content_md) + TODOS os comentarios dela (inclusive os grifos convertidos) + pedido livre;
   // o worker escreve a proxima versao a partir disso. Nao exige ficha confirmada: a base e a versao ja escrita.
+  // Onda E4: uma rodada de ajustes por clube. Gasta a rodada, o membro recebe 409 { motivo: 'limite_ajustes' };
+  // o admin nao passa por aqui (as rotas dele continuam podendo forcar).
   router.post('/api/script/versoes/:versao/revisar', authMiddleware, cohortGuard, validateBody(revisarSchema), async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
       const slug = req.cohort.club_slug;
       const versao = await SV.getVersion({ dbGet }, slug, n);
       if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      const rodada = await contarAjustes(slug);
+      if (rodada.limite > 0 && rodada.usados >= rodada.limite) {
+        return res.status(409).json({
+          success: false,
+          motivo: 'limite_ajustes',
+          message: COPY_LIMITE_AJUSTES,
+          ajustes_usados: rodada.usados,
+          ajustes_limite: rodada.limite,
+        });
+      }
       const key = VM.normEmail(req.cohort.email);
       const { existentes, novos } = await comentariosDosGrifos(slug, n, req.body.comentarios, key);
       const comentarios = [...existentes, ...novos];
@@ -879,6 +931,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         comentarios,
         nome: req.cohort.name || null,
         pedido_em: new Date().toISOString(),
+        // Quem pediu: e o que conta na rodada de ajustes (job forcado pelo admin ou nascido no worker nao conta)
+        origem: ORIGEM_MEMBRO,
       };
       if (req.body.pedido) payload.pedido = req.body.pedido;
       const grifos = comentarios.filter((c) => SG.comentarioEhGrifo(c.texto));

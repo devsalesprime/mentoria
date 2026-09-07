@@ -1,11 +1,30 @@
 /**
- * As telas do leitor "Seu script": 0 Cartao de bolso · 1 Sumario · 2..8 Passo 1..7 · 9 Preparacao e metricas.
- * Comentarios e grifos convertidos usam o "passo": 0 (cartao e sumario), 1..7 (o passo) e 9 (preparacao).
+ * As telas do leitor "Seu script", em DUAS coordenadas (onda E4).
+ *
+ * 1. NAVEGACAO (o que a pessoa ve, o que a barra mostra e o que fica lembrado):
+ *      0 Inicio ("O seu script está pronto") · 1 Cartao de bolso · 2 Sumario · 3..9 Passo 1..7 · 10 Preparacao e metricas.
+ *    A tela de Inicio nasceu na onda E4 e empurrou todas as outras uma casa para frente.
+ * 2. CONTEUDO (o que o banco guarda e o servidor entende; nada aqui mudou de numero):
+ *      0 cartao · 1 sumario · 2..8 passos · 9 preparacao.
+ *    E a coordenada do `passo` dos grifos (script_grifos, CHECK 0..9), dos comentarios convertidos e do parseScript.
+ *    A tela de Inicio nao tem conteudo (nao da para grifar nela).
+ *
+ * `conteudoDaNav` e `navDoConteudo` convertem entre as duas. Comentarios e grifos convertidos usam o "passo":
+ * 0 (cartao e sumario), 1..7 (o passo) e 9 (preparacao).
  */
+
+// ─── Coordenada de CONTEUDO (0..9) ───────────────────────────────────────────
 export const TOTAL_TELAS = 10;
 export const TELA_CARTAO = 0;
 export const TELA_SUMARIO = 1;
 export const TELA_PREPARACAO = 9;
+
+// ─── Coordenada de NAVEGACAO (0..10) ─────────────────────────────────────────
+export const TOTAL_NAV = TOTAL_TELAS + 1;
+export const NAV_INICIO = 0;
+export const NAV_CARTAO = 1;
+export const NAV_SUMARIO = 2;
+export const NAV_PREPARACAO = 10;
 
 export type DocumentoId = 'treinamento' | 'campo';
 
@@ -54,18 +73,71 @@ export function clampTela(tela: number): number {
   return Math.max(0, Math.min(TOTAL_TELAS - 1, Math.round(tela)));
 }
 
-function chave(club: string, versao: number): string {
+// ─── Navegacao <-> conteudo ──────────────────────────────────────────────────
+
+export function clampNav(tela: number): number {
+  if (!Number.isFinite(tela)) return NAV_INICIO;
+  return Math.max(0, Math.min(TOTAL_NAV - 1, Math.round(tela)));
+}
+
+/** Tela de navegacao -> coordenada de conteudo. O Inicio devolve -1 (nao tem conteudo). */
+export function conteudoDaNav(tela: number): number {
+  return clampNav(tela) - 1;
+}
+
+/** Coordenada de conteudo -> tela de navegacao (o Inicio nunca sai daqui). */
+export function navDoConteudo(conteudo: number): number {
+  return clampNav(clampTela(conteudo) + 1);
+}
+
+export function ehTelaDeInicio(tela: number): boolean {
+  return clampNav(tela) === NAV_INICIO;
+}
+
+/** Rotulo curto do mapa, na coordenada de navegacao. */
+export function rotuloNav(tela: number): string {
+  return ehTelaDeInicio(tela) ? 'Início' : rotuloCurto(conteudoDaNav(tela));
+}
+
+/** Nome completo da tela, na coordenada de navegacao. */
+export function nomeNav(tela: number, nomePasso?: string): string {
+  return ehTelaDeInicio(tela) ? 'Início' : nomeTela(conteudoDaNav(tela), nomePasso);
+}
+
+// ─── Tela lembrada (localStorage) ────────────────────────────────────────────
+
+/** Chave da onda E4: guarda o indice de NAVEGACAO. */
+function chaveNav(club: string, versao: number): string {
+  return `script-tela-nav:${club || 'clube'}:v${versao}`;
+}
+
+/** Chave de antes da onda E4: guardava o indice de CONTEUDO (uma casa atras). */
+function chaveAntiga(club: string, versao: number): string {
   return `script-tela:${club || 'clube'}:v${versao}`;
 }
 
-/** Tela lembrada para a versao (localStorage); null quando o script nunca foi aberto nesta versao. */
+function numeroDe(raw: string | null, total: number): number | null {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n < total ? n : null;
+}
+
+/**
+ * Tela lembrada para a versao; null quando o script nunca foi aberto nesta versao.
+ * Migracao da onda E4: quem tinha o indice antigo (conteudo) ganha +1 uma vez, porque o Inicio entrou na frente.
+ * A chave antiga sai do armazenamento na migracao, para o +1 nao acontecer duas vezes.
+ */
 export function lerTelaLembrada(club: string, versao: number): number | null {
   try {
     if (typeof localStorage === 'undefined') return null;
-    const raw = localStorage.getItem(chave(club, versao));
-    if (raw == null || raw === '') return null;
-    const n = Number(raw);
-    return Number.isInteger(n) && n >= 0 && n < TOTAL_TELAS ? n : null;
+    const nova = numeroDe(localStorage.getItem(chaveNav(club, versao)), TOTAL_NAV);
+    if (nova != null) return nova;
+    const antiga = numeroDe(localStorage.getItem(chaveAntiga(club, versao)), TOTAL_TELAS);
+    if (antiga == null) return null;
+    const tela = navDoConteudo(antiga);
+    localStorage.setItem(chaveNav(club, versao), String(tela));
+    localStorage.removeItem(chaveAntiga(club, versao));
+    return tela;
   } catch {
     return null;
   }
@@ -74,7 +146,7 @@ export function lerTelaLembrada(club: string, versao: number): number | null {
 export function guardarTela(club: string, versao: number, tela: number): void {
   try {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(chave(club, versao), String(clampTela(tela)));
+    localStorage.setItem(chaveNav(club, versao), String(clampNav(tela)));
   } catch {
     // sem armazenamento: segue sem lembrar
   }

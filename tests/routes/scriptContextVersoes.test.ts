@@ -94,6 +94,9 @@ beforeAll(async () => {
   app.use(createScriptRoutes(deps));
   app.use(createAdminCohortRoutes(deps));
   app.use(createJobsRoutes({ ...deps, COHORT_JOBS_TOKEN: TOKEN, APP_URL: 'https://app.teste.local/' }));
+  // A rodada de ajustes (onda E4) e uma so por clube; estes testes pedem varias revisoes de proposito.
+  await dbRun(`CREATE TABLE IF NOT EXISTS cohort_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+  await dbRun(`INSERT OR REPLACE INTO cohort_config (key, value) VALUES ('ajustes_limite', '99')`);
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
   delete process.env.GROQ_API_KEY;

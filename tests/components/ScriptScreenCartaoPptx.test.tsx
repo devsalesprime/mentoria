@@ -132,6 +132,9 @@ describe('ScriptScreen: a apresentação no bloco "Ações"', () => {
     const gerar = screen.getByTestId('cartao-pptx-gerar');
     expect(gerar).toHaveTextContent(COPY_PPTX_GERAR);
     fireEvent.click(gerar);
+    // onda E4: o pedido só sai depois das duas etapas de confirmação
+    fireEvent.click(await screen.findByTestId('apres-avancar'));
+    fireEvent.click(await screen.findByTestId('apres-confirmar'));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/slides', {}, expect.anything()));
     // o bloco passa a mostrar que está sendo montada
     await waitFor(() => expect(screen.getByTestId('cartao-pptx-montando')).toBeInTheDocument());

@@ -336,12 +336,17 @@ describe('ScriptScreen · leitor em telas', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
   });
 
-  it('script novo abre no cartao de bolso; Proximo leva ao sumario (premissa, ficha) e depois ao Passo 1 com as abas; a tela fica lembrada', async () => {
+  it('script novo abre no Início; Próximo leva ao cartão, ao sumário (premissa, ficha) e ao Passo 1; a tela fica lembrada', async () => {
     mockApi(MD_DOUTRINA);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token={TOKEN} />);
     await screen.findByText('Script v1');
     const reader = await screen.findByTestId('script-reader');
-    expect(within(reader as HTMLElement).getByText('Cartão de bolso')).toBeInTheDocument();
+    // tela 0 (onda E4): "O seu script está pronto"
+    const inicio = within(reader as HTMLElement).getByTestId('tela-inicio');
+    expect(within(inicio).getByRole('heading', { name: 'O seu script está pronto' })).toBeInTheDocument();
+    expect(within(inicio).getByTestId('chips-grifo').textContent).toContain('Dourado para ajustar');
+    fireEvent.click(within(inicio).getByTestId('inicio-cartao'));
+    expect(await within(reader as HTMLElement).findByText('Cartão de bolso')).toBeInTheDocument();
     expect(within(reader as HTMLElement).getByText(/Conexão: a pessoa antes da empresa/)).toBeInTheDocument();
     // um botão só no cartão: "Baixar cartão" (a imagem); "Copiar" e "Imprimir" saíram na onda E1
     expect(within(reader as HTMLElement).getByTestId('baixar-cartao-tela')).toHaveTextContent('Baixar cartão');
@@ -350,7 +355,7 @@ describe('ScriptScreen · leitor em telas', () => {
     const nav = screen.getByRole('navigation', { name: 'Índice do script' });
     expect(within(nav).getByRole('button', { name: 'Cartão de bolso' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav).getAllByRole('button', { name: /^Passo \d:/ })).toHaveLength(7);
-    expect(within(nav).getByRole('button', { name: 'Tela anterior' })).toBeDisabled();
+    expect(within(nav).getByRole('button', { name: 'Início' })).toBeInTheDocument();
 
     fireEvent.click(within(nav).getByRole('button', { name: 'Próxima tela' }));
     // (a folha de impressao escondida tambem tem o titulo: consultar dentro do leitor)
@@ -365,7 +370,7 @@ describe('ScriptScreen · leitor em telas', () => {
     expect(within(premissa).getByText(/Alex Hormozi/)).toBeInTheDocument();
     expect(within(reader).getByText('Treinamento')).toBeInTheDocument();
     expect(within(reader).getByText('Comentar o script como um todo')).toBeInTheDocument();
-    expect(lerTelaLembrada('elos', 1)).toBe(1);
+    expect(lerTelaLembrada('elos', 1)).toBe(2);
 
     fireEvent.click(within(nav).getByRole('button', { name: 'Próxima tela' }));
     expect(await screen.findByText('Passo 1 de 7')).toBeInTheDocument();
@@ -401,7 +406,7 @@ describe('ScriptScreen · leitor em telas', () => {
     fireEvent.click(screen.getByTestId('modo-campo'));
     expect(await within(reader).findByText(/Fala de campo do passo 1/)).toBeInTheDocument();
     expect(within(reader).getByText('Pausa.')).toBeInTheDocument();
-    expect(lerTelaLembrada('elos', 1)).toBe(2);
+    expect(lerTelaLembrada('elos', 1)).toBe(3);
 
     // setas do teclado
     fireEvent.keyDown(window, { key: 'ArrowRight' });
@@ -428,7 +433,7 @@ describe('ScriptScreen · leitor em telas', () => {
   }, 30000);
 
   it('tela lembrada por versao: abre direto no Passo 2', async () => {
-    guardarTela('elos', 1, 3);
+    guardarTela('elos', 1, 4);
     mockApi(MD_DOUTRINA);
     render(<ScriptScreen ficha={fichaMock()} token={TOKEN} />);
     expect(await screen.findByText('Passo 2 de 7')).toBeInTheDocument();
@@ -573,6 +578,6 @@ describe('ScriptScreen · leitor em telas', () => {
     const reader = await screen.findByTestId('script-reader');
     await waitFor(() => expect(within(reader).getAllByText('Passo novo 3').length).toBeGreaterThan(0));
     expect(within(reader).getByText('Passo 3 de 7')).toBeInTheDocument();
-    expect(lerTelaLembrada('elos', 2)).toBe(4);
+    expect(lerTelaLembrada('elos', 2)).toBe(5);
   }, 30000);
 });

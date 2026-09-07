@@ -10,11 +10,21 @@ import { TarefasPasso } from './TarefasPasso';
 import { PerfisTabela, extrairPerfis } from './PerfisTabela';
 import { contagemDoPasso } from './tarefas';
 import {
-  TOTAL_TELAS, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO, ehTelaDePasso, passoNaTela, rotuloCurto, nomeTela, type DocumentoId,
+  TOTAL_NAV, NAV_INICIO, NAV_CARTAO, NAV_SUMARIO, NAV_PREPARACAO,
+  TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO,
+  conteudoDaNav, ehTelaDeInicio, ehTelaDePasso, passoNaTela, rotuloNav, nomeNav, type DocumentoId,
 } from './telas';
 
 /**
- * O leitor em telas de "Seu script": 0 Cartao de bolso · 1 Sumario · 2..8 um passo por tela · 9 Preparacao e metricas.
+ * O leitor em telas de "Seu script": 0 Inicio · 1 Cartao de bolso · 2 Sumario · 3..9 um passo por tela ·
+ * 10 Preparacao e metricas. O `tela` que entra aqui e o indice de NAVEGACAO; `data-tela` continua sendo a
+ * coordenada de CONTEUDO (0..9), que e a que os grifos e os comentarios guardam (ver telas.ts).
+ *
+ * Onda E4 (pedidos do dono em 07/09):
+ * - tela 0 "O seu script está pronto": contexto, como usar (navegar, grifar, pedir ajustes), o que vem depois
+ *   (a apresentacao comercial) e os dois botoes de entrada (cartao de bolso e sumario);
+ * - RODAPE de navegacao no fim de TODA tela ("Anterior" e "Próximo: <nome da próxima tela>"), para ninguem
+ *   precisar voltar ao topo; na ultima tela o "Próximo" vira "Ir para as ações".
  *
  * Onda E1 (SPEC-workflow-v3-decisoes-07-09 §2):
  * - a escolha Treinamento | Campo saiu de dentro do passo e virou global, na barra de cima da tela (ScriptScreen);
@@ -58,11 +68,21 @@ export const COPY_PPTX_COMO_USAR = 'Abra no PowerPoint, escolha Modo de apresent
 export const COPY_BAIXAR_CARTAO = 'Baixar cartão';
 export const ROTULO_ACOES = 'Ações';
 
+/** Uma rodada de ajustes por clube (onda E4). O servidor manda `ajustes_usados` e `ajustes_limite` na ficha. */
+export interface AjustesInfo { usados: number; limite: number }
+export const COPY_AJUSTES_SOBRANDO = 'Você tem uma rodada de ajustes incluída.';
+export const COPY_AJUSTES_USADOS = 'A sua rodada de ajustes já foi usada. Precisa de mais? Fale com a equipe.';
+
 interface ScriptReaderProps {
   doc: ScriptDoc;
   clubNome: string;
+  /** Indice de NAVEGACAO: 0 Inicio · 1 Cartao · 2 Sumario · 3..9 Passos · 10 Preparacao. */
   tela: number;
   onTela: (t: number) => void;
+  /** Numero da versao aberta, para a linha de abertura da tela de Inicio. */
+  versao?: number | null;
+  /** Rodada de ajustes: a tela de Inicio conta o que sobrou. */
+  ajustes?: AjustesInfo;
   documento: DocumentoId;
   /** Telas com grifo ou comentario (ponto no mapa). */
   marcadas: Set<number>;
@@ -160,6 +180,123 @@ const BlocoAcoes: React.FC<{ acoes?: React.ReactNode; apresentacao?: Apresentaca
       {acoes && <div className="script-acoes-linha">{acoes}</div>}
       {apresentacao && <BlocoApresentacao apresentacao={apresentacao} />}
     </section>
+  );
+};
+
+/** As 3 cores do grifo, em chip, na tela de Inicio: o mesmo vocabulario do balao e do painel. */
+const CHIPS_GRIFO: Array<{ cor: string; rotulo: string; para: string }> = [
+  { cor: 'dourado', rotulo: 'Dourado', para: 'ajustar' },
+  { cor: 'verde', rotulo: 'Verde', para: 'manter' },
+  { cor: 'vermelho', rotulo: 'Vermelho', para: 'tirar' },
+];
+
+/**
+ * Tela 0 (onda E4): a porta de entrada do script. Diz que ele está pronto, mostra como navegar, como grifar e
+ * como pedir os ajustes, e antecipa a apresentação comercial que vem depois da validação.
+ */
+const TelaInicio: React.FC<{ clubNome: string; versao?: number | null; ajustes?: AjustesInfo; onTela: (t: number) => void }> = ({ clubNome, versao, ajustes, onTela }) => {
+  const sobrando = !ajustes || ajustes.usados < ajustes.limite;
+  return (
+    <div className="script-inicio space-y-6" data-testid="tela-inicio">
+      <header className="script-titulo">
+        <p className="text-[11px] uppercase tracking-[0.24em] text-prosperus-gold-dark font-semibold">
+          {clubNome}{versao ? ` · v${versao}` : ''}
+        </p>
+        <h2 className="script-h1 font-serif text-3xl sm:text-[2.2rem] leading-tight text-prosperus-navy-panel mt-1">O seu script está pronto</h2>
+        <p className="script-tela-intro mt-2">
+          Ele foi escrito a partir dos seus materiais e das suas respostas. Leia com calma, marque o que quiser mudar e peça os ajustes antes de gerar a apresentação.
+        </p>
+        <div className="script-rule mt-4" aria-hidden="true" />
+      </header>
+
+      <section aria-label="Como usar">
+        <p className="script-nota-rotulo">Como usar</p>
+        <div className="script-inicio-cards">
+          <article className="script-inicio-card">
+            <h3 className="font-serif text-xl text-prosperus-navy-panel">Navegue</h3>
+            <p className="text-sm leading-relaxed text-prosperus-neutral-black">
+              Uma tela por vez: o cartão de bolso, o sumário, os 7 passos e a preparação. Use Anterior e Próximo no fim de cada tela ou o mapa das telas. Em cima você escolhe entre Treinamento e Campo.
+            </p>
+          </article>
+          <article className="script-inicio-card">
+            <h3 className="font-serif text-xl text-prosperus-navy-panel">Grife</h3>
+            <p className="text-sm leading-relaxed text-prosperus-neutral-black">
+              Selecione um trecho e escolha a cor. Pode anexar um áudio, uma foto, um link ou uma nota para explicar o que você quer.
+            </p>
+            <ul className="script-inicio-chips" data-testid="chips-grifo">
+              {CHIPS_GRIFO.map((c) => (
+                <li key={c.cor} className={`script-inicio-chip script-inicio-chip-${c.cor}`}>
+                  <span className={`script-grifo-bolinha script-grifo-bolinha-${c.cor}`} aria-hidden="true" />
+                  {c.rotulo} para {c.para}
+                </li>
+              ))}
+            </ul>
+          </article>
+          <article className="script-inicio-card">
+            <h3 className="font-serif text-xl text-prosperus-navy-panel">Peça ajustes</h3>
+            <p className="text-sm leading-relaxed text-prosperus-neutral-black">
+              Os seus comentários e grifos viram uma versão nova do script.
+            </p>
+            <p className="text-sm leading-relaxed font-semibold text-prosperus-navy-panel" data-testid="inicio-ajustes">
+              {sobrando ? COPY_AJUSTES_SOBRANDO : COPY_AJUSTES_USADOS}
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-label="O que vem depois" className="script-inicio-depois">
+        <p className="script-nota-rotulo">O que vem depois</p>
+        <p className="text-sm leading-relaxed text-prosperus-neutral-black">
+          Depois que você validar o script, a gente gera a sua apresentação comercial: os slides para a reunião com o cliente, com as falas nas notas do apresentador.
+        </p>
+      </section>
+
+      <div className="script-inicio-botoes">
+        <button type="button" onClick={() => onTela(NAV_CARTAO)} className="script-acao script-acao-forte" data-testid="inicio-cartao">
+          Começar pelo cartão de bolso
+        </button>
+        <button type="button" onClick={() => onTela(NAV_SUMARIO)} className="script-acao" data-testid="inicio-sumario">
+          Ver o sumário
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Rodape de navegacao (onda E4): fica no FIM do conteudo de toda tela, para ninguem precisar voltar ao topo
+ * para avancar. Na ultima tela o "Próximo" vira "Ir para as ações" e rola ate o bloco de decisao.
+ */
+const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxima: string }> = ({ tela, onTela, nomeProxima }) => {
+  const ultima = tela >= TOTAL_NAV - 1;
+  const irParaAcoes = () => {
+    if (typeof document === 'undefined') return;
+    const alvo = document.querySelector<HTMLElement>('[data-testid="acoes-fim"]');
+    if (alvo && typeof alvo.scrollIntoView === 'function') {
+      try { alvo.scrollIntoView({ block: 'start' }); } catch { /* jsdom */ }
+    }
+  };
+  return (
+    <nav className="script-rodape-nav script-no-print" aria-label="Navegação no fim da tela" data-testid="rodape-nav">
+      <button
+        type="button"
+        onClick={() => onTela(tela - 1)}
+        disabled={tela <= NAV_INICIO}
+        className="script-rodape-btn"
+        data-testid="rodape-anterior"
+      >
+        Anterior
+      </button>
+      {ultima ? (
+        <button type="button" onClick={irParaAcoes} className="script-rodape-btn script-rodape-btn-forte" data-testid="rodape-proximo">
+          Ir para as ações
+        </button>
+      ) : (
+        <button type="button" onClick={() => onTela(tela + 1)} className="script-rodape-btn script-rodape-btn-forte" data-testid="rodape-proximo">
+          Próximo: {nomeProxima}
+        </button>
+      )}
+    </nav>
   );
 };
 
@@ -301,6 +438,7 @@ const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaRes
 
 interface TelaPassoProps {
   doc: ScriptDoc;
+  /** Coordenada de CONTEUDO (2..8), a mesma que vai no `data-tela` e no `passo` dos grifos. */
   tela: number;
   documento: DocumentoId;
   comentarios: React.ReactNode;
@@ -365,7 +503,7 @@ const TelaPreparacao: React.FC<{ doc: ScriptDoc; acoes?: React.ReactNode; aprese
 };
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
-  doc, clubNome, tela, onTela, documento, marcadas, comentariosDo, ficha, onBaixarCartao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
+  doc, clubNome, tela, onTela, versao, ajustes, documento, marcadas, comentariosDo, ficha, onBaixarCartao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
   tarefasConcluidas = SEM_TAREFAS, onTarefa,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -387,11 +525,15 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   }, [tela, rootRef]);
 
   const nomeDoPasso = (n: number) => nomeDoPassoEm(doc, n);
+  // A tela que a pessoa ve e de NAVEGACAO; o conteudo (cartao, sumario, passos, preparacao) vive uma casa atras.
+  const c = conteudoDaNav(tela);
+  const irParaSumario = (t: number) => onTela(t + 1);
 
   let conteudo: React.ReactNode;
-  if (tela === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onBaixar={onBaixarCartao} />;
-  else if (tela === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={onTela} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} />;
-  else if (ehTelaDePasso(tela)) conteudo = <TelaPasso doc={doc} tela={tela} documento={documento} comentarios={comentariosDo(passoNaTela(tela))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} />;
+  if (ehTelaDeInicio(tela)) conteudo = <TelaInicio clubNome={clubNome} versao={versao} ajustes={ajustes} onTela={onTela} />;
+  else if (c === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onBaixar={onBaixarCartao} />;
+  else if (c === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={irParaSumario} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} />;
+  else if (ehTelaDePasso(c)) conteudo = <TelaPasso doc={doc} tela={c} documento={documento} comentarios={comentariosDo(passoNaTela(c))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} />;
   else conteudo = <TelaPreparacao doc={doc} acoes={acoes} apresentacao={apresentacao} />;
 
   // No celular (< 640px) a barra vira duas linhas: o mapa em cima, inteiro; os botoes embaixo, com menos respiro.
@@ -402,13 +544,14 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
     <div className="script-reader script-no-print" data-testid="script-reader">
       {/* Uma barra so: grudada no alto no desktop, no rodape no celular (a ordem visual vem do CSS) */}
       <nav aria-label="Índice do script" className="script-barra script-no-print max-sm:flex-wrap">
-        <div className="script-barra-progresso" aria-hidden="true"><span style={{ width: `${((tela + 1) / TOTAL_TELAS) * 100}%` }} /></div>
+        <div className="script-barra-progresso" aria-hidden="true"><span style={{ width: `${((tela + 1) / TOTAL_NAV) * 100}%` }} /></div>
         <button type="button" onClick={() => onTela(tela - 1)} disabled={tela <= 0} className={`script-barra-btn ${btnMovel}`} aria-label="Tela anterior">Anterior</button>
         <div ref={stripRef} className="script-mapa-strip max-sm:order-first max-sm:!basis-full">
-          {Array.from({ length: TOTAL_TELAS }, (_, t) => {
+          {Array.from({ length: TOTAL_NAV }, (_, t) => {
             const atual = t === tela;
-            const label = ehTelaDePasso(t) ? `Passo ${passoNaTela(t)}: ${nomeDoPasso(passoNaTela(t))}` : nomeTela(t);
-            const curto = rotuloCurto(t);
+            const passoDele = passoNaTela(conteudoDaNav(t));
+            const label = passoDele ? `Passo ${passoDele}: ${nomeDoPasso(passoDele)}` : nomeNav(t);
+            const curto = rotuloNav(t);
             return (
               <button
                 key={t}
@@ -420,7 +563,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
                 onClick={() => onTela(t)}
                 className={`script-mapa-item ${atual ? 'script-mapa-item-atual' : ''}`}
               >
-                {t === TELA_PREPARACAO ? (
+                {t === NAV_PREPARACAO ? (
                   <><span className="script-mapa-item-longo">{curto}</span><span className="script-mapa-item-curto" aria-hidden="true">Prep.</span></>
                 ) : curto}
                 {marcadas.has(t) && <span className="script-mapa-ponto" aria-hidden="true" />}
@@ -428,8 +571,8 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
             );
           })}
         </div>
-        <span className="script-barra-contador" aria-label={`Tela ${tela + 1} de ${TOTAL_TELAS}`}>{tela + 1}/{TOTAL_TELAS}</span>
-        <button type="button" onClick={() => onTela(tela + 1)} disabled={tela >= TOTAL_TELAS - 1} className={`script-barra-btn script-barra-btn-forte ${btnMovel}`} aria-label="Próxima tela">Próximo</button>
+        <span className="script-barra-contador" aria-label={`Tela ${tela + 1} de ${TOTAL_NAV}`}>{tela + 1}/{TOTAL_NAV}</span>
+        <button type="button" onClick={() => onTela(tela + 1)} disabled={tela >= TOTAL_NAV - 1} className={`script-barra-btn script-barra-btn-forte ${btnMovel}`} aria-label="Próxima tela">Próximo</button>
       </nav>
 
       <div ref={rootRef} className="script-paper script-tela w-full rounded-2xl px-5 py-6 sm:px-10 sm:py-9 shadow-2xl" data-tela-atual={tela}>
@@ -440,6 +583,8 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
           </p>
         )}
         {conteudo}
+        {/* Onda E4: avancar sem voltar ao topo. Fica no fim do conteudo de toda tela. */}
+        <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} />
       </div>
 
       {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso) */}

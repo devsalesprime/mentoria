@@ -787,6 +787,93 @@ body {
   .script-acao { width: 100%; }
 }
 
+/* ── Onda E4: tela de Início ("O seu script está pronto") e o rodapé de navegação ── */
+.script-inicio-cards {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .script-inicio-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.script-inicio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(10, 37, 64, 0.14);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.6);
+}
+.script-inicio-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.15rem; }
+.script-inicio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid rgba(10, 37, 64, 0.18);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.75);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(10, 37, 64, 0.85);
+}
+.script-inicio-chip-dourado { border-color: rgba(202, 154, 67, 0.6); background: rgba(255, 218, 113, 0.18); }
+.script-inicio-chip-verde { border-color: rgba(21, 128, 61, 0.45); background: rgba(74, 222, 128, 0.16); }
+.script-inicio-chip-vermelho { border-color: rgba(185, 28, 28, 0.4); background: rgba(248, 113, 113, 0.16); }
+.script-inicio-depois {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(202, 154, 67, 0.45);
+  border-radius: 0.85rem;
+  background: rgba(202, 154, 67, 0.1);
+}
+.script-inicio-botoes { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+@media (max-width: 639.98px) {
+  .script-inicio-botoes > .script-acao { width: 100%; }
+}
+
+/* Rodapé de navegação: no fim do conteúdo de toda tela, para avançar sem voltar ao topo */
+.script-rodape-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(10, 37, 64, 0.14);
+}
+.script-rodape-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  min-width: 44px;
+  max-width: 100%;
+  padding: 0 1rem;
+  border: 1px solid rgba(10, 37, 64, 0.25);
+  border-radius: 0.7rem;
+  background: transparent;
+  color: #0A2540;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.script-rodape-btn:hover:not(:disabled) { background: rgba(10, 37, 64, 0.07); }
+.script-rodape-btn:disabled { opacity: 0.45; cursor: default; }
+.script-rodape-btn-forte { background: #CA9A43; border-color: #CA9A43; color: #080808; font-weight: 700; }
+.script-rodape-btn-forte:hover:not(:disabled) { background: #D4B050; }
+@media (max-width: 639.98px) {
+  .script-rodape-btn { width: 100%; }
+}
+
 /* Lista de grifos no celular: botão flutuante (a barra do mapa não carrega mais esse peso) */
 .script-grifos-flutuante {
   position: fixed;

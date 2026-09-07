@@ -125,6 +125,9 @@ describe('ScriptScreen: apresentação comercial no bloco "Ações"', () => {
     expect(gerar).toHaveTextContent('Gerar apresentação');
     expect(gerar).not.toBeDisabled();
     fireEvent.click(gerar);
+    // onda E4: o pedido só sai depois das duas etapas de confirmação
+    fireEvent.click(await screen.findByTestId('apres-avancar'));
+    fireEvent.click(await screen.findByTestId('apres-confirmar'));
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/slides', {}, expect.anything()));
     expect(await screen.findByText('Vamos montar a sua apresentação com as falas do script nas notas. Avisamos quando ficar pronta.')).toBeInTheDocument();

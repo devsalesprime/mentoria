@@ -88,6 +88,9 @@ beforeAll(async () => {
   await SV.ensureScriptVersionsTables(dbRun);
   await SG.ensureScriptGrifosTable(dbRun);
   await SV.insertVersion({ dbGet, dbRun, uuidv4: deps.uuidv4 }, { club_slug: 'clube-x', content_md: MD_V1, resumo: 'primeira' });
+  // A rodada de ajustes (onda E4) e uma so por clube; estes testes pedem varias revisoes de proposito.
+  await dbRun(`CREATE TABLE IF NOT EXISTS cohort_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+  await dbRun(`INSERT OR REPLACE INTO cohort_config (key, value) VALUES ('ajustes_limite', '99')`);
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });

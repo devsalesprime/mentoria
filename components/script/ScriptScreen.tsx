@@ -2,12 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios';
 import { toPng } from 'html-to-image';
 import { Button } from '../ui/Button';
-import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo } from '../../hooks/useScriptFicha';
+import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo, ScriptSummary } from '../../hooks/useScriptFicha';
 import { AvisoModoAutomatico } from './AvisoModoAutomatico';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
 import { ScriptPaper, destacarValores } from './script/ScriptPaper';
-import { ScriptReader, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
-import { TELA_CARTAO, TOTAL_TELAS, clampTela, ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId } from './script/telas';
+import { ScriptReader, COPY_AJUSTES_USADOS, type AjustesInfo, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
+import { ConfirmarApresentacaoModal, type EtapaApresentacao } from './script/ConfirmarApresentacaoModal';
+import {
+  NAV_INICIO, NAV_SUMARIO, TOTAL_NAV, clampNav, conteudoDaNav, navDoConteudo,
+  ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId,
+} from './script/telas';
 import { chaveTarefa } from './script/tarefas';
 import { useGrifos } from './grifos/useGrifos';
 import { GrifoBubble } from './grifos/GrifoBubble';
@@ -21,16 +25,23 @@ export { splitScript };
 /**
  * "Seu script" (/dashboard/script): o script escrito pelo worker a partir da ficha confirmada.
  * Estado 1: sem versao -> aviso "está sendo escrito" + status do job `script`, se houver.
- * Estado 2: versao -> barra de cima + leitor em telas (components/script/script/ScriptReader.tsx): 0 Cartao de bolso
- * (primeira coisa que aparece num script novo) · 1 Sumario · 2..8 um passo por tela · 9 Preparacao e metricas.
+ * Estado 2: versao -> barra de cima + leitor em telas (components/script/script/ScriptReader.tsx): 0 Inicio
+ * ("O seu script está pronto", a primeira coisa que aparece num script novo) · 1 Cartao de bolso · 2 Sumario ·
+ * 3..9 um passo por tela · 10 Preparacao e metricas.
+ *
+ * Onda E4 (07/09): a tela de Inicio, o rodape de navegacao no fim de cada tela (dentro do leitor), a confirmacao
+ * em duas etapas do "Gerar apresentação" (ConfirmarApresentacaoModal) e a rodada unica de ajustes (o servidor conta
+ * os pedidos de revisao do clube e manda `ajustes_usados`/`ajustes_limite` na ficha). O `tela` daqui e o indice de
+ * NAVEGACAO; o `passo` de grifos e comentarios continua na coordenada de CONTEUDO (telas.ts explica as duas).
  *
  * Barra de cima (onda E1, SPEC-workflow-v3-decisoes-07-09 §2, itens 2, 4 e 8):
  *   esquerda -> pilula da versao (com a troca de versao) e "O que mudou" (folha/popover com o resumo);
  *   direita  -> "Baixar" (cartao em imagem, os PDFs, o texto .md e a apresentacao quando existe) e a chave
  *               Treinamento | Campo, na mesma altura e hierarquia do "Baixar".
  * A chave Treinamento | Campo e GLOBAL: vale para o leitor inteiro, fica lembrada na sessao (sessionStorage) e
- * nao existe mais dentro do passo. Aprovar, "Pedir nova versão" (com grifos), "Escrever do zero" e "Gerar
- * apresentação" sairam do topo e viraram o bloco "Ações", no fim do leitor (depois do Passo 7 e da Preparacao).
+ * nao existe mais dentro do passo. "Aprovar o script", "Pedir nova versão com os grifos" e "Gerar apresentação"
+ * sairam do topo e viraram o bloco "Ações", no fim do leitor (depois do Passo 7 e da Preparacao). Na onda E4
+ * "Pedir nova versão" e "Escrever do zero" sairam do leitor: a versao nova so nasce dos grifos e dos comentarios.
  * "Revisar a ficha" e "Aprofundar para o completo" saem daqui: quem leva ate elas e o menu do Dashboard (Ficha).
  *
  * Setas do teclado; a tela fica lembrada por versao (localStorage); a versao nova abre na mesma tela. Ctrl+P imprime
@@ -109,6 +120,13 @@ const SLIDES_OUTROS: Array<{ campo: string; rotulo: string; inline: boolean }> =
   { campo: 'notas', rotulo: 'Notas do apresentador', inline: false },
 ];
 
+/**
+ * Rodada de ajustes (onda E4): o servidor manda quantas o clube ja usou e qual e o teto (`cohort_config`).
+ * Sem os campos (servidor antigo), o teto e 1.
+ */
+interface ScriptAjustes { ajustes_usados?: number; ajustes_limite?: number }
+const AJUSTES_LIMITE_PADRAO = 1;
+
 /** Chave da vista Treinamento | Campo lembrada na sessao (a escolha vale para o leitor inteiro). */
 const MODO_SESSAO = 'script-aba';
 
@@ -148,11 +166,15 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const [aprovando, setAprovando] = useState(false);
   const [pedindo, setPedindo] = useState(false);
   const [gerandoSlides, setGerandoSlides] = useState(false);
+  // "Gerar apresentação" em duas etapas (onda E4): 'aviso' -> 'confirmar' -> POST
+  const [etapaSlides, setEtapaSlides] = useState<EtapaApresentacao | null>(null);
+  // Rodada de ajustes gasta nesta sessão (o servidor manda o total em `script.ajustes_usados`)
+  const [pediAjuste, setPediAjuste] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   // Vista Treinamento | Campo: global (a barra de cima manda) e lembrada na sessao
   const [docAtivo, setDocAtivo] = useState<DocumentoId>(() => lerModoDaSessao() || 'treinamento');
-  // leitor em telas
-  const [tela, setTelaState] = useState<number>(TELA_CARTAO);
+  // leitor em telas (indice de NAVEGACAO: 0 Inicio, 1 Cartao, 2 Sumario, 3..9 Passos, 10 Preparacao)
+  const [tela, setTelaState] = useState<number>(NAV_INICIO);
   // grifos
   const [captura, setCaptura] = useState<Captura | null>(null);
   const [foco, setFoco] = useState<string | null>(null);
@@ -171,6 +193,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const meuEmail = useMemo(() => emailDoToken(token), [token]);
   const clubSlug = ficha.data?.club.slug || '';
   const clubNome = ficha.data?.club.nome || 'Prosperus Exclusive';
+  // A ficha traz `ajustes_usados` e `ajustes_limite` dentro de `script` (onda E4)
+  const resumoScript = ficha.data?.script as (ScriptSummary & ScriptAjustes) | undefined;
   const grifosApi = useGrifos(token, versao?.versao ?? null);
   const { grifos, pendentes } = grifosApi;
 
@@ -305,13 +329,13 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     guardarModoNaSessao(modo);
   }, []);
 
-  // Tela lembrada por versao: script novo abre no cartao; trocar de versao na mesma sessao mantem a tela
+  // Tela lembrada por versao: script novo abre no Inicio; trocar de versao na mesma sessao mantem a tela
   useEffect(() => {
     if (!versao) return;
     const lembrada = lerTelaLembrada(clubSlug, versao.versao);
-    const proxima = lembrada ?? (primeiraAberturaRef.current ? TELA_CARTAO : telaRef.current);
+    const proxima = lembrada ?? (primeiraAberturaRef.current ? NAV_INICIO : telaRef.current);
     primeiraAberturaRef.current = false;
-    setTelaState(clampTela(proxima));
+    setTelaState(clampNav(proxima));
     setFoco(null);
     setCaptura(null);
   }, [versao?.versao, clubSlug]);
@@ -320,7 +344,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   }, [tela, versao?.versao, clubSlug]);
 
   const irPara = useCallback((t: number) => {
-    setTelaState(clampTela(Math.max(0, Math.min(TOTAL_TELAS - 1, t))));
+    setTelaState(clampNav(Math.max(0, Math.min(TOTAL_NAV - 1, t))));
     setCaptura(null);
   }, []);
 
@@ -329,7 +353,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     const onKey = (e: KeyboardEvent) => {
       // Esc fecha o balao "Grifar" (e apaga a marca pendente do trecho)
       if (captura && !modalGrifos && e.key === 'Escape') { e.preventDefault(); setCaptura(null); return; }
-      if (modalGrifos || captura || !parsed) return;
+      if (modalGrifos || etapaSlides || captura || !parsed) return;
       const alvo = e.target as HTMLElement | null;
       if (alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA' || alvo.tagName === 'SELECT' || alvo.isContentEditable)) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); irPara(telaRef.current + 1); }
@@ -337,7 +361,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modalGrifos, captura, parsed, irPara]);
+  }, [modalGrifos, etapaSlides, captura, parsed, irPara]);
 
   // Os menus da barra de cima ("Baixar", a pilula da versao e "O que mudou") sao <details> nativos: o navegador
   // nao fecha no Esc nem ao clicar fora. Aqui os tres passam a fechar dos dois jeitos; no Esc o foco volta para o
@@ -415,10 +439,12 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     };
   }, [parsed]);
 
+  // O `passo` do grifo e a coordenada de CONTEUDO (0..9); a tela aberta e a de NAVEGACAO (0..10)
+  const conteudoAtual = conteudoDaNav(tela);
   // Grifos desta tela pintados no texto (CSS Custom Highlight API); "ir para" rola ate o trecho em foco
   const grifosDaTela = useMemo(
-    () => grifos.filter((g) => g.passo === tela && (!ehTelaDePasso(tela) || !multiplos || g.documento === docAtivo)),
-    [grifos, tela, multiplos, docAtivo]
+    () => grifos.filter((g) => g.passo === conteudoAtual && (!ehTelaDePasso(conteudoAtual) || !multiplos || g.documento === docAtivo)),
+    [grifos, conteudoAtual, multiplos, docAtivo]
   );
   useEffect(() => {
     const root = readerRef.current;
@@ -444,15 +470,16 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   const encontrado = useCallback((g: Grifo) => {
     if (!parsed) return false;
-    const nestaTela = g.passo === tela && (!ehTelaDePasso(tela) || !multiplos || g.documento === docAtivo);
+    const nestaTela = g.passo === conteudoAtual && (!ehTelaDePasso(conteudoAtual) || !multiplos || g.documento === docAtivo);
     if (nestaTela) return encontradosDom.has(g.id);
     return grifoEncontrado(parsed, g.passo, g.documento, g.texto);
-  }, [parsed, tela, multiplos, docAtivo, encontradosDom]);
+  }, [parsed, conteudoAtual, multiplos, docAtivo, encontradosDom]);
 
+  // Telas de NAVEGACAO com ponto no mapa (o grifo e o comentario chegam na coordenada de conteudo)
   const marcadas = useMemo(() => {
     const s = new Set<number>();
-    for (const g of pendentes) s.add(clampTela(g.passo));
-    for (const c of comentarios) s.add(telaDoPasso(c.passo));
+    for (const g of pendentes) s.add(navDoConteudo(g.passo));
+    for (const c of comentarios) s.add(navDoConteudo(telaDoPasso(c.passo)));
     return s;
   }, [pendentes, comentarios]);
 
@@ -510,7 +537,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
    * "Imprimir ou salvar em PDF": abre a pagina de impressao (/dashboard/script/imprimir), fora do layout do Dashboard.
    * Imprimir de dentro do Dashboard cortava o PDF na primeira pagina (containers com overflow escondido e altura da janela).
    */
-  const abrirImpressao = (docImpressao: 'treinamento' | 'campo' | 'ambos') => {
+  const abrirImpressao = (docImpressao: 'treinamento' | 'campo') => {
     if (typeof window === 'undefined' || !versao) return;
     const base = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
     const url = `${base}dashboard/script/imprimir?doc=${docImpressao}&versao=${versao.versao}`;
@@ -530,6 +557,30 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       if (aberta) return;
     }
     window.location.assign(url);
+  };
+
+  /**
+   * "Quero ajustar antes" (etapa 1 da apresentação): fecha o aviso, abre a lista de grifos e leva a pessoa até a
+   * caixa de comentário. A tela das ações não tem caixa de comentário, então o caminho é o sumário
+   * ("Comentar o script como um todo"), que vale para o script inteiro.
+   */
+  const abrirComentarios = useCallback(() => {
+    const caixa = readerRef.current?.querySelector<HTMLDetailsElement>('details.script-comentarios');
+    if (!caixa) return false;
+    caixa.open = true;
+    if (typeof caixa.scrollIntoView === 'function') {
+      try { caixa.scrollIntoView({ block: 'start' }); } catch { /* jsdom */ }
+    }
+    return true;
+  }, []);
+
+  const ajustarAntesDaApresentacao = () => {
+    setEtapaSlides(null);
+    setPainelAberto(true);
+    if (!abrirComentarios()) {
+      irPara(NAV_SUMARIO);
+      setTimeout(abrirComentarios, 0);
+    }
   };
 
   /** "Gerar apresentação": manda montar os slides desta versao com as falas do script nas notas. */
@@ -552,9 +603,16 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }
   };
 
+  /** Etapa 2 do "Gerar apresentação": confirmada a versão, aí sim o pedido vai para o servidor. */
+  const confirmarSlides = async () => {
+    await gerarSlides();
+    setEtapaSlides(null);
+  };
+
   /**
    * Bloco da apresentacao no "Ações", no fim do leitor (onda E1, item 1: ele saiu do Cartao de bolso).
-   * Mesmo pedido de sempre: POST /api/script/versoes/:versao/slides.
+   * "Gerar apresentação" abre a confirmação em duas etapas (onda E4); o POST
+   * /api/script/versoes/:versao/slides só sai depois do "Confirmar".
    */
   const apresentacao: ApresentacaoCartao = pptx
     ? {
@@ -566,7 +624,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }
     : slidesJobAtivo
     ? { estado: 'montando' }
-    : { estado: 'ausente', onGerar: gerarSlides, gerando: gerandoSlides };
+    : { estado: 'ausente', onGerar: () => setEtapaSlides('aviso'), gerando: gerandoSlides };
 
   const enviarComentario = async (passo: number) => {
     const texto = (draft[passo] || '').trim();
@@ -620,28 +678,13 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     }
   };
 
-  /** "Pedir nova versão": job `revisar` a partir da versao aberta e de todos os comentarios dela. */
-  const pedirNova = async () => {
-    if (!versao) return gerarDoZero();
-    setPedindo(true);
-    const r = await ficha.pedirRevisao(versao.versao);
-    setPedindo(false);
-    if (r.ok) {
-      setJob(r.job || null);
-      setAviso(r.existing
-        ? 'Já tem uma versão nova sendo escrita. Você recebe um aviso no WhatsApp quando ficar pronta.'
-        : 'Pedido feito: a próxima versão parte desta e dos seus comentários. Você recebe um aviso no WhatsApp quando ficar pronta.');
-    } else {
-      setAviso(r.message || 'Não deu para pedir agora. Tente de novo.');
-    }
-  };
-
   /** "Pedir nova versão com os grifos": cada grifo pendente vira um comentario da revisao, mais a orientacao geral. */
   const pedirComGrifos = async (orientacao: string) => {
     if (!versao) return;
     const lista = pendentes.map(grifoParaComentario);
     const r = await ficha.pedirRevisao(versao.versao, orientacao, { comentarios: lista });
     if (r.ok) {
+      setPediAjuste(true);
       setJob(r.job || null);
       setModalGrifos(false);
       const resumo = resumoGrifos(pendentes);
@@ -676,8 +719,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   const irParaGrifo = (g: Grifo) => {
     focoRoladoRef.current = null;
-    if (ehTelaDePasso(clampTela(g.passo)) && multiplos) setDocAtivo(g.documento);
-    setTelaState(clampTela(g.passo));
+    if (ehTelaDePasso(g.passo) && multiplos) setDocAtivo(g.documento);
+    setTelaState(navDoConteudo(g.passo));
     setFoco(g.id);
     setPainelAberto(false);
   };
@@ -803,10 +846,18 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   // Estado 2: versao presente
   const aprovado = versao?.status === 'aprovado';
   const totalPendentes = pendentes.length;
+  // Uma rodada de ajustes por clube (onda E4): o servidor conta os pedidos e a tela trava o botão quando acaba
+  const ajustes: AjustesInfo = {
+    usados: (Number(resumoScript?.ajustes_usados) || 0) + (pediAjuste ? 1 : 0),
+    limite: Number.isFinite(Number(resumoScript?.ajustes_limite)) ? Number(resumoScript?.ajustes_limite) : AJUSTES_LIMITE_PADRAO,
+  };
+  const semAjustes = ajustes.limite > 0 && ajustes.usados >= ajustes.limite;
 
   /**
-   * "Ações", no fim do leitor (onda E1, item 2 da spec: nada disso fica no topo). Aprovar, pedir a nova versão
-   * (com os grifos, quando houver) e escrever do zero, que é o caminho de volta quando a versão não serve.
+   * "Ações", no fim do leitor (onda E1, item 2 da spec: nada disso fica no topo): aprovar o script e gerar a
+   * apresentação. Onda E4 (decisão do dono em 07/09): "Pedir nova versão" e "Escrever do zero" saíram do leitor.
+   * O único caminho para uma versão nova é o grifo mais o comentário ("Pedir nova versão com os grifos"), e ele
+   * vale uma rodada só: gasta a rodada, o botão trava e explica. O admin continua com as rotas dele.
    */
   const acoesFinais = (
     <>
@@ -818,25 +869,13 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         </span>
       )}
       {totalPendentes > 0 && (
-        <Button variant="primary" size="md" onClick={() => setModalGrifos(true)} disabled={pedindo || scriptJobAtivo || !versao} data-testid="pedir-com-grifos">
+        <Button variant="primary" size="md" onClick={() => setModalGrifos(true)} disabled={pedindo || scriptJobAtivo || semAjustes || !versao} data-testid="pedir-com-grifos">
           {scriptJobAtivo ? 'Nova versão a caminho' : `Pedir nova versão com os grifos (${totalPendentes})`}
         </Button>
       )}
-      <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || scriptJobAtivo || !versao}>
-        {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
-      </Button>
-      <button
-        type="button"
-        className="script-acao script-acao-perigo"
-        data-testid="escrever-do-zero"
-        onClick={() => {
-          if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm('Escrever o script do zero? Isso ignora os grifos e os comentários desta versão e escreve de novo a partir da ficha.')) return;
-          gerarDoZero();
-        }}
-        disabled={pedindo || scriptJobAtivo}
-      >
-        Escrever do zero
-      </button>
+      {semAjustes && !scriptJobAtivo && (
+        <p className="script-acoes-nota" data-testid="ajustes-esgotados">{COPY_AJUSTES_USADOS}</p>
+      )}
     </>
   );
 
@@ -925,10 +964,9 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                   <>
                     <button type="button" className="script-menu-item" onClick={() => abrirImpressao('campo')} disabled={!versao?.content_md} data-testid="pdf-campo">Script de campo (PDF)</button>
                     <button type="button" className="script-menu-item" onClick={() => abrirImpressao('treinamento')} disabled={!versao?.content_md} data-testid="pdf-treinamento">Treinamento (PDF)</button>
-                    <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Os dois (PDF)</button>
                   </>
                 ) : (
-                  <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Script (PDF)</button>
+                  <button type="button" className="script-menu-item" onClick={() => abrirImpressao('treinamento')} disabled={!versao?.content_md} data-testid="pdf-treinamento">Script (PDF)</button>
                 )}
                 <button type="button" className="script-menu-item" data-testid="baixar-md" onClick={download} disabled={!versao?.content_md}>Texto (.md)</button>
                 {pptx && (
@@ -983,6 +1021,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               clubNome={clubNome}
               tela={tela}
               onTela={irPara}
+              versao={versao?.versao ?? selected}
+              ajustes={ajustes}
               documento={docAtivo}
               marcadas={marcadas}
               comentariosDo={renderComentarios}
@@ -1024,6 +1064,18 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       {parsed && captura && (
         <GrifoBubble captura={captura} onSalvar={salvarGrifo} onCancelar={() => setCaptura(null)} erro={grifosApi.erro} anexar={grifosApi.anexarNoUltimo} />
       )}
+
+      {/* "Gerar apresentação" em duas etapas: o aviso dos ajustes e a confirmação da versão */}
+      <ConfirmarApresentacaoModal
+        etapa={etapaSlides}
+        versao={versao?.versao ?? selected}
+        gerando={gerandoSlides}
+        onAjustar={ajustarAntesDaApresentacao}
+        onAvancar={() => setEtapaSlides('confirmar')}
+        onVoltar={() => setEtapaSlides('aviso')}
+        onConfirmar={confirmarSlides}
+        onClose={() => setEtapaSlides(null)}
+      />
 
       {parsed && (
         <PedirComGrifosModal

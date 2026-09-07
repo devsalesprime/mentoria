@@ -200,8 +200,9 @@ describe('Seu script · baixar o cartão de bolso como imagem', () => {
     mockVersao();
     render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     const reader = await screen.findByTestId('script-reader');
-    // o script novo abre no Cartão de bolso
-    expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
+    // onda E4: o script novo abre no Início; o cartão é a tela seguinte
+    fireEvent.click(await within(reader).findByTestId('inicio-cartao'));
+    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
     expect(within(reader).queryByRole('button', { name: 'Copiar cartão de bolso' })).toBeNull();
     expect(within(reader).queryByRole('button', { name: 'Imprimir cartão de bolso' })).toBeNull();
 
@@ -298,6 +299,9 @@ describe('Seu script · bloco "Ações" no fim', () => {
     const bloco = within(acoes).getByTestId('cartao-apresentacao');
     expect(within(bloco).getByTestId('cartao-pptx-gerar')).toHaveTextContent(COPY_PPTX_GERAR);
     fireEvent.click(within(bloco).getByTestId('cartao-pptx-gerar'));
+    // onda E4: duas etapas antes do pedido sair
+    fireEvent.click(await screen.findByTestId('apres-avancar'));
+    fireEvent.click(await screen.findByTestId('apres-confirmar'));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/slides', {}, expect.anything()));
     await waitFor(() => expect(screen.getByTestId('cartao-pptx-montando')).toBeInTheDocument());
   });
@@ -306,7 +310,8 @@ describe('Seu script · bloco "Ações" no fim', () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
     render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     const reader = await screen.findByTestId('script-reader');
-    expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
+    fireEvent.click(await within(reader).findByTestId('inicio-cartao'));
+    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
     expect(screen.queryByTestId('cartao-apresentacao')).toBeNull();
 
     await irParaTela('Preparação e métricas');

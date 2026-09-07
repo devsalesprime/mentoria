@@ -5,7 +5,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScriptReader } from '../../components/script/script/ScriptReader';
 import { ScriptPaper } from '../../components/script/script/ScriptPaper';
 import { parseScript } from '../../components/script/script/parseScript';
-import { TOTAL_TELAS, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO } from '../../components/script/script/telas';
+import { TOTAL_NAV, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO, navDoConteudo } from '../../components/script/script/telas';
 import { AULA_7_PASSOS } from '../../data/aula-7-passos';
 
 /**
@@ -20,13 +20,14 @@ import { AULA_7_PASSOS } from '../../data/aula-7-passos';
 const FIXTURE = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/script-exemplo.md'), 'utf8');
 const DOC = parseScript(FIXTURE);
 
+/** `tela` vem na coordenada de CONTEUDO (0 cartao, 1 sumario, 2..8 passos, 9 preparacao); o leitor recebe a de navegacao. */
 function abrir(tela: number, onAbrirGrifos = vi.fn()) {
   const rootRef = React.createRef<HTMLDivElement>();
   const utils = render(
     <ScriptReader
       doc={DOC}
       clubNome="Elos Club"
-      tela={tela}
+      tela={navDoConteudo(tela)}
       onTela={vi.fn()}
       documento="treinamento"
       marcadas={new Set()}
@@ -67,14 +68,14 @@ describe('ScriptReader · aula da Dani', () => {
     }
   });
 
-  it('a barra tem Anterior, Proximo e o mapa de 10 telas; sem "Aula" e sem "Grifos"', () => {
+  it('a barra tem Anterior, Proximo e o mapa das 11 telas (o Início entrou na frente); sem "Aula" e sem "Grifos"', () => {
     const abrirGrifos = vi.fn();
     const { nav } = abrir(TELA_SUMARIO, abrirGrifos);
     expect(within(nav).getByRole('button', { name: 'Tela anterior' })).toBeInTheDocument();
     expect(within(nav).getByRole('button', { name: 'Próxima tela' })).toBeInTheDocument();
     expect(within(nav).queryByRole('button', { name: 'Aula da Dani sobre os 7 passos' })).toBeNull();
     expect(within(nav).queryByRole('button', { name: 'Abrir a lista de grifos' })).toBeNull();
-    expect(nav.querySelectorAll('.script-mapa-item')).toHaveLength(TOTAL_TELAS);
+    expect(nav.querySelectorAll('.script-mapa-item')).toHaveLength(TOTAL_NAV);
     // a lista de grifos abre num botão flutuante, fora da barra
     const flutuante = screen.getByTestId('grifos-flutuante');
     expect(flutuante).toHaveTextContent('Grifos · 2');

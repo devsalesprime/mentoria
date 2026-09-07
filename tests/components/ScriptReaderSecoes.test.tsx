@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { ScriptReader } from '../../components/script/script/ScriptReader';
 import { parseScript } from '../../components/script/script/parseScript';
+import { navDoConteudo } from '../../components/script/script/telas';
 import {
   montarSecoes, montarPerguntas, separarDecisao, separarObjecao, rotuloCurtoGrupo, gruposDasFalas,
 } from '../../components/script/script/secoes/modelo';
@@ -160,13 +161,14 @@ function blocoFalso(over: Partial<any> = {}): any {
   return { tipo: 'outro', rotulo: 'Rótulo', inline: '', itens: [], grupos: [], dizer: [], md: '', ...over };
 }
 
+/** `tela` vem na coordenada de CONTEUDO (0 cartao, 1 sumario, 2..8 passos, 9 preparacao). */
 function abrirReader(tela: number, over: Partial<React.ComponentProps<typeof ScriptReader>> = {}) {
   const rootRef = React.createRef<HTMLDivElement>();
   const utils = render(
     <ScriptReader
       doc={DOC}
       clubNome="Prosperus Club"
-      tela={tela}
+      tela={navDoConteudo(tela)}
       onTela={vi.fn()}
       documento="treinamento"
       marcadas={new Set()}

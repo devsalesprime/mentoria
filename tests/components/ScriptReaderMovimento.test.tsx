@@ -6,7 +6,7 @@ import axios from 'axios';
 import { ScriptReader } from '../../components/script/script/ScriptReader';
 import { ScriptScreen } from '../../components/script/ScriptScreen';
 import { parseScript } from '../../components/script/script/parseScript';
-import { TELA_SUMARIO } from '../../components/script/script/telas';
+import { TELA_SUMARIO, navDoConteudo } from '../../components/script/script/telas';
 import { chaveTarefa, tarefasDoPasso } from '../../components/script/script/tarefas';
 import { extrairPerfis } from '../../components/script/script/PerfisTabela';
 import { duracaoLegivel, treinamentosDoPasso } from '../../data/treinamentos-por-passo';
@@ -63,13 +63,14 @@ const MD_PERFIS = `# Script · Os 7 Passos · Elos Club
 **Objetivo estratégico:** ouvir.
 `;
 
+/** `tela` vem na coordenada de CONTEUDO (0 cartao, 1 sumario, 2..8 passos, 9 preparacao). */
 function abrirReader(tela: number, over: Partial<React.ComponentProps<typeof ScriptReader>> = {}) {
   const rootRef = React.createRef<HTMLDivElement>();
   const utils = render(
     <ScriptReader
       doc={DOC}
       clubNome="Elos Club"
-      tela={tela}
+      tela={navDoConteudo(tela)}
       onTela={vi.fn()}
       documento="treinamento"
       marcadas={new Set()}
@@ -195,7 +196,7 @@ describe('ScriptReader · tabela "Quem está do outro lado"', () => {
       <ScriptReader
         doc={docPerfis}
         clubNome="Elos Club"
-        tela={2}
+        tela={navDoConteudo(2)}
         onTela={vi.fn()}
         documento="treinamento"
         onDocumento={vi.fn()}
