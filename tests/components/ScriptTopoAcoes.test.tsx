@@ -162,7 +162,9 @@ describe('Seu script · barra de cima', () => {
     expect(within(menu).getByTestId('baixar-cartao')).toHaveTextContent('Cartão de bolso (imagem)');
     expect(within(menu).getByTestId('pdf-campo')).toHaveTextContent('Script de campo (PDF)');
     expect(within(menu).getByTestId('pdf-treinamento')).toHaveTextContent('Treinamento (PDF)');
-    expect(within(menu).getByTestId('pdf-ambos')).toHaveTextContent('Os dois (PDF)');
+    // onda E4: "Os dois (PDF)" saiu do menu (quem quer os dois baixa cada um)
+    expect(within(menu).queryByTestId('pdf-ambos')).toBeNull();
+    expect(menu.textContent).not.toContain('Os dois');
     expect(within(menu).getByTestId('baixar-md')).toHaveTextContent('Texto (.md)');
     expect(within(menu).getByTestId('slides-pptx')).toHaveTextContent('Apresentação (PPTX)');
 
@@ -275,7 +277,7 @@ describe('Seu script · bloco "Ações" no fim', () => {
     sessionStorage.clear();
   });
 
-  it('aprovar, pedir nova versão, escrever do zero e a apresentação ficam depois do Passo 7, na Preparação', async () => {
+  it('aprovar e a apresentação ficam depois do Passo 7, na Preparação; sem "Pedir nova versão" nem "Escrever do zero"', async () => {
     mockVersao();
     (axios.post as any).mockImplementation(async (url: string) => {
       if (url === '/api/script/versoes/1/slides') return { data: { success: true, versao: 1, job: { id: 'js2', tipo: 'slides', status: 'queued', existing: false } } };
@@ -293,8 +295,10 @@ describe('Seu script · bloco "Ações" no fim', () => {
     await irParaTela('Preparação e métricas');
     const acoes = await within(reader).findByTestId('acoes-fim');
     expect(within(acoes).getByText('Aprovar o script')).toBeInTheDocument();
-    expect(within(acoes).getByText('Pedir nova versão')).toBeInTheDocument();
-    expect(within(acoes).getByTestId('escrever-do-zero')).toHaveTextContent('Escrever do zero');
+    // onda E4: o leitor perdeu "Pedir nova versão" e "Escrever do zero"; a versão nova só nasce dos grifos
+    expect(within(acoes).queryByText('Pedir nova versão')).toBeNull();
+    expect(within(acoes).queryByTestId('escrever-do-zero')).toBeNull();
+    expect(acoes.textContent).not.toContain('Escrever do zero');
     // a apresentação saiu do Cartão de bolso e mora aqui
     const bloco = within(acoes).getByTestId('cartao-apresentacao');
     expect(within(bloco).getByTestId('cartao-pptx-gerar')).toHaveTextContent(COPY_PPTX_GERAR);

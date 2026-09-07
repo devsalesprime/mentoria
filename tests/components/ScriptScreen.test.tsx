@@ -54,7 +54,7 @@ async function irParaPasso(n: number) {
   return nav;
 }
 
-/** O bloco "Ações" (aprovar, pedir nova versão, escrever do zero) fica no fim do leitor, na Preparação. */
+/** O bloco "Ações" (aprovar e a apresentação comercial) fica no fim do leitor, na Preparação. */
 async function irParaAcoes() {
   const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
   fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
@@ -280,18 +280,19 @@ describe('ScriptScreen', () => {
     expect(open).toHaveBeenCalledWith(expect.stringMatching(/dashboard\/script\/imprimir\?doc=campo&versao=1$/), '_blank', 'noopener');
     fireEvent.click(screen.getByTestId('pdf-treinamento'));
     expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=treinamento&versao=1$/), '_blank', 'noopener');
-    fireEvent.click(screen.getByTestId('pdf-ambos'));
-    expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=ambos&versao=1$/), '_blank', 'noopener');
+    // onda E4: "Os dois (PDF)" saiu do menu
+    expect(screen.queryByTestId('pdf-ambos')).toBeNull();
 
     // as decisões saíram do topo e vivem no "Ações", no fim do leitor
     expect(within(screen.getByTestId('script-topo')).queryByText('Aprovar o script')).toBeNull();
     const acoes = await irParaAcoes();
     expect(acoes.getByText('Aprovar o script')).toBeInTheDocument();
-    expect(acoes.getByText('Pedir nova versão')).toBeInTheDocument();
+    // onda E4: "Pedir nova versão" saiu; sem grifo pendente o bloco só tem aprovar e a apresentação
+    expect(acoes.queryByText('Pedir nova versão')).toBeNull();
     expect(acoes.queryByTestId('pedir-com-grifos')).toBeNull();
   }, 30000);
 
-  it('comentarios recolhidos por passo (na tela do passo) e geral (no sumario), aprovar e pedir nova versao', async () => {
+  it('comentarios recolhidos por passo (na tela do passo) e geral (no sumario) e aprovar', async () => {
     mockVersao(FIXTURE);
     const ficha = fichaMock();
     render(<ScriptScreen ficha={ficha} token="t" />);
@@ -316,31 +317,28 @@ describe('ScriptScreen', () => {
     expect(await screen.findByText('aprovado')).toBeInTheDocument();
     expect(ficha.refresh).toHaveBeenCalled();
 
-    fireEvent.click(within(screen.getByTestId('acoes-fim')).getByText('Pedir nova versão'));
-    await waitFor(() => expect(ficha.pedirRevisao).toHaveBeenCalledWith(1));
+    // onda E4: nem "Pedir nova versão" nem "Escrever do zero" existem no leitor
+    const fim = within(screen.getByTestId('acoes-fim'));
+    expect(fim.queryByText('Pedir nova versão')).toBeNull();
+    expect(fim.queryByTestId('escrever-do-zero')).toBeNull();
+    expect(ficha.pedirRevisao).not.toHaveBeenCalled();
     expect(ficha.gerarScript).not.toHaveBeenCalled();
-    expect(await screen.findByText(/Pedido feito: a próxima versão parte desta e dos seus comentários/)).toBeInTheDocument();
-    expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
   }, 30000);
 
-  it('"Escrever do zero" chama gerarScript (job script), separado de "Pedir nova versão"; com job ativo os dois travam', async () => {
+  it('"Escrever do zero" não existe mais no leitor: nada dispara gerarScript daqui', async () => {
     mockVersao(MD_V1);
     const ficha = fichaMock();
-    render(<ScriptScreen ficha={ficha} token="t" />);
-    // espera a versao carregar antes de clicar: o mock do framer-motion remonta o <button> a cada render
+    const { container } = render(<ScriptScreen ficha={ficha} token="t" />);
     await screen.findByTestId('script-reader');
     expect(screen.getByText(/Marque um trecho para grifar/)).toBeInTheDocument();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const acoes = await irParaAcoes();
-    fireEvent.click(acoes.getByTestId('escrever-do-zero'));
-    await waitFor(() => expect(ficha.gerarScript).toHaveBeenCalled());
-    expect(ficha.pedirRevisao).not.toHaveBeenCalled();
-    expect(await screen.findByText(/^Pedido feito\. Você recebe/)).toBeInTheDocument();
-    expect(screen.getAllByText('Nova versão a caminho').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('escrever-do-zero')).toBeDisabled();
+    expect(acoes.queryByTestId('escrever-do-zero')).toBeNull();
+    expect(screen.queryByTestId('escrever-do-zero')).toBeNull();
+    expect(container.textContent).not.toContain('Escrever do zero');
+    expect(ficha.gerarScript).not.toHaveBeenCalled();
   });
 
-  it('com job revisar na fila: estado do job aparece e os botoes ficam travados', async () => {
+  it('com job revisar na fila: estado do job aparece', async () => {
     mockVersao(MD_V1);
     (axios.get as any).mockImplementation(async (url: string) => {
       if (url === '/api/script/versoes') return { data: { success: true, versoes: [{ id: 'v1', versao: 1, status: 'rascunho', resumo: '', created_at: '2026-09-03 12:00:00', comentarios_count: 0 }], job: { id: 'j3', tipo: 'revisar', status: 'running' } } };
@@ -352,8 +350,10 @@ describe('ScriptScreen', () => {
     await screen.findByTestId('script-reader');
     expect(await screen.findByText(/Uma nova versão está sendo escrita a partir dos seus comentários e grifos\./)).toBeInTheDocument();
     const acoes = await irParaAcoes();
-    expect(acoes.getByText('Nova versão a caminho').closest('button')).toBeDisabled();
-    expect(acoes.getByTestId('escrever-do-zero')).toBeDisabled();
+    // sem grifo pendente o bloco não traz botão de nova versão; só aprovar e a apresentação
+    expect(acoes.getByText('Aprovar o script')).toBeInTheDocument();
+    expect(acoes.queryByTestId('pedir-com-grifos')).toBeNull();
+    expect(acoes.queryByTestId('escrever-do-zero')).toBeNull();
   });
 
   it('versao v1 antiga (um documento, com marcas) tambem renderiza limpa, sem abas de documento', async () => {
