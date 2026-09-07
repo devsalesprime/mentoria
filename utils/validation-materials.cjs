@@ -95,9 +95,14 @@ function normalizePhone(raw) {
     return { ok: false, message: 'WhatsApp inválido: use DDD + número (10 a 11 dígitos), com ou sem o 55.' };
 }
 
-/** PUT /api/admin/cohort/config */
+/**
+ * PUT /api/admin/cohort/config: o corpo e PARCIAL. A rota grava so as chaves que vieram
+ * (routes/admin-cohort.cjs pula `undefined`), entao NENHUMA chave pode ter `.default()`: com um default,
+ * salvar so a amostra reescreveria o prazo de todo mundo com vazio. String vazia continua limpando a chave,
+ * porque ai o admin mandou limpar de proposito.
+ */
 const cohortConfigSchema = z.object({
-    prazo_materiais: z.string().trim().max(200).optional().default(''),
+    prazo_materiais: z.string().trim().max(200).optional(),
     // Amostra da tela "Como funciona" (onda I, item A1): JSON {"club_slug":"...","versao":5}. Vazio esconde o bloco.
     amostra_script: z.string().trim().max(300).optional(),
 });

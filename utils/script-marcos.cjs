@@ -49,20 +49,21 @@ async function lerMarcos({ dbGet }, email) {
 }
 
 /**
- * Grava o marco (idempotente: regravar mantem a primeira data). Cria a linha de cohort_members quando
- * a pessoa entrou pelo `users.club_slug` sem estar na lista do clube.
- * @returns {boolean} false quando o marco nao existe.
+ * Grava o marco (idempotente: regravar mantem a primeira data). SO UPDATE, nunca INSERT:
+ * `cohort_members` e a lista que libera login sem passar pelo HubSpot (routes/auth.cjs lookupCohortMember)
+ * e o roster do clube no admin. Marca de "ja vi a tela" jamais pode virar acesso permanente. Quem chega
+ * aqui ja passou pelo cohortGuard e entra pelo `users.club_slug`; sem linha na lista, nao grava nada e a
+ * tela apenas volta a aparecer na proxima visita.
+ * @returns {{gravado: boolean}|null} null quando o marco nao existe.
  */
-async function marcarMarco({ dbRun, dbGet }, { email, club_slug, marco }) {
+async function marcarMarco({ dbRun }, { email, marco }) {
   const coluna = MARCOS[marco];
-  if (!coluna) return false;
-  const key = normEmail(email);
-  await dbRun(`INSERT OR IGNORE INTO cohort_members (email, club_slug) VALUES (?, ?)`, [key, club_slug]);
-  await dbRun(
+  if (!coluna) return null;
+  const r = await dbRun(
     `UPDATE cohort_members SET ${coluna} = COALESCE(${coluna}, CURRENT_TIMESTAMP) WHERE email = ?`,
-    [key]
+    [normEmail(email)]
   );
-  return true;
+  return { gravado: !!(r && r.changes) };
 }
 
 module.exports = {

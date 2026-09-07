@@ -53,8 +53,6 @@ export const MATERIAL_CATEGORIA_LABEL: Record<string, string> = Object.fromEntri
  * de GET /api/script/tempos. A promessa antiga ("em menos de um dia") brigava com a da tela de escolha
  * ("em minutos") e nenhuma das duas era medida: as duas saíram.
  */
-export const COMO_FUNCIONA_ORDEM =
-  'Quem faz antes recebe antes: mandou os arquivos e revisou a ficha, o seu script entra na fila.';
 
 export const LINKS_DICA =
   'Links do seu site, página de vendas, Instagram, podcasts, entrevistas, reportagens, blog, aulas públicas. Só o link; acesso com senha vai na seção abaixo.';

@@ -56,9 +56,14 @@ describe('scriptMaterialsPessoaSchema (PUT parcial por pessoa)', () => {
 });
 
 describe('cohortConfigSchema', () => {
-  it('trim + default vazio', () => {
-    expect(cohortConfigSchema.safeParse({}).data).toEqual({ prazo_materiais: '' });
+  it('trim, sem default: chave ausente continua ausente (corpo parcial)', () => {
+    // Nenhuma chave pode ganhar default: a rota grava tudo que nao for `undefined`, entao um default
+    // faria "salvar so a amostra" apagar o prazo de todo mundo.
+    expect(cohortConfigSchema.safeParse({}).data).toEqual({});
+    expect(cohortConfigSchema.safeParse({ amostra_script: '{}' }).data.prazo_materiais).toBeUndefined();
     expect(cohortConfigSchema.safeParse({ prazo_materiais: '  até sexta  ' }).data.prazo_materiais).toBe('até sexta');
+    // string vazia explicita continua chegando: e assim que o admin limpa a chave de proposito
+    expect(cohortConfigSchema.safeParse({ prazo_materiais: '' }).data.prazo_materiais).toBe('');
     expect(cohortConfigSchema.safeParse({ prazo_materiais: 'x'.repeat(201) }).success).toBe(false);
   });
 });

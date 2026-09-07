@@ -14,7 +14,9 @@ import express from 'express';
 import sqlite3 from 'sqlite3';
 import createDbHelpers from '../../utils/db-helpers.cjs';
 import createScriptRoutes from '../../routes/script.cjs';
+import createAdminCohortRoutes from '../../routes/admin-cohort.cjs';
 import TEMPOS from '../../utils/script-tempos.cjs';
+import MARCOS from '../../utils/script-marcos.cjs';
 
 let server; let base; let dbRun; let dbGet; let dbAll;
 
@@ -25,9 +27,10 @@ function safeJsonParse(str, fallback = {}) {
 const authMiddleware = (req, res, next) => {
   const id = req.headers['x-user'];
   if (!id) return res.status(401).json({ success: false });
-  req.user = { userId: id, role: 'member' };
+  req.user = { userId: id, role: id === 'admin' ? 'admin' : 'member' };
   next();
 };
+const adminMiddleware = (req, res, next) => (req.user.role === 'admin' ? next() : res.status(403).json({ success: false }));
 
 async function api(method, url, user, body) {
   const res = await fetch(base + url, {
@@ -86,12 +89,14 @@ beforeAll(async () => {
   await dbRun(`INSERT INTO users (id, email, name, cohort, club_slug) VALUES
     ('userA', 'a@x.com', 'Ana', 'exclusive', 'clube-a'),
     ('userB', 'b@x.com', 'Bruno', 'exclusive', 'clube-b'),
-    ('userC', 'c@x.com', 'Caio', 'exclusive', 'clube-c')`);
+    ('userC', 'c@x.com', 'Caio', 'exclusive', 'clube-c'),
+    ('userD', 'd@x.com', 'Dora', 'exclusive', 'clube-a')`);
 
-  const deps = { db, ...helpers, authMiddleware, adminMiddleware: (req, res, next) => next(), uuidv4: () => `id-${Math.random().toString(36).slice(2)}`, fs, path, safeJsonParse };
+  const deps = { db, ...helpers, authMiddleware, adminMiddleware, uuidv4: () => `id-${Math.random().toString(36).slice(2)}`, fs, path, safeJsonParse };
   const app = express();
   app.use(express.json());
   app.use(createScriptRoutes(deps));
+  app.use(createAdminCohortRoutes(deps));
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
   // os DDL idempotentes (cohort_jobs, script_versions, cohort_config, marcos) rodam fora do await
@@ -227,6 +232,26 @@ describe('PUT /api/script/visto (marcos por pessoa)', () => {
     expect(segunda).toBe(primeira);
   });
 
+  it('marca de tela vista NUNCA cria linha em cohort_members (a lista que libera login)', async () => {
+    // Dora entra pelo users.club_slug, sem estar na lista do clube
+    const antes = await dbAll(`SELECT email FROM cohort_members`);
+    const put = await api('PUT', '/api/script/visto', 'userD', { marco: 'como_funciona' });
+    expect(put.status).toBe(200);
+    expect(put.data.gravado).toBe(false);
+    const depois = await dbAll(`SELECT email FROM cohort_members`);
+    expect(depois.map((r) => r.email).sort()).toEqual(antes.map((r) => r.email).sort());
+    expect(await dbGet(`SELECT email FROM cohort_members WHERE email = 'd@x.com'`)).toBeFalsy();
+    // sem linha, a marca nao persiste: a tela volta na proxima visita
+    expect((await api('GET', '/api/script/ficha', 'userD')).data.data.visto_como_funciona).toBeNull();
+  });
+
+  it('marcarMarco direto: e-mail fora da lista nao insere nada e devolve gravado false', async () => {
+    const r = await MARCOS.marcarMarco({ dbRun }, { email: 'ninguem@x.com', marco: 'como_funciona' });
+    expect(r).toEqual({ gravado: false });
+    expect(await dbGet(`SELECT email FROM cohort_members WHERE email = 'ninguem@x.com'`)).toBeFalsy();
+    expect(await MARCOS.marcarMarco({ dbRun }, { email: 'a@x.com', marco: 'marco_que_nao_existe' })).toBeNull();
+  });
+
   it('o lembrete do WhatsApp tem marca propria e recusa marco desconhecido', async () => {
     const put = await api('PUT', '/api/script/visto', 'userB', { marco: 'whatsapp_lembrete' });
     expect(put.data.marcos.whatsapp_lembrete).toBeTruthy();
@@ -267,5 +292,32 @@ describe('GET /api/script/amostra', () => {
     expect((await api('GET', '/api/script/amostra', 'userA')).status).toBe(404);
     await dbRun(`UPDATE cohort_config SET value = '' WHERE key = 'amostra_script'`);
     expect((await api('GET', '/api/script/amostra', 'userA')).status).toBe(404);
+  });
+});
+
+describe('PUT /api/admin/cohort/config: o corpo e parcial', () => {
+  it('salvar so a amostra nao apaga o prazo, e salvar so o prazo nao apaga a amostra', async () => {
+    const amostra = JSON.stringify({ club_slug: 'amostra-clube', versao: 5 });
+    await api('PUT', '/api/admin/cohort/config', 'admin', { prazo_materiais: 'até sexta, 12/09' });
+    await api('PUT', '/api/admin/cohort/config', 'admin', { amostra_script: amostra });
+
+    // o prazo sobreviveu ao salvamento da amostra (era o bug: `.default('')` zerava a chave ausente)
+    let cfg = (await api('GET', '/api/admin/cohort/config', 'admin')).data.data;
+    expect(cfg.prazo_materiais).toBe('até sexta, 12/09');
+    expect(cfg.amostra_script).toBe(amostra);
+
+    // e o caminho simetrico: salvar so o prazo mantem a amostra
+    await api('PUT', '/api/admin/cohort/config', 'admin', { prazo_materiais: 'até 20/09' });
+    cfg = (await api('GET', '/api/admin/cohort/config', 'admin')).data.data;
+    expect(cfg.prazo_materiais).toBe('até 20/09');
+    expect(cfg.amostra_script).toBe(amostra);
+  });
+
+  it('string vazia continua limpando de proposito, uma chave por vez', async () => {
+    await api('PUT', '/api/admin/cohort/config', 'admin', { amostra_script: '' });
+    const cfg = (await api('GET', '/api/admin/cohort/config', 'admin')).data.data;
+    expect(cfg.amostra_script).toBe('');
+    expect(cfg.prazo_materiais).toBe('até 20/09');
+    expect((await api('GET', '/api/script/ficha', 'userA')).data.data.config.amostra_disponivel).toBe(false);
   });
 });

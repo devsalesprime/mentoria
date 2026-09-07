@@ -335,13 +335,10 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
    */
   router.put('/api/script/visto', authMiddleware, cohortGuard, validateBody(marcoSchema), async (req, res) => {
     try {
-      const ok = await MARCOS.marcarMarco({ dbRun, dbGet }, {
-        email: req.cohort.email,
-        club_slug: req.cohort.club_slug,
-        marco: req.body.marco,
-      });
-      if (!ok) return res.status(400).json({ success: false, message: 'Marco desconhecido.' });
-      res.json({ success: true, marcos: await MARCOS.lerMarcos({ dbGet }, req.cohort.email) });
+      const r = await MARCOS.marcarMarco({ dbRun }, { email: req.cohort.email, marco: req.body.marco });
+      if (!r) return res.status(400).json({ success: false, message: 'Marco desconhecido.' });
+      // `gravado: false` = a pessoa nao esta na lista do clube; a marca nao persiste e a tela volta depois
+      res.json({ success: true, gravado: r.gravado, marcos: await MARCOS.lerMarcos({ dbGet }, req.cohort.email) });
     } catch (error) {
       console.error('Error in PUT /api/script/visto:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
