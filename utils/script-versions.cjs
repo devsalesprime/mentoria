@@ -417,8 +417,97 @@ async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
   return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo: 'slides', club_slug, email: key, notify_phone, payload });
 }
 
+// ─── Pedido de nova versao (job `revisar`) ───────────────────────────────────
+// O membro pede em POST /api/script/versoes/:versao/revisar; o admin forca em
+// POST /api/admin/clubs/:slug/script-versoes/:versao/revisar. Os dois montam o payload aqui, para o
+// worker receber sempre a mesma forma; o que muda e `origem`, que decide se a rodada de ajustes do
+// clube foi gasta (so `membro` conta; ver contarAjustes em routes/script.cjs).
+const ORIGEM_MEMBRO = 'membro';
+const ORIGEM_ADMIN = 'admin';
+
+/** URL de download de um anexo de contexto (nunca caminho de disco). */
+const contextFileUrl = (fileId) => `/api/script/context/files/${encodeURIComponent(fileId)}/download`;
+
+/**
+ * Grifos -> comentarios da versao, para o payload do job `revisar`.
+ * O front manda os grifos ja convertidos em `comentarios` ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9);
+ * sem eles, o servidor converte os grifos pendentes ate a versao no mesmo formato. Cada um vira um comentario da
+ * versao (autor = quem pediu; no banco o passo 9 vira 0) e entra no payload com o passo da tela (0..7 ou 9).
+ * Dedupe pelo texto: pedir de novo com os mesmos grifos nao duplica.
+ *
+ * Onda E3: o servidor e a fonte da verdade do sufixo " · anexos: ...". O que vem do front e casado pelo texto
+ * sem o sufixo e trocado pela versao com os anexos de agora. Grifo sem anexo passa intacto.
+ */
+async function comentariosDoPedido({ dbGet, dbAll, dbRun, uuidv4 }, club_slug, versao, vindos, autorEmail, fileUrl = contextFileUrl) {
+  const n = Number(versao);
+  const existentes = await listComments({ dbAll }, club_slug, n);
+  const pendentes = await SG.comContexto({ dbAll }, club_slug, await SG.listGrifosPendentes({ dbAll }, club_slug, n), { fileUrl });
+  const doServidor = pendentes.map(SG.grifoParaComentario);
+  let lista = doServidor;
+  if (Array.isArray(vindos) && vindos.length) {
+    const porBase = new Map(doServidor.map((c) => [SG.comentarioSemAnexos(c.texto), c.texto]));
+    lista = vindos.map((c) => ({ ...c, texto: porBase.get(SG.comentarioSemAnexos(c.texto)) || c.texto }));
+  }
+  const textos = new Set(existentes.map((c) => c.texto));
+  const novos = [];
+  for (const c of lista) {
+    const texto = String(c.texto || '').trim();
+    if (!texto || textos.has(texto)) continue;
+    textos.add(texto);
+    const saved = await insertComment({ dbGet, dbRun, uuidv4 }, {
+      club_slug, versao: n, passo: SG.passoNoBanco(c.passo), texto, autor_email: autorEmail,
+    });
+    novos.push({ passo: Number(c.passo) || 0, texto, autor: saved.autor_nome || saved.autor_email || null, created_at: saved.created_at, origem: 'grifo' });
+  }
+  return {
+    existentes: existentes.map((c) => ({ passo: c.passo, texto: c.texto, autor: c.autor_nome || c.autor_email || null, created_at: c.created_at })),
+    novos,
+  };
+}
+
+/**
+ * Payload do job `revisar`: a versao base (content_md) + TODOS os comentarios dela (inclusive os grifos
+ * convertidos) + o pedido livre. O worker escreve a proxima versao a partir disso.
+ * @returns {{ payload: object, comentarios: object[], grifos: object[] }}
+ */
+async function montarPedidoRevisar(deps, {
+  club_slug, versao, content_md, comentarios: vindos = null, autor_email = null,
+  nome = null, pedido = '', origem = ORIGEM_MEMBRO, fileUrl = contextFileUrl, extra = null,
+}) {
+  const n = Number(versao);
+  const { existentes, novos } = await comentariosDoPedido(deps, club_slug, n, vindos, autor_email, fileUrl);
+  const comentarios = [...existentes, ...novos];
+  const payload = {
+    versao: n,
+    content_md: content_md || '',
+    comentarios,
+    nome: nome || null,
+    pedido_em: new Date().toISOString(),
+    // Quem pediu: e o que conta na rodada de ajustes (job forcado pelo admin ou nascido no worker nao conta)
+    origem,
+    ...(extra || {}),
+  };
+  const texto = String(pedido || '').trim();
+  if (texto) payload.pedido = texto;
+  const grifos = comentarios.filter((c) => SG.comentarioEhGrifo(c.texto));
+  if (grifos.length) {
+    payload.grifos = {
+      total: grifos.length,
+      ajustar: grifos.filter((c) => /^\[GRIFO ajustar\]/.test(c.texto)).length,
+      manter: grifos.filter((c) => /^\[GRIFO manter\]/.test(c.texto)).length,
+      tirar: grifos.filter((c) => /^\[GRIFO tirar\]/.test(c.texto)).length,
+    };
+  }
+  return { payload, comentarios, grifos };
+}
+
 module.exports = {
   VERSAO_STATUSES,
+  ORIGEM_MEMBRO,
+  ORIGEM_ADMIN,
+  contextFileUrl,
+  comentariosDoPedido,
+  montarPedidoRevisar,
   ensureScriptVersionsTables,
   scriptVersionBodySchema,
   scriptCommentSchema,

@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { z } = require('zod');
 const SF = require('../utils/script-ficha.cjs');
 const { scriptPrefillSchema, cohortMembersSchema, validateBody } = require('../utils/validation.cjs');
 const VM = require('../utils/validation-materials.cjs');
@@ -6,7 +7,18 @@ const CM = require('../utils/cohort-materials.cjs');
 const JOBS = require('../utils/cohort-jobs.cjs');
 const CTX = require('../utils/script-context.cjs');
 const SV = require('../utils/script-versions.cjs');
+const SG = require('../utils/script-grifos.cjs');
 const SUF = require('../utils/suficiencia.cjs');
+
+/**
+ * Corpo de POST /api/admin/clubs/:slug/script-versoes/:versao/revisar.
+ * Igual ao do mentor (routes/script.cjs), com uma diferenca: aqui o pedido e OBRIGATORIO. Quem forca uma
+ * versao pela equipe tem de dizer o que mudar; sem texto o worker so reescreveria pelos comentarios.
+ */
+const adminRevisarSchema = z.object({
+  pedido: z.string().trim().min(1).max(4000),
+  comentarios: z.array(SG.grifoComentarioSchema).max(300).optional(),
+});
 
 /**
  * Admin do cohort (clubes do Exclusive) e da Ficha do Script.
@@ -390,6 +402,63 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       res.json({ success: true, versao: n, job: { ...r.job, existing: r.existing } });
     } catch (error) {
       console.error('Error in POST /api/admin/clubs/:slug/script-versoes/:versao/slides:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Pedir nova versao pelo admin (job `revisar` forcado) ─────────────────
+  // POST /api/admin/clubs/:slug/script-versoes/:versao/revisar  { pedido, comentarios? }
+  // O mesmo pedido que o mentor faz em POST /api/script/versoes/:versao/revisar: mesmo payload, montado no
+  // mesmo lugar (SV.montarPedidoRevisar), com `origem: 'admin'`. Assim a rodada de ajustes incluida do clube
+  // (contada so com origem `membro`) continua intacta depois de um pedido forcado pela equipe.
+  // 409 enquanto houver `script` ou `revisar` na fila: os dois escrevem a proxima versao do mesmo clube.
+  router.post('/api/admin/clubs/:slug/script-versoes/:versao/revisar', authMiddleware, adminMiddleware, validateBody(adminRevisarSchema), async (req, res) => {
+    try {
+      const n = versaoDaRota(req, res); if (n == null) return;
+      const club = await getClub(req.params.slug);
+      if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
+      const versao = await SV.getVersion({ dbGet }, club.slug, n);
+      if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
+      // De quem e o pedido no banco e no aviso: o mesmo criterio do "Forçar script" (ultimo prefill, senao o 1o membro)
+      const membro = await dbGet(`SELECT email, nome FROM cohort_members WHERE club_slug = ? ORDER BY created_at ASC LIMIT 1`, [club.slug]);
+      const ultimoPrefill = await dbGet(
+        `SELECT email FROM cohort_jobs WHERE club_slug = ? AND tipo = 'prefill' ORDER BY created_at DESC LIMIT 1`,
+        [club.slug]
+      );
+      const email = normEmail((ultimoPrefill && ultimoPrefill.email) || (membro && membro.email) || `admin@${club.slug}`);
+      const ativo = await JOBS.findActiveJob({ dbGet }, { tipo: 'revisar', club_slug: club.slug, email });
+      if (ativo) {
+        return res.status(409).json({
+          success: false,
+          motivo: 'job_ativo',
+          message: `Já existe um trabalho de ${ativo.tipo} na fila deste clube. Espere ele terminar.`,
+          job_id: ativo.id,
+          tipo: ativo.tipo,
+          status: ativo.status,
+        });
+      }
+      const por = quemForcou(req);
+      const { payload, comentarios, grifos } = await SV.montarPedidoRevisar({ dbGet, dbAll, dbRun, uuidv4 }, {
+        club_slug: club.slug,
+        versao: n,
+        content_md: versao.content_md,
+        comentarios: req.body.comentarios,
+        autor_email: email,
+        nome: (membro && membro.nome) || null,
+        pedido: req.body.pedido,
+        origem: SV.ORIGEM_ADMIN,
+        extra: { motivo: 'forcado-admin', forcado_por: por },
+      });
+      const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
+        tipo: 'revisar',
+        club_slug: club.slug,
+        email,
+        notify_phone: await SV.ultimoNotifyPhone({ dbGet }, club.slug, email),
+        payload,
+      });
+      res.json({ success: true, job_id: job.id, versao_base: n, comentarios: comentarios.length, grifos: grifos.length, existing });
+    } catch (error) {
+      console.error('Error in POST /api/admin/clubs/:slug/script-versoes/:versao/revisar:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });

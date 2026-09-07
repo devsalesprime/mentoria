@@ -8,6 +8,8 @@
  * - job `revisar` que nao nasceu do mentor (payload.origem diferente) nao entra na conta
  * - `cohort_config.ajustes_limite` muda o teto (0 = sem trava)
  * - o admin nao passa pela trava: "forçar script" continua enfileirando depois de a rodada acabar
+ * - POST /api/admin/clubs/:slug/script-versoes/:versao/revisar: a equipe pede uma nova versao com
+ *   `origem: 'admin'` (o mesmo payload do mentor), sem consumir a rodada do clube
  */
 import fs from 'fs';
 import os from 'os';
@@ -190,5 +192,74 @@ describe('uma rodada de ajustes por clube', () => {
     expect(r.status).toBe(200);
     expect(r.data.job.tipo).toBe('script');
     expect(await rodada()).toEqual(antes);
+  });
+});
+
+describe('o admin pede uma nova versão pelo clube', () => {
+  const URL = '/api/admin/clubs/clube-x/script-versoes/1/revisar';
+  const PEDIDO = 'Trocar a abertura do passo 1 pela fala que a Ana usa na reunião.';
+  let rodadaAntes;
+
+  it('com um trabalho na fila, o pedido do admin devolve 409', async () => {
+    // o teste anterior deixou o job `script` do "forçar script" na fila; script e revisar dividem a vaga do clube
+    const r = await api('POST', URL, 'admin', { pedido: PEDIDO });
+    expect(r.status).toBe(409);
+    expect(r.data.motivo).toBe('job_ativo');
+    expect(r.data.tipo).toBe('script');
+    expect(r.data.message).not.toContain('—');
+  });
+
+  it('com a fila vazia, enfileira `revisar` com o payload do mentor e `origem: admin`', async () => {
+    await dbRun(`UPDATE cohort_jobs SET status = 'done' WHERE status IN ('queued', 'running')`);
+    rodadaAntes = await rodada();
+
+    const r = await api('POST', URL, 'admin', { pedido: PEDIDO });
+    expect(r.status).toBe(200);
+    expect(r.data.versao_base).toBe(1);
+    expect(r.data.job_id).toBeTruthy();
+
+    const job = await dbGet(`SELECT tipo, club_slug, status, payload FROM cohort_jobs WHERE id = ?`, [r.data.job_id]);
+    expect(job.tipo).toBe('revisar');
+    expect(job.status).toBe('queued');
+    const payload = safeJsonParse(job.payload);
+    expect(payload.origem).toBe('admin');
+    expect(payload.motivo).toBe('forcado-admin');
+    expect(payload.pedido).toBe(PEDIDO);
+    expect(payload.versao).toBe(1);
+    expect(payload.content_md).toBe(MD_V1);
+    expect(Array.isArray(payload.comentarios)).toBe(true);
+    expect(payload.forcado_por).toBe('admin');
+  });
+
+  it('o pedido forçado não gasta a rodada do mentor', async () => {
+    expect(await rodada()).toEqual(rodadaAntes);
+    // e o mentor continua barrado pelo limite dele, não pelo job do admin
+    const m = await api('POST', '/api/script/versoes/1/revisar', 'userA', { pedido: 'Mais uma.' });
+    expect(m.status).toBe(409);
+    expect(m.data.motivo).toBe('limite_ajustes');
+  });
+
+  it('com o `revisar` do admin ainda na fila, um segundo pedido devolve 409', async () => {
+    const r = await api('POST', URL, 'admin', { pedido: 'Outra volta.' });
+    expect(r.status).toBe(409);
+    expect(r.data.motivo).toBe('job_ativo');
+    expect(r.data.tipo).toBe('revisar');
+  });
+
+  it('versão ou clube que não existe devolve 404; pedido vazio devolve 400', async () => {
+    const semVersao = await api('POST', '/api/admin/clubs/clube-x/script-versoes/99/revisar', 'admin', { pedido: PEDIDO });
+    expect(semVersao.status).toBe(404);
+    const semClube = await api('POST', '/api/admin/clubs/clube-fantasma/script-versoes/1/revisar', 'admin', { pedido: PEDIDO });
+    expect(semClube.status).toBe(404);
+    const semPedido = await api('POST', URL, 'admin', { pedido: '   ' });
+    expect(semPedido.status).toBe(400);
+    // nenhum desses criou job novo
+    const n = await dbGet(`SELECT COUNT(*) AS n FROM cohort_jobs WHERE tipo = 'revisar' AND club_slug = 'clube-x' AND status = 'queued'`);
+    expect(n.n).toBe(1);
+  });
+
+  it('o token do mentor não abre a rota do admin', async () => {
+    expect((await api('POST', URL, 'userA', { pedido: PEDIDO })).status).toBe(403);
+    expect((await api('POST', URL, null, { pedido: PEDIDO })).status).toBe(401);
   });
 });

@@ -661,7 +661,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
 
   // ─── Contexto por pergunta (do clube, com autor) ───────────────────────────
 
-  const contextFileUrl = (fileId) => `/api/script/context/files/${encodeURIComponent(fileId)}/download`;
+  // A mesma URL que o pedido de revisao usa nos anexos do grifo (SV): uma so definicao para as duas rotas
+  const contextFileUrl = SV.contextFileUrl;
 
   // GET /api/script/context?field=3.3  -> { items } ; sem field -> { items, por_campo }
   router.get('/api/script/context', authMiddleware, cohortGuard, async (req, res) => {
@@ -935,7 +936,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // (POST /api/script/versoes/:versao/revisar). Job forcado pelo admin ou nascido dentro do worker marca
   // `payload.origem` diferente e nao entra na conta; o historico antigo (sem `origem`) conta como do mentor,
   // entao clube que ja pediu revisao aparece com a rodada gasta.
-  const ORIGEM_MEMBRO = 'membro';
+  const ORIGEM_MEMBRO = SV.ORIGEM_MEMBRO;
   const AJUSTES_LIMITE_PADRAO = 1;
   const COPY_LIMITE_AJUSTES = 'A sua rodada de ajustes já foi usada. Precisa de mais? Fale com a equipe.';
 
@@ -966,47 +967,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   }
 
-  /**
-   * Grifos -> comentarios da versao, para o payload do job `revisar`.
-   * O front manda os grifos ja convertidos em `comentarios` ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9);
-   * sem eles, o servidor converte os grifos pendentes ate a versao no mesmo formato. Cada um vira um comentario da versao
-   * (autor = quem pediu; no banco o passo 9 vira 0) e entra no payload com o passo da tela (0..7 ou 9).
-   * Dedupe pelo texto: pedir de novo com os mesmos grifos nao duplica.
-   *
-   * Onda E3: o servidor e a fonte da verdade do sufixo " · anexos: ..." — o que vem do front e casado pelo texto
-   * sem o sufixo e trocado pela versao com os anexos de agora. Grifo sem anexo passa intacto.
-   */
-  async function comentariosDosGrifos(slug, n, vindos, autorEmail) {
-    const existentes = await SV.listComments({ dbAll }, slug, n);
-    const pendentes = await SG.comContexto({ dbAll }, slug, await SG.listGrifosPendentes({ dbAll }, slug, n), { fileUrl: contextFileUrl });
-    const doServidor = pendentes.map(SG.grifoParaComentario);
-    let lista = doServidor;
-    if (Array.isArray(vindos) && vindos.length) {
-      const porBase = new Map(doServidor.map((c) => [SG.comentarioSemAnexos(c.texto), c.texto]));
-      lista = vindos.map((c) => ({ ...c, texto: porBase.get(SG.comentarioSemAnexos(c.texto)) || c.texto }));
-    }
-    const textos = new Set(existentes.map((c) => c.texto));
-    const novos = [];
-    for (const c of lista) {
-      const texto = String(c.texto || '').trim();
-      if (!texto || textos.has(texto)) continue;
-      textos.add(texto);
-      const saved = await SV.insertComment({ dbGet, dbRun, uuidv4 }, {
-        club_slug: slug, versao: n, passo: SG.passoNoBanco(c.passo), texto, autor_email: autorEmail,
-      });
-      novos.push({ passo: Number(c.passo) || 0, texto, autor: saved.autor_nome || saved.autor_email || null, created_at: saved.created_at, origem: 'grifo' });
-    }
-    return {
-      existentes: existentes.map((c) => ({ passo: c.passo, texto: c.texto, autor: c.autor_nome || c.autor_email || null, created_at: c.created_at })),
-      novos,
-    };
-  }
+  // Grifos -> comentarios e o payload do job: em utils/script-versions.cjs (SV.montarPedidoRevisar),
+  // porque a rota do admin monta o mesmo pedido e o worker precisa receber sempre a mesma forma.
 
   // POST /api/script/versoes/:versao/revisar  { pedido?, comentarios? }  -> "Pedir nova versao": job `revisar` (1 ativo por clube, junto com `script`)
   // payload = a versao base (content_md) + TODOS os comentarios dela (inclusive os grifos convertidos) + pedido livre;
   // o worker escreve a proxima versao a partir disso. Nao exige ficha confirmada: a base e a versao ja escrita.
   // Onda E4: uma rodada de ajustes por clube. Gasta a rodada, o membro recebe 409 { motivo: 'limite_ajustes' };
-  // o admin nao passa por aqui (as rotas dele continuam podendo forcar).
+  // o admin nao passa por aqui: ele forca em POST /api/admin/clubs/:slug/script-versoes/:versao/revisar
+  // (payload com `origem: 'admin'`, que nao consome a rodada do clube).
   router.post('/api/script/versoes/:versao/revisar', authMiddleware, cohortGuard, validateBody(revisarSchema), async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
@@ -1024,27 +993,17 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         });
       }
       const key = VM.normEmail(req.cohort.email);
-      const { existentes, novos } = await comentariosDosGrifos(slug, n, req.body.comentarios, key);
-      const comentarios = [...existentes, ...novos];
-      const payload = {
+      const { payload, comentarios, grifos } = await SV.montarPedidoRevisar({ dbGet, dbAll, dbRun, uuidv4 }, {
+        club_slug: slug,
         versao: n,
         content_md: versao.content_md,
-        comentarios,
+        comentarios: req.body.comentarios,
+        autor_email: key,
         nome: req.cohort.name || null,
-        pedido_em: new Date().toISOString(),
-        // Quem pediu: e o que conta na rodada de ajustes (job forcado pelo admin ou nascido no worker nao conta)
+        pedido: req.body.pedido,
         origem: ORIGEM_MEMBRO,
-      };
-      if (req.body.pedido) payload.pedido = req.body.pedido;
-      const grifos = comentarios.filter((c) => SG.comentarioEhGrifo(c.texto));
-      if (grifos.length) {
-        payload.grifos = {
-          total: grifos.length,
-          ajustar: grifos.filter((c) => /^\[GRIFO ajustar\]/.test(c.texto)).length,
-          manter: grifos.filter((c) => /^\[GRIFO manter\]/.test(c.texto)).length,
-          tirar: grifos.filter((c) => /^\[GRIFO tirar\]/.test(c.texto)).length,
-        };
-      }
+        fileUrl: contextFileUrl,
+      });
       const { job, existing } = await JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, {
         tipo: 'revisar',
         club_slug: slug,

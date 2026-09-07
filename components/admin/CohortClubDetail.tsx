@@ -146,6 +146,10 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const [grifos, setGrifos] = useState<ScriptGrifo[] | null>(null);
   // Versao com "Gerar slides" em andamento
   const [gerandoSlides, setGerandoSlides] = useState<number | null>(null);
+  // "Pedir nova versão" pelo admin: versao com o campo aberto, texto do pedido e envio em andamento
+  const [pedidoAberto, setPedidoAberto] = useState<number | null>(null);
+  const [pedidoTexto, setPedidoTexto] = useState('');
+  const [pedindoVersao, setPedindoVersao] = useState<number | null>(null);
 
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -311,6 +315,30 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
       showToast(e.response?.data?.message || 'Não deu para pedir a apresentação agora', 'error');
     } finally {
       setGerandoSlides(null);
+    }
+  };
+
+  /**
+   * "Pedir nova versão": job `revisar` a partir desta versao, escrito pelo admin.
+   * O clube tem uma rodada de ajuste por conta do mentor; o pedido do admin nasce com origem
+   * `admin` e por isso nao consome essa rodada.
+   */
+  const pedirNovaVersao = async (n: number) => {
+    const pedido = pedidoTexto.trim();
+    if (!pedido) return;
+    setPedindoVersao(n);
+    try {
+      const res = await axios.post(`/api/admin/clubs/${slug}/script-versoes/${n}/revisar`, { pedido }, { headers });
+      if (res.data?.success) {
+        showToast(`Nova versão a partir da v${n} na fila`, 'success');
+        setPedidoAberto(null);
+        setPedidoTexto('');
+        await fetchDetail();
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Não deu para pedir a nova versão agora', 'error');
+    } finally {
+      setPedindoVersao(null);
     }
   };
 
@@ -704,8 +732,40 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                     >
                       {v.slides_job ? 'Slides na fila' : 'Gerar slides'}
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      data-testid={`pedir-versao-${v.versao}`}
+                      onClick={() => { setPedidoTexto(''); setPedidoAberto(pedidoAberto === v.versao ? null : v.versao); }}
+                    >
+                      {pedidoAberto === v.versao ? 'Fechar pedido' : 'Pedir nova versão'}
+                    </Button>
                   </div>
                 </div>
+                {pedidoAberto === v.versao && (
+                  <div className="space-y-2" data-testid={`pedido-admin-${v.versao}`}>
+                    <p className="text-[11px] text-white/50">
+                      Escreva o que a próxima versão precisa corrigir. O pedido entra na fila como revisão da v{v.versao} e não consome a rodada de ajuste do mentor.
+                    </p>
+                    <textarea
+                      value={pedidoTexto}
+                      onChange={(e) => setPedidoTexto(e.target.value)}
+                      rows={4}
+                      maxLength={4000}
+                      placeholder="O que mudar nesta versão"
+                      className="w-full bg-prosperus-navy border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-white/30 outline-none"
+                    />
+                    <Button
+                      variant="primary"
+                      size="xs"
+                      onClick={() => pedirNovaVersao(v.versao)}
+                      disabled={!pedidoTexto.trim()}
+                      loading={pedindoVersao === v.versao}
+                    >
+                      Enviar pedido
+                    </Button>
+                  </div>
+                )}
                 {(v.entregaveis || []).length > 0 && (
                   <div data-testid={`entregaveis-${v.versao}`}>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-white/40 font-semibold mb-1">Entregáveis</p>
