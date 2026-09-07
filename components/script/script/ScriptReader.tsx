@@ -575,7 +575,10 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   const btnMovel = 'max-sm:!flex-1 max-sm:!px-2';
 
   return (
-    <div className="script-reader script-no-print" data-testid="script-reader">
+    <div
+      className={`script-reader script-no-print${onAbrirGrifos ? ' script-reader-com-grifos' : ''}`}
+      data-testid="script-reader"
+    >
       {/* Uma barra so: grudada no alto no desktop, no rodape no celular (a ordem visual vem do CSS) */}
       <nav aria-label="Índice do script" className="script-barra script-no-print max-sm:flex-wrap">
         <div className="script-barra-progresso" aria-hidden="true"><span style={{ width: `${((tela + 1) / TOTAL_NAV) * 100}%` }} /></div>
@@ -621,7 +624,8 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
         <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} amostra={amostra} />
       </div>
 
-      {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso) */}
+      {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso). Quando ele existe,
+          o papel ganha um rodape vazio no celular (`script-reader-com-grifos`): a pastilha cobria o texto. */}
       {onAbrirGrifos && (
         <button
           type="button"

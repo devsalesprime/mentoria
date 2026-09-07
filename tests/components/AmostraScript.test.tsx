@@ -57,6 +57,7 @@ describe('AmostraScript: o exemplo em modo leitura', () => {
     // sem grifos: nem a dica, nem o botão flutuante da lista
     expect(screen.queryByTestId('dica-grifo')).toBeNull();
     expect(screen.queryByTestId('grifos-flutuante')).toBeNull();
+    expect(screen.getByTestId('script-reader').className).not.toContain('script-reader-com-grifos');
     // sem ações e sem apresentação comercial
     expect(screen.queryByTestId('acoes-fim')).toBeNull();
     expect(screen.queryByTestId('cartao-apresentacao')).toBeNull();

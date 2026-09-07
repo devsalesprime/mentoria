@@ -9,7 +9,7 @@
  */
 import React, { useState } from 'react';
 import type { UseScriptFicha } from '../../hooks/useScriptFicha';
-import { frasePorMediana, useTemposScript } from '../../hooks/useEsperaScript';
+import { fraseDoTempo, useTemposScript } from '../../hooks/useEsperaScript';
 import type { ScriptModo } from '../../data/script-ficha-fields';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
@@ -25,11 +25,12 @@ interface EscolhaCaminhoProps {
  * Onda I, item I3: a promessa de tempo é uma só e vem do histórico real (mediana dos últimos scripts
  * escritos). O "em minutos" que morava no cartão do essencial saiu: ninguém media aquilo e ele brigava
  * com o "em menos de um dia" da tela de Materiais. Sem histórico, a linha sai sem número nenhum.
+ * O tempo vem com o sujeito ("a escrita do seu script"): o número solto era lido como esforço de quem lê.
  */
 export const COPY_TEMPO_SEM_NUMERO = 'Depois da ficha, o seu script entra na fila e aparece aqui.';
 export function copyDoTempo(medianaMin: number | null): string {
-  const frase = frasePorMediana(medianaMin);
-  return frase ? `Depois da ficha, a escrita ${frase}.` : COPY_TEMPO_SEM_NUMERO;
+  const frase = fraseDoTempo('script', medianaMin);
+  return frase ? `Depois da ficha, ${frase}.` : COPY_TEMPO_SEM_NUMERO;
 }
 
 export const TITULO_ESCOLHA = 'Como você quer construir o seu script?';

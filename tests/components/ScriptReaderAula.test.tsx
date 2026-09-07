@@ -81,6 +81,8 @@ describe('ScriptReader · aula da Dani', () => {
     expect(flutuante).toHaveTextContent('Grifos · 2');
     fireEvent.click(flutuante);
     expect(abrirGrifos).toHaveBeenCalled();
+    // com a pastilha na tela o papel ganha rodape vazio no celular: ela cobria o texto em 390 px
+    expect(screen.getByTestId('script-reader').className).toContain('script-reader-com-grifos');
   });
 
   it('as telas de passo não têm mais "Ver na aula da Dani" nem o cartão da aula', () => {

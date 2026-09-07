@@ -124,13 +124,13 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
 
   it('o tempo das etapas vem do histórico; sem histórico, a linha sai sem número', async () => {
     const { unmount } = render(<ComoFuncionaScreen ficha={fichaDe()} token="t" onNavigate={vi.fn()} />);
-    await waitFor(() => expect(screen.getByTestId('etapa-tempo-materiais')).toHaveTextContent('a leitura começa assim que você envia'));
+    await waitFor(() => expect(screen.getByTestId('etapa-tempo-materiais')).toHaveTextContent('A leitura começa assim que você envia'));
     expect(screen.getByTestId('etapa-tempo-materiais').textContent).not.toMatch(/\d/);
     unmount();
 
     mockRotas({ mediana: 12 });
     render(<ComoFuncionaScreen ficha={fichaDe()} token="t" onNavigate={vi.fn()} />);
-    await waitFor(() => expect(screen.getByTestId('etapa-tempo-script')).toHaveTextContent('a escrita costuma levar cerca de 12 min'));
+    await waitFor(() => expect(screen.getByTestId('etapa-tempo-script')).toHaveTextContent('A escrita do seu script costuma levar cerca de 12 min.'));
   });
 
   it('"Começar o meu script" grava a marca no servidor e leva para a rota calculada', async () => {
@@ -141,6 +141,19 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
     fireEvent.click(screen.getByTestId('comecar-script'));
     await waitFor(() => expect(marcarComoFuncionaVisto).toHaveBeenCalled());
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_materiais'));
+  });
+
+  it('abrir a tela já conta como vista: a marca não espera o clique no botão', async () => {
+    const marcarComoFuncionaVisto = vi.fn().mockResolvedValue(true);
+    const { unmount } = render(<ComoFuncionaScreen ficha={fichaDe({ marcarComoFuncionaVisto })} token="t" onNavigate={vi.fn()} />);
+    await waitFor(() => expect(marcarComoFuncionaVisto).toHaveBeenCalledTimes(1));
+    unmount();
+
+    // quem já tem a marca não grava de novo
+    const outro = vi.fn().mockResolvedValue(true);
+    render(<ComoFuncionaScreen ficha={fichaDe({ marcarComoFuncionaVisto: outro }, dados({ visto_como_funciona: VISTO }))} token="t" onNavigate={vi.fn()} />);
+    await screen.findByTestId('como-funciona-screen');
+    expect(outro).not.toHaveBeenCalled();
   });
 
   it('o exemplo só aparece quando o admin configurou uma amostra', () => {
@@ -193,6 +206,41 @@ describe('I2: o trilho de etapas', () => {
     expect(etapas.find((e) => e.nome === 'Ficha')!.estado).toBe('atual');
   });
 
+  it('"Como funciona" fica concluída quando a pessoa já está numa etapa adiante', () => {
+    // sem a marca no servidor (entrou pelo menu, nunca clicou no botão), mas já com caminho e materiais
+    const semMarca = dados({ visto_como_funciona: null, modo: 'completo', materials_status: 'submitted' });
+    const noScript = etapasDoTrilho(semMarca, 'script_script');
+    expect(noScript[0].estado).toBe('feita');
+    expect(noScript[0].falta).toBe('Leia quando quiser');
+    // olhando a própria intro, quem ainda não andou nada continua começando por ali
+    const zerado = dados({ visto_como_funciona: null });
+    expect(etapasDoTrilho(zerado, 'script_como_funciona')[0].estado).toBe('atual');
+    expect(etapasDoTrilho(zerado, 'script_como_funciona')[0].falta).toBe('Comece por aqui');
+    expect(etapasDoTrilho(zerado, 'script_como_funciona')[1].estado).toBe('proxima');
+  });
+
+  it('na entrada o celular vê a versão curta; nas outras telas, o trilho inteiro', () => {
+    const d = dados({ visto_como_funciona: VISTO, modo: null });
+    const { unmount } = render(<TrilhoEtapas data={d} atual="script_como_funciona" compactoNoCelular onNavigate={vi.fn()} />);
+    const compacto = screen.getByTestId('trilho-compacto');
+    expect(compacto).toHaveTextContent('Como funciona');
+    expect(compacto.className).toContain('sm:hidden');
+    // no desktop (sm para cima) a lista inteira volta
+    expect(screen.getByTestId('trilho-etapas').querySelector('ol')!.className).toContain('hidden sm:grid');
+    // e o trilho divide a coluna com o conteúdo de baixo, sem degrau no desktop
+    expect(screen.getByTestId('trilho-etapas').className).toContain('max-w-3xl');
+    unmount();
+
+    const outra = render(<TrilhoEtapas data={d} atual="script_materiais" onNavigate={vi.fn()} />);
+    expect(screen.queryByTestId('trilho-compacto')).toBeNull();
+    expect(screen.getByTestId('trilho-etapas').querySelector('ol')!.className).not.toContain('hidden');
+    outra.unmount();
+
+    // na tela do script o leitor divide a área com o painel de grifos: ali o trilho acompanha a largura inteira
+    render(<TrilhoEtapas data={d} atual="script_script" largura="cheia" onNavigate={vi.fn()} />);
+    expect(screen.getByTestId('trilho-etapas').className).not.toContain('max-w-3xl');
+  });
+
   it('renderiza os cinco passos com o estado no DOM e navega ao clicar', () => {
     const onNavigate = vi.fn();
     const d = dados({ visto_como_funciona: VISTO, modo: 'completo', materials_status: 'pending' });
@@ -209,7 +257,8 @@ describe('I4: a previsão das duas esperas', () => {
   it('a frase junta a fila com o nome dos clubes e o tempo médio (decisão D8)', () => {
     const fila = { na_frente: 2, clubes: ['Ceramfix', 'Laser Tech'], status: 'queued' as const, tem_job: true };
     expect(fraseDaFila(fila, 'prefill')).toBe('2 na frente: Ceramfix e Laser Tech');
-    expect(linhaDeEspera(fila, 'prefill', 12)).toBe('2 na frente: Ceramfix e Laser Tech · costuma levar cerca de 12 min');
+    expect(linhaDeEspera(fila, 'prefill', 12)).toBe('2 na frente: Ceramfix e Laser Tech · a nossa leitura costuma levar cerca de 12 min');
+    expect(linhaDeEspera(fila, 'script', 12)).toBe('2 na frente: Ceramfix e Laser Tech · a escrita costuma levar cerca de 12 min');
     // sem histórico a frase sai sem número
     expect(linhaDeEspera(fila, 'prefill', null)).toBe('2 na frente: Ceramfix e Laser Tech');
     expect(frasePorMediana(null)).toBeNull();
@@ -227,7 +276,7 @@ describe('I4: a previsão das duas esperas', () => {
   it('com permissão do WhatsApp a tela diz que pode fechar; sem ela, um lembrete só', async () => {
     mockRotas({ mediana: 8, fila: { na_frente: 1, clubes: ['Ceramfix'], status: 'queued', tem_job: true } });
     const { unmount } = render(<EtaEspera token="t" tipo="prefill" temWhatsapp onConfirmarWhats={vi.fn()} />);
-    await waitFor(() => expect(screen.getByTestId('eta-espera-linha')).toHaveTextContent('1 na frente: Ceramfix · costuma levar cerca de 8 min'));
+    await waitFor(() => expect(screen.getByTestId('eta-espera-linha')).toHaveTextContent('1 na frente: Ceramfix · a nossa leitura costuma levar cerca de 8 min'));
     expect(screen.getByTestId('eta-espera-whatsapp-ok')).toHaveTextContent(COPY_PODE_FECHAR);
     expect(screen.queryByTestId('eta-espera-lembrete')).toBeNull();
     unmount();
@@ -282,7 +331,7 @@ describe('I5: a espera antes da ficha', () => {
     render(<EsperaLeitura ficha={fichaDe({}, d)} token="t" onNavigate={onNavigate} />);
     expect(screen.getByTestId('espera-leitura')).toBeInTheDocument();
     expect(screen.getByTestId('progresso-preenchimento')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId('eta-prefill-linha')).toHaveTextContent('Lendo os seus materiais agora · costuma levar cerca de 9 min'));
+    await waitFor(() => expect(screen.getByTestId('eta-prefill-linha')).toHaveTextContent('Lendo os seus materiais agora · a nossa leitura costuma levar cerca de 9 min'));
     fireEvent.click(screen.getByTestId('responder-enquanto-le'));
     expect(onNavigate).toHaveBeenCalledWith('script_ficha');
     expect(screen.getByTestId('responder-enquanto-le')).toHaveTextContent(COPY_RESPONDER_ANTES);
@@ -309,6 +358,14 @@ describe('a copy das telas novas segue as regras da casa', () => {
     expect(texto).not.toMatch(/a definir/i);
     expect(texto).not.toMatch(/diagn[oó]stico/i);
     expect(texto).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it('o título da aba do navegador leva o nome novo da ferramenta', () => {
+    const html = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
+    const titulo = /<title>([^<]*)<\/title>/.exec(html)?.[1] || '';
+    expect(titulo).toBe('Prosperus · Script 7 Passos');
+    expect(titulo).not.toMatch(/diagn[oó]stico/i);
+    expect(titulo).not.toMatch(/[—–]/);
   });
 
   it('as telas montadas não trazem travessão nem exclamação', () => {

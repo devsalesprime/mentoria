@@ -40,10 +40,37 @@ function authHeaders(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } };
 }
 
-/** "cerca de 12 min", ou null quando ainda nao ha historico para prometer nada. */
+/** "costuma levar cerca de 12 min", ou null quando ainda nao ha historico para prometer nada. */
 export function frasePorMediana(minutos: number | null | undefined): string | null {
   if (!minutos || !Number.isFinite(minutos)) return null;
   return `costuma levar cerca de ${Math.round(minutos)} min`;
+}
+
+/**
+ * De QUEM e o tempo. Sozinho, o numero era lido como esforco da propria pessoa ("37 min preenchendo?");
+ * com o sujeito na frente fica claro que o trabalho e da nossa parte e que ninguem precisa esperar na tela.
+ */
+export const SUJEITO_DO_TEMPO: Record<FilaTipo, string> = {
+  prefill: 'a nossa leitura dos seus materiais',
+  script: 'a escrita do seu script',
+};
+
+/** Na linha da espera a fila ja disse o que esta rolando: ali o sujeito vai curto, para nao repetir. */
+export const SUJEITO_CURTO: Record<FilaTipo, string> = {
+  prefill: 'a nossa leitura',
+  script: 'a escrita',
+};
+
+/** "a nossa leitura dos seus materiais costuma levar cerca de 12 min"; null sem historico. */
+export function fraseDoTempo(tipo: FilaTipo, minutos: number | null | undefined, curto = false): string | null {
+  const base = frasePorMediana(minutos);
+  return base ? `${(curto ? SUJEITO_CURTO : SUJEITO_DO_TEMPO)[tipo]} ${base}` : null;
+}
+
+/** A mesma frase abrindo a oracao: "A nossa leitura dos seus materiais costuma levar cerca de 12 min". */
+export function fraseDoTempoMaiuscula(tipo: FilaTipo, minutos: number | null | undefined): string | null {
+  const frase = fraseDoTempo(tipo, minutos);
+  return frase ? frase.charAt(0).toUpperCase() + frase.slice(1) : null;
 }
 
 /** "Ceramfix, Laser Tech e Elos"; acima de 3 nomes vira "Ceramfix, Laser Tech e mais 4". */
@@ -75,9 +102,9 @@ export function fraseDaFila(fila: FilaScript | null, tipo: FilaTipo): string {
   return COPY_PROXIMO;
 }
 
-/** A linha inteira: fila e tempo, separados por ponto medio; sem tempo, so a fila. */
+/** A linha inteira: fila e tempo (com o sujeito do tempo), separados por ponto medio; sem tempo, so a fila. */
 export function linhaDeEspera(fila: FilaScript | null, tipo: FilaTipo, medianaMin: number | null): string {
-  const partes = [fraseDaFila(fila, tipo), frasePorMediana(medianaMin)].filter(Boolean);
+  const partes = [fraseDaFila(fila, tipo), fraseDoTempo(tipo, medianaMin, true)].filter(Boolean);
   return partes.join(' · ');
 }
 

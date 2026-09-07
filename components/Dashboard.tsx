@@ -1012,7 +1012,13 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
               transition={{ duration: 0.2 }}
             >
               {trilhoVisivel && (
-                <TrilhoEtapas data={scriptFicha.data} atual={activeItem} onNavigate={(id) => navigateTo(id)} />
+                <TrilhoEtapas
+                  data={scriptFicha.data}
+                  atual={activeItem}
+                  onNavigate={(id) => navigateTo(id)}
+                  compactoNoCelular={activeItem === 'script_como_funciona'}
+                  largura={activeItem === 'script_script' ? 'cheia' : 'conteudo'}
+                />
               )}
               {renderContent()}
             </motion.div>

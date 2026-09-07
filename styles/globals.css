@@ -625,11 +625,13 @@ body {
   .script-topo { gap: 0.5rem; }
   .script-topo-lado { width: 100%; }
   .script-topo-direita { margin-left: 0; }
-  .script-mais, .script-modo { flex: 1 1 0; min-width: 0; }
+  .script-mais { flex: 1 1 8rem; min-width: 0; }
   .script-topo-btn { width: 100%; padding: 0 0.6rem; }
+  /* A chave manda na propria largura: dividir a linha ao meio cortava "Treinamento" em 390 px */
+  .script-modo { flex: 0 1 auto; min-width: 0; }
   .script-modo-btn {
-    flex: 1 1 0; min-width: 0; padding: 0 0.4rem; font-size: 0.72rem; letter-spacing: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 0 1 auto; min-width: 0; padding: 0 0.45rem; font-size: 0.68rem; letter-spacing: 0;
+    white-space: nowrap;
   }
 }
 
@@ -875,6 +877,11 @@ body {
 }
 
 /* Lista de grifos no celular: botão flutuante (a barra do mapa não carrega mais esse peso) */
+/* O botao flutuante de grifos paira sobre o papel no celular: o papel ganha um rodape vazio do tamanho
+   da pastilha mais a barra de baixo, para nenhuma linha de texto terminar embaixo dele. */
+@media (max-width: 639.98px) {
+  .script-reader-com-grifos .script-paper { padding-bottom: 5.75rem; }
+}
 .script-grifos-flutuante {
   position: fixed;
   right: 0.9rem;

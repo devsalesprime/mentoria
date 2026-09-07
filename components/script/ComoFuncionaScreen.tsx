@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { UseScriptFicha } from '../../hooks/useScriptFicha';
-import { frasePorMediana, useTemposScript } from '../../hooks/useEsperaScript';
+import { fraseDoTempoMaiuscula, useTemposScript } from '../../hooks/useEsperaScript';
 import { AmostraScript } from './AmostraScript';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
@@ -11,7 +11,9 @@ import { Button } from '../ui/Button';
  * o que a pessoa vai receber e quanto tempo leva. Um botao so, "Começar o meu script".
  *
  * Aparece sozinha na PRIMEIRA entrada (o servidor guarda `visto_como_funciona` por pessoa) e, depois
- * disso, vive no menu, como primeiro item do Script 7 Passos.
+ * disso, vive no menu, como primeiro item do Script 7 Passos. A marca e gravada quando a tela ABRE, nao
+ * so no clique do botao: quem leu e seguiu pelo menu nao merece ver "Como funciona" como etapa pendente
+ * no trilho pelo resto do caminho. Gravar de novo nao muda nada (o servidor mantem a primeira data).
  *
  * Os tempos das etapas vem do historico real (GET /api/script/tempos, item I3). Sem historico, a linha
  * da etapa sai sem numero nenhum: nada de prazo inventado.
@@ -57,16 +59,18 @@ export const ETAPAS: Array<{ nome: string; linha: string; tempo: EtapaTempo }> =
 
 /** Frase de apoio de cada etapa quando ainda não há histórico para citar um número. */
 const SEM_NUMERO: Record<string, string> = {
-  Escolha: 'leva um minuto',
-  Materiais: 'a leitura começa assim que você envia',
-  Ficha: 'no seu ritmo, com o que já veio preenchido',
-  Script: 'avisamos no seu WhatsApp quando ficar pronto',
+  Escolha: 'Leva um minuto.',
+  Materiais: 'A leitura começa assim que você envia. Você não precisa esperar na tela.',
+  Ficha: 'No seu ritmo, com o que já veio preenchido.',
+  Script: 'Avisamos no seu WhatsApp quando ficar pronto.',
 };
 
-/** Prefixo do número por etapa, para a frase não sair solta. */
-const COM_NUMERO: Record<string, string> = {
-  Materiais: 'a leitura',
-  Script: 'a escrita',
+/**
+ * Complemento depois do número. O tempo já vem com o sujeito ("A nossa leitura dos seus materiais..."),
+ * porque o número solto era lido como esforço de quem está na tela.
+ */
+const DEPOIS_DO_NUMERO: Record<string, string> = {
+  Materiais: ' Você não precisa esperar na tela.',
 };
 
 interface ComoFuncionaScreenProps {
@@ -80,6 +84,16 @@ export const ComoFuncionaScreen: React.FC<ComoFuncionaScreenProps> = ({ ficha, t
   const { medianaDe } = useTemposScript(token, !!token);
   const [verAmostra, setVerAmostra] = useState(false);
   const [seguindo, setSeguindo] = useState(false);
+  const jaVista = !!data?.visto_como_funciona;
+  const jaTentou = useRef(false);
+
+  // Abrir a tela ja conta como ver (o botao continua levando adiante). Uma gravacao por visita:
+  // o `ref` segura o caso raro de a marca nao colar no servidor, para nao virar uma chamada por atualizacao.
+  useEffect(() => {
+    if (!data || jaVista || jaTentou.current) return;
+    jaTentou.current = true;
+    void marcarComoFuncionaVisto();
+  }, [data, jaVista, marcarComoFuncionaVisto]);
 
   if (loading && !data) {
     return (
@@ -112,8 +126,8 @@ export const ComoFuncionaScreen: React.FC<ComoFuncionaScreenProps> = ({ ficha, t
   };
 
   const tempoDaEtapa = (nome: string, tipo: EtapaTempo): string => {
-    const frase = tipo ? frasePorMediana(medianaDe(tipo)) : null;
-    if (frase && COM_NUMERO[nome]) return `${COM_NUMERO[nome]} ${frase}`;
+    const frase = tipo ? fraseDoTempoMaiuscula(tipo, medianaDe(tipo)) : null;
+    if (frase) return `${frase}.${DEPOIS_DO_NUMERO[nome] || ''}`;
     return SEM_NUMERO[nome] || '';
   };
 

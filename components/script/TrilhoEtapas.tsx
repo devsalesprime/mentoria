@@ -76,9 +76,22 @@ function faltaDosMateriais(d: Dados): string {
   return 'Envie o que tiver';
 }
 
+/**
+ * A intro conta como vista quando a pessoa ja esta adiante dela: escolheu o caminho, mandou (ou pulou)
+ * os materiais, fechou a ficha ou simplesmente esta com outra etapa aberta. Sem isso, quem chegou ate o
+ * script pelo menu via a primeira caixa apagada, como se algo tivesse ficado para tras.
+ */
+function passouDaIntro(d: Dados, iAtual: number): boolean {
+  if (d?.visto_como_funciona) return true;
+  if (iAtual > 0) return true;
+  if (d?.modo) return true;
+  if (d?.materials_status === 'submitted' || d?.materials_status === 'skipped') return true;
+  return d?.ficha_status === 'confirmada' || (d?.script?.versoes || 0) > 0;
+}
+
 /** Qual a etapa "corrente" quando a pessoa esta olhando outra coisa (define o que e proxima e o que e futura). */
-function indiceDoFluxo(d: Dados): number {
-  if (!d?.visto_como_funciona) return 0;
+function indiceDoFluxo(d: Dados, intro: boolean): number {
+  if (!intro) return 0;
   if (!d?.modo) return 1;
   if (d.materials_status !== 'submitted' && d.materials_status !== 'skipped') return 2;
   if (d.ficha_status !== 'confirmada') return 3;
@@ -89,16 +102,17 @@ function indiceDoFluxo(d: Dados): number {
 export function etapasDoTrilho(d: Dados, moduloAtual: string): EtapaTrilho[] {
   const atualId = ETAPA_DE(moduloAtual);
   const iAtual = ETAPAS_TRILHO.findIndex((e) => e.id === atualId);
-  const iFluxo = indiceDoFluxo(d);
+  const intro = passouDaIntro(d, iAtual);
+  const iFluxo = indiceDoFluxo(d, intro);
   const feita = [
-    !!d?.visto_como_funciona,
+    intro,
     !!d?.modo,
     d?.materials_status === 'submitted' || d?.materials_status === 'skipped',
     d?.ficha_status === 'confirmada',
     !!d?.script?.aprovada,
   ];
   const faltas = [
-    d?.visto_como_funciona ? 'Leia quando quiser' : 'Comece por aqui',
+    intro ? 'Leia quando quiser' : 'Comece por aqui',
     d?.modo === 'essencial' ? 'Caminho essencial' : d?.modo === 'completo' ? 'Caminho completo' : 'Escolha o caminho',
     faltaDosMateriais(d),
     faltaDaFicha(d),
@@ -131,19 +145,61 @@ const ROTULO_ESTADO: Record<EstadoEtapa, string> = {
   futura: 'etapa seguinte',
 };
 
+const PONTO: Record<EstadoEtapa, string> = {
+  atual: 'bg-prosperus-gold-dark',
+  feita: 'bg-green-400/70',
+  proxima: 'bg-prosperus-neutral-white/80',
+  futura: 'bg-white/20',
+};
+
 interface TrilhoEtapasProps {
   data: Dados;
   /** Modulo aberto agora (script_como_funciona, script_escolha, script_materiais, script_espera, ...). */
   atual: string;
   onNavigate?: (id: string) => void;
+  /**
+   * Celular em versao curta: uma linha de cinco pontos e o nome da etapa atual. Vale so na tela de
+   * entrada, onde o trilho ainda nao serve para navegar e comia um terco da primeira dobra.
+   * No desktop e nas outras telas o trilho inteiro continua.
+   */
+  compactoNoCelular?: boolean;
+  /**
+   * Largura do trilho. 'conteudo' (padrao) prende ele na mesma coluna dos cartoes de baixo (max-w-3xl):
+   * sem isso a faixa passava por fora do conteudo no desktop e sobrava um degrau no topo da pagina.
+   * 'cheia' e para a tela do script, onde o leitor divide a area com o painel de grifos e ocupa tudo.
+   */
+  largura?: 'conteudo' | 'cheia';
 }
 
-export const TrilhoEtapas: React.FC<TrilhoEtapasProps> = ({ data, atual, onNavigate }) => {
+export const TrilhoEtapas: React.FC<TrilhoEtapasProps> = ({
+  data,
+  atual,
+  onNavigate,
+  compactoNoCelular = false,
+  largura = 'conteudo',
+}) => {
   if (!data) return null;
   const etapas = etapasDoTrilho(data, atual);
+  const daVez = etapas.find((e) => e.estado === 'atual');
   return (
-    <nav aria-label="Etapas do Script 7 Passos" className="mb-4" data-testid="trilho-etapas">
-      <ol className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
+    <nav
+      aria-label="Etapas do Script 7 Passos"
+      className={`mb-4 ${largura === 'cheia' ? '' : 'max-w-3xl mx-auto'}`}
+      data-testid="trilho-etapas"
+    >
+      {compactoNoCelular && (
+        <div className="sm:hidden flex items-center gap-2" data-testid="trilho-compacto">
+          <span className="flex items-center gap-1.5" aria-hidden="true">
+            {etapas.map((e) => (
+              <span key={e.id} className={`block w-2 h-2 rounded-full ${PONTO[e.estado]}`} data-estado={e.estado} />
+            ))}
+          </span>
+          <span className="text-[11px] uppercase tracking-wider font-sans text-white/70 truncate">
+            {daVez ? daVez.nome : ETAPAS_TRILHO[0].nome}
+          </span>
+        </div>
+      )}
+      <ol className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 ${compactoNoCelular ? 'hidden sm:grid' : ''}`}>
         {etapas.map((e) => {
           const conteudo = (
             <>
