@@ -73,7 +73,7 @@ beforeAll(async () => {
   dbRun = helpers.dbRun;
   const ddl = [
     `CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, role TEXT DEFAULT 'member', cohort TEXT, club_slug TEXT,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+       last_login_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE uploaded_files (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, category TEXT NOT NULL, file_name TEXT NOT NULL, file_path TEXT NOT NULL,
        file_type TEXT, file_size INTEGER, url TEXT, module TEXT DEFAULT 'general', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE cohort_clubs (slug TEXT PRIMARY KEY, nome TEXT NOT NULL, ativo INTEGER NOT NULL DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
@@ -385,6 +385,36 @@ describe('worker: next, materials, files, ficha, prefill, patch', () => {
     expect(pz.data.blocos_importados).toEqual([2]);
     expect((await api('GET', '/api/script/ficha', 'userZ')).data.data.ficha_status).toBe('pre_preenchida');
     await worker('PATCH', `/api/jobs/${nextZ.data.job.id}`, { status: 'error', error: 'teste: encerrado' });
+  });
+
+  /**
+   * `prefilled_at` e a data em que a ficha foi PRE-PREENCHIDA, e o admin le ela no detalhe do clube.
+   * O prefill chega em marcos (um PUT por bloco) e o runner pode reimportar, entao a data e do PRIMEIRO
+   * import que entrou (COALESCE em utils/script-ficha.cjs) e nunca rejuvenesce. Quem quer a hora do
+   * ULTIMO import le prefill_meta.importado_em, que continua sendo reescrito a cada chamada.
+   */
+  it('prefilled_at: o primeiro prefill grava a data (parcial tambem), reimportar nao rejuvenesce, admin le no detalhe', async () => {
+    const detalhe = async () => (await api('GET', '/api/admin/clubs/clube-z/script-ficha', 'admin')).data.data;
+    const antes = await detalhe();
+    const jobZ = antes.jobs.find((j) => j.tipo === 'prefill');
+    expect(jobZ).toBeTruthy();
+    const umBloco = { campos: { '3.1': sample.campos['3.1'] }, parcial: true };
+
+    // Ficha ainda sem data: um unico bloco parcial ja grava o prefilled_at
+    await dbRun(`UPDATE script_fichas SET prefilled_at = NULL WHERE club_slug = 'clube-z'`);
+    expect((await detalhe()).prefilled_at).toBeNull();
+    expect((await worker('PUT', `/api/jobs/${jobZ.id}/prefill`, umBloco)).status).toBe(200);
+    const primeiro = await detalhe();
+    expect(primeiro.prefilled_at).toBeTruthy();
+    expect(primeiro.prefill_meta.importado_em).toBeTruthy();
+
+    // Reimportar o mesmo bloco mantem a data do primeiro import (o admin cobraria a pessoa errada)
+    await dbRun(`UPDATE script_fichas SET prefilled_at = '2020-01-01 00:00:00' WHERE club_slug = 'clube-z'`);
+    expect((await worker('PUT', `/api/jobs/${jobZ.id}/prefill`, umBloco)).status).toBe(200);
+    const depois = await detalhe();
+    expect(depois.prefilled_at).toBe('2020-01-01 00:00:00');
+    // ...mas o importado_em do meta acompanha o ultimo import
+    expect(depois.prefill_meta.importado_em >= primeiro.prefill_meta.importado_em).toBe(true);
   });
 
   it('complemento: incorporar anexa ao texto do mentor (editado) e dispensar apaga; sem complemento -> 400', async () => {

@@ -58,6 +58,9 @@ async function abrirMenu() {
   mockVersoes();
   const { container } = render(<ScriptScreen ficha={fichaMock()} token="tok" />);
   expect(await screen.findByText('Script v2')).toBeInTheDocument();
+  // O titulo "Script v2" ja aparece com a LISTA de versoes; o resumo so depois que GET /versoes/2 volta.
+  // Esperar por ele e o que garante a barra inteira montada (pilula + "O que mudou") em maquina lenta.
+  expect(await screen.findByText('O que mudou nesta versão')).toBeInTheDocument();
   const menu = container.querySelector('details.script-versao-menu') as HTMLDetailsElement;
   expect(menu).not.toBeNull();
   // jsdom nao abre o <details> sozinho no clique do summary

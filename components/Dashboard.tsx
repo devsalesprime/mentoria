@@ -845,9 +845,19 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                   className="text-[10px] sm:text-xs font-bold text-gray-400 hover:text-white transition mb-2 sm:mb-3 flex items-center justify-between w-full"
                 >
                   {section.title}
-                  <span className="text-[10px] sm:text-xs">
-                    {openSections.includes(section.id) ? '▼' : '▶'}
-                  </span>
+                  {/* icone em SVG: nada de emoji na tela do mentor */}
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className={`w-3 h-3 flex-shrink-0 transition-transform ${openSections.includes(section.id) ? 'rotate-0' : '-rotate-90'}`}
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
                 </button>
               ) : null}
               {(!section.title || openSections.includes(section.id)) && (

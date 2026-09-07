@@ -770,7 +770,8 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                   <div>
                     <span className="text-white">{m.email}</span>
                     <span className="text-white/40 text-xs ml-2">{m.nome || m.user_name || ''}</span>
-                    <p className="text-[11px] text-white/40">{m.user_id ? `login ${formatDateTime(m.ultimo_login)}` : 'nunca entrou'}</p>
+                    {/* last_login_at NULL = conta criada antes da coluna, ou nunca usada: nao inventar data */}
+                    <p className="text-[11px] text-white/40">{m.user_id && m.ultimo_login ? `login ${formatDateTime(m.ultimo_login)}` : 'nunca entrou'}</p>
                   </div>
                   <Button
                     variant="danger-soft"
