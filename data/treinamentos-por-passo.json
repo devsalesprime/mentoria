@@ -10,17 +10,21 @@
         "duracaoMin": 169.3,
         "bunnyGuid": "22741290-9d9e-407b-8512-226c91d4ba47",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/22741290-9d9e-407b-8512-226c91d4ba47",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/22741290-9d9e-407b-8512-226c91d4ba47/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/22741290-9d9e-407b-8512-226c91d4ba47/thumbnail_44829b5a.jpg",
         "porQueAgora": "O perfil comportamental do lado de quem vende: as cinco inteligências, os quatro perfis e as crenças de identidade, capacidade e merecimento."
       },
       {
-        "id": "corporate.perfil-do-cliente-com-thiago-chiovatto",
-        "titulo": "Perfil do Cliente - Com Thiago Chiovatto",
-        "palestrante": "Thiago Chiovatto",
+        "id": "corporate.perfil-comportamental-do-cliente-com-pamela-ferrari",
+        "titulo": "Perfil Comportamental do Cliente",
+        "palestrante": "Pâmela Ferrari",
         "tipo": "Corporate",
-        "duracaoMin": 88.6,
-        "bunnyGuid": "b5f9555c-0e88-43b4-8834-b18aec327076",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b5f9555c-0e88-43b4-8834-b18aec327076",
-        "porQueAgora": "Ler o perfil do cliente nos cinco primeiros minutos e abrir a reunião no ritmo dele, que é a decisão deste passo."
+        "duracaoMin": 86.8,
+        "bunnyGuid": "dc85b666-5282-42dc-b495-bded3345f416",
+        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/dc85b666-5282-42dc-b495-bded3345f416",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/dc85b666-5282-42dc-b495-bded3345f416/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/dc85b666-5282-42dc-b495-bded3345f416/thumbnail_d33b4601.jpg",
+        "porQueAgora": "Reconhecer o perfil do cliente pelo WhatsApp, pela fala e pela postura e adaptar a condução da reunião."
       }
     ],
     "2": [
@@ -32,17 +36,9 @@
         "duracaoMin": 81,
         "bunnyGuid": "3fe9dfe7-a992-471b-afec-58f198ad547b",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/3fe9dfe7-a992-471b-afec-58f198ad547b",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/3fe9dfe7-a992-471b-afec-58f198ad547b/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/3fe9dfe7-a992-471b-afec-58f198ad547b/thumbnail_4e6b1578.jpg",
         "porQueAgora": "É a gravação do próprio CNCS (Contexto, Necessidade, Consequência, Solução) e dos cinco níveis de consciência."
-      },
-      {
-        "id": "corporate.spin-selling-com-lua-paiva",
-        "titulo": "Spin Selling",
-        "palestrante": "Luã Paiva",
-        "tipo": "Corporate",
-        "duracaoMin": 84,
-        "bunnyGuid": "0d4089d0-3d20-46cd-8345-ee4566f8492b",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/0d4089d0-3d20-46cd-8345-ee4566f8492b",
-        "porQueAgora": "Percorre a trilha inteira de perguntas até a consequência, que é a origem do CNCS que você usa aqui."
       }
     ],
     "3": [
@@ -54,6 +50,8 @@
         "duracaoMin": 80,
         "bunnyGuid": "b0f2fcdd-1673-45cc-8874-ae9a3247c5d7",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7/thumbnail_0894d9f1.jpg",
         "porQueAgora": "As quatro fases da apresentação e a regra de vender o benefício, nunca a característica."
       },
       {
@@ -64,6 +62,8 @@
         "duracaoMin": 74.2,
         "bunnyGuid": "4bded213-9729-48d4-bdf0-ec5bde22e187",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/4bded213-9729-48d4-bdf0-ec5bde22e187",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/4bded213-9729-48d4-bdf0-ec5bde22e187/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/4bded213-9729-48d4-bdf0-ec5bde22e187/thumbnail_bc2ad653.jpg",
         "porQueAgora": "Dá os quatro elementos da história de bolso (herói, desafio, caminho, transformação) que sustentam a prova social."
       }
     ],
@@ -76,6 +76,8 @@
         "duracaoMin": 71.1,
         "bunnyGuid": "6690f16c-da9d-4f36-9400-3cfae11d9f77",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/6690f16c-da9d-4f36-9400-3cfae11d9f77",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/6690f16c-da9d-4f36-9400-3cfae11d9f77/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/6690f16c-da9d-4f36-9400-3cfae11d9f77/thumbnail_ebc7a44c.jpg",
         "porQueAgora": "A tese da gravação é a deste passo: objeção se antecipa ao longo da venda e nunca chega de surpresa no fechamento."
       },
       {
@@ -86,6 +88,8 @@
         "duracaoMin": 62.9,
         "bunnyGuid": "76c8ab9d-104c-47be-bed5-d948317d4fd2",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/76c8ab9d-104c-47be-bed5-d948317d4fd2",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/76c8ab9d-104c-47be-bed5-d948317d4fd2/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/76c8ab9d-104c-47be-bed5-d948317d4fd2/thumbnail_6deaf9e9.jpg",
         "porQueAgora": "Entrega o método ACA (Acolher, Clarificar, Avançar) e separa a objeção que se antecipa da que se responde na hora."
       }
     ],
@@ -98,6 +102,8 @@
         "duracaoMin": 72.3,
         "bunnyGuid": "b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/thumbnail_5fe78eb3.jpg",
         "porQueAgora": "Sinais de compra, microcompromissos, equação de valor e a pergunta que abre o fechamento."
       },
       {
@@ -108,6 +114,8 @@
         "duracaoMin": 61.2,
         "bunnyGuid": "351d4990-e6ae-4a22-be99-e37cf9daec30",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/351d4990-e6ae-4a22-be99-e37cf9daec30",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/351d4990-e6ae-4a22-be99-e37cf9daec30/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/351d4990-e6ae-4a22-be99-e37cf9daec30/thumbnail_6b2ae70b.jpg",
         "porQueAgora": "É a gravação de quando o cliente não decide: indecisão, reatância e os seis porquês que ele responde por dentro."
       }
     ],
@@ -120,6 +128,8 @@
         "duracaoMin": 60.6,
         "bunnyGuid": "2b21162d-5d92-4bb1-91e9-08d1fe344c38",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/2b21162d-5d92-4bb1-91e9-08d1fe344c38",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/thumbnail_a2333183.jpg",
         "porQueAgora": "Ciclo de reforço em cinco etapas e sequências de sete contatos, que é o movimento do compromisso."
       }
     ],
@@ -132,17 +142,9 @@
         "duracaoMin": 63.9,
         "bunnyGuid": "8a8cc7d2-7b67-4d09-8352-13df7625bf4e",
         "embedUrl": "https://iframe.mediadelivery.net/embed/716048/8a8cc7d2-7b67-4d09-8352-13df7625bf4e",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/8a8cc7d2-7b67-4d09-8352-13df7625bf4e/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/8a8cc7d2-7b67-4d09-8352-13df7625bf4e/thumbnail_c547d57b.jpg",
         "porQueAgora": "Ensina o EVPC (Encantar, Validar, Propósito, Compromisso) e o momento certo de pedir, por segmento."
-      },
-      {
-        "id": "complementares.prospere-2023.dani-martins-tecnicas-avancadas",
-        "titulo": "Palestra Dani Martins · Técnicas avançadas de venda",
-        "palestrante": "Dani Martins",
-        "tipo": "Evento",
-        "duracaoMin": 95.6,
-        "bunnyGuid": "a88d0d5f-73da-43a9-aa73-b63aa1f46618",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/a88d0d5f-73da-43a9-aa73-b63aa1f46618",
-        "porQueAgora": "Prospecção por recomendação: como pedir, para quem pedir e o que dizer para a indicação virar reunião."
       }
     ]
   }

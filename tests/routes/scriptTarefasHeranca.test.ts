@@ -123,7 +123,7 @@ describe('o catalogo manda em quais tarefas existem', () => {
   it('cada passo tem as tres fixas mais uma por treinamento recomendado', () => {
     expect(ST.tarefasDoPasso(1)).toEqual([
       'assistir-imersao.2026-06.dani-martins-mentalidade-ceo',
-      'assistir-corporate.perfil-do-cliente-com-thiago-chiovatto',
+      'assistir-corporate.perfil-comportamental-do-cliente-com-pamela-ferrari',
       ...ST.TAREFAS_FIXAS,
     ]);
     expect(ST.tarefasDoPasso(1)).toHaveLength(5);

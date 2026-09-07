@@ -1,9 +1,10 @@
 /**
  * Treinamentos recomendados em cada um dos 7 passos, embutidos no leitor "Seu script" (onda C).
  *
- * Fonte única: `MAPA-aulas-por-passo.md` (06/09/2026), §1 (recomendados por passo) e §3.2 (id do catálogo,
- * GUID da library 716048 e duração medida). Títulos, palestrantes, GUIDs e durações estão copiados de lá
- * palavra por palavra; nada aqui foi inventado nem arredondado para caber na regra.
+ * Fonte única: `MAPA-aulas-por-passo.md` (§1 recomendados por passo, §3.2 id do catálogo, GUID da library
+ * 716048 e duração medida), com as trocas decididas pelo Danilo em 07/09/2026 já aplicadas. Títulos,
+ * palestrantes, GUIDs e durações estão copiados de lá palavra por palavra; nada aqui foi inventado nem
+ * arredondado para caber na regra.
  *
  * Regras do Danilo (SPEC-workflow-v2-decisoes-06-09, §1 decisão 4 e §3):
  * - vale gravação de qualquer palestrante, não só da Dani;
@@ -13,19 +14,27 @@
  * - no Passo 1 a ordem é o perfil do vendedor primeiro e o perfil do cliente depois;
  * - a aula "Os 7 Passos da Venda" (data/aula-7-passos.ts) continua como introdução macro, fora daqui.
  *
- * Quem ficou de fora, e por quê:
- * - Passo 7, segundo recomendado do MAPA ("Recomendação", com Luã Paiva, GUID
- *   `da4cdba9-7c55-49ad-8df7-d85bb208c32f`): a medição deu 57,2 min, abaixo do corte de 1 hora. O MAPA
- *   deixa a promoção da alternativa de 74,6 min como decisão em aberto do Danilo, então o Passo 7 segue
- *   com um recomendado só até ele decidir.
- * - Passo 6 tem um recomendado só: é o único acima de 1 hora no tema (60,6 min medidos).
+ * Decisões do Danilo em 07/09/2026 (é o que este arquivo reflete hoje):
+ * - Passo 1: "Perfil do Cliente - Com Thiago Chiovatto" (`b5f9555c-...`) saiu e entrou "Perfil
+ *   Comportamental do Cliente", com Pâmela Ferrari (Encontros Corporate, 86,8 min medidos, GUID
+ *   `dc85b666-5282-42dc-b495-bded3345f416`), que no MAPA era a primeira alternativa do passo. A ordem
+ *   continua a mesma: perfil de quem vende primeiro, perfil do cliente depois.
+ * - Passo 2: "Spin Selling", com Luã Paiva, saiu. O passo fica com um recomendado só.
+ * - Passo 7: "Palestra Dani Martins · Técnicas avançadas de venda" saiu. Fica só "Recomendação", com
+ *   Pâmela Ferrari. A outra "Recomendação", com Luã Paiva (`da4cdba9-...`, 57,2 min medidos), segue fora
+ *   pelo corte de 1 hora.
+ * - Passo 6 tem um recomendado só desde o começo: é o único acima de 1 hora no tema (60,6 min medidos).
  *
- * O único travessão desta base está dentro do título do treinamento do Passo 1, que é o nome literal da
- * gravação no catálogo. Nenhum texto escrito por nós usa travessão.
+ * Nenhum texto desta base usa travessão, nem os escritos por nós nem os títulos literais do catálogo.
  *
  * O player é o mesmo da aula da Dani (iframe da Bunny Stream, library 716048), já liberado no
  * `frame-src` do `server.cjs`. `inicioSegundos` fica vazio: nenhuma gravação tem marca de tempo
  * documentada (MAPA §3.3).
+ *
+ * `thumbUrl` e `hlsUrl` vieram do `videos-manifest.json` da KB (campos `thumb` e `hls_master`, casados
+ * pelo GUID da library 716048), e cada thumb foi conferida uma a uma em 07/09/2026 com requisição real
+ * ao CDN: as 11 responderam 200 com imagem. O `hlsUrl` ainda não é usado na tela; fica guardado para o
+ * player nativo. Nenhuma capa precisou do `preview.webp` como reserva.
  *
  * Os dados vivem em `treinamentos-por-passo.json` (mesmo padrão de `script-ficha-fields.json`): o servidor
  * lê o MESMO arquivo em `utils/script-tarefas.cjs` para saber quais tarefas ainda existem no catálogo na
@@ -50,6 +59,10 @@ export interface Treinamento {
   bunnyGuid: string;
   /** Player embutido: https://iframe.mediadelivery.net/embed/716048/<guid> */
   embedUrl: string;
+  /** HLS da Bunny: https://vz-6999111b-a97.b-cdn.net/<guid>/playlist.m3u8. Reservado ao player nativo. */
+  hlsUrl: string;
+  /** Capa da gravação no CDN da Bunny; `null` só se o manifesto e o `preview.webp` falharem. */
+  thumbUrl: string | null;
   /** Uma linha: por que ver esta gravação neste passo, agora. */
   porQueAgora: string;
   /** Segundo em que o trecho começa; nenhuma gravação tem marca de tempo documentada até aqui. */

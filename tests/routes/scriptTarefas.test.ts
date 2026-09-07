@@ -43,7 +43,7 @@ async function api(method, url, user, body) {
 }
 
 const MD_V1 = '# Script · Os 7 Passos · Clube X\n\n## Passo 1 · Conexão\n\n**Objetivo estratégico:** abrir.\n';
-const ASSISTIR = 'assistir-corporate.perfil-do-cliente-com-thiago-chiovatto';
+const ASSISTIR = 'assistir-corporate.perfil-comportamental-do-cliente-com-pamela-ferrari';
 
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'script-tarefas-'));

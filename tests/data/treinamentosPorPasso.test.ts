@@ -4,6 +4,10 @@
  * mapa em MAPA-aulas-por-passo.md): os 7 passos com no máximo 2 recomendados, nada abaixo de 1 hora,
  * GUID de verdade da library 716048, embed montado a partir do GUID e, no Passo 1, o perfil de quem
  * vende antes do perfil do cliente.
+ *
+ * Atualizado com as decisões de 07/09/2026: no Passo 1 o perfil do cliente passou a ser o da Pâmela
+ * Ferrari, o Passo 2 perdeu o "Spin Selling" e o Passo 7 ficou só com a "Recomendação" da Pâmela.
+ * Toda gravação agora carrega também a capa (`thumbUrl`) e o HLS (`hlsUrl`) do manifesto da Bunny.
  */
 import {
   BUNNY_LIBRARY,
@@ -30,9 +34,8 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
       expect(lista.length, `passo ${p}`).toBeLessThanOrEqual(2);
       expect(new Set(lista.map((t) => t.id)).size).toBe(lista.length);
     }
-    // Passo 6 tem um só: é o que sobrou acima de 1 hora no tema; o Passo 7 ganhou a palestra do Prospere 2023
-    expect(treinamentosDoPasso(6)).toHaveLength(1);
-    expect(treinamentosDoPasso(7)).toHaveLength(2);
+    // contagem por passo depois das decisões de 07/09: 2, 1, 2, 2, 2, 1, 1
+    expect(PASSOS.map((p) => treinamentosDoPasso(p).length)).toEqual([2, 1, 2, 2, 2, 1, 1]);
     expect(treinamentosDoPasso(0)).toEqual([]);
     expect(treinamentosDoPasso(8)).toEqual([]);
     expect(treinamentosDoPasso(null)).toEqual([]);
@@ -52,6 +55,25 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
     expect(BUNNY_LIBRARY).toBe('716048');
   });
 
+  it('toda gravação tem capa e HLS do CDN da Bunny, montados em cima do mesmo GUID', () => {
+    const capas = new Set<string>();
+    for (const t of todosOsTreinamentos()) {
+      const base = `https://vz-6999111b-a97.b-cdn.net/${t.bunnyGuid}`;
+      // hlsUrl é o playlist.m3u8 do mesmo GUID (guardado para o player nativo)
+      expect(t.hlsUrl, t.titulo).toBe(`${base}/playlist.m3u8`);
+      // thumbUrl nunca fica vazia: as 11 responderam 200 na conferência de 07/09
+      expect(t.thumbUrl, t.titulo).not.toBeNull();
+      expect(typeof t.thumbUrl, t.titulo).toBe('string');
+      expect(t.thumbUrl as string, t.titulo).toMatch(
+        new RegExp(`^https://vz-6999111b-a97\\.b-cdn\\.net/${t.bunnyGuid}/(thumbnail_[0-9a-f]+\\.jpg|preview\\.webp)$`)
+      );
+      expect((t.thumbUrl as string).startsWith(`${base}/`), t.titulo).toBe(true);
+      capas.add(t.thumbUrl as string);
+    }
+    // uma capa por gravação, nenhuma repetida
+    expect(capas.size).toBe(todosOsTreinamentos().length);
+  });
+
   it('nenhuma gravação abaixo de 1 hora e todo campo obrigatório preenchido', () => {
     for (const t of todosOsTreinamentos()) {
       expect(t.duracaoMin, t.titulo).toBeGreaterThan(60);
@@ -65,6 +87,9 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
     }
     // a gravação derrubada pela medição (57,2 min) não entrou
     expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('da4cdba9-7c55-49ad-8df7-d85bb208c32f');
+    // as duas tiradas em 07/09: "Spin Selling" (Passo 2) e a palestra do Prospere 2023 (Passo 7)
+    expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('0d4089d0-3d20-46cd-8345-ee4566f8492b');
+    expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('a88d0d5f-73da-43a9-aa73-b63aa1f46618');
   });
 
   it('Passo 1: o perfil de quem vende vem primeiro, o perfil do cliente depois', () => {
@@ -73,21 +98,23 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
     expect(vendedor.palestrante).toBe('Dani Martins');
     expect(vendedor.tipo).toBe('Imersão presencial');
     expect(vendedor.porQueAgora).toMatch(/quem vende/i);
-    expect(cliente.id).toBe('corporate.perfil-do-cliente-com-thiago-chiovatto');
-    expect(cliente.titulo).toBe('Perfil do Cliente - Com Thiago Chiovatto');
-    expect(cliente.palestrante).toBe('Thiago Chiovatto');
+    expect(cliente.id).toBe('corporate.perfil-comportamental-do-cliente-com-pamela-ferrari');
+    expect(cliente.titulo).toBe('Perfil Comportamental do Cliente');
+    expect(cliente.palestrante).toBe('Pâmela Ferrari');
+    expect(cliente.tipo).toBe('Corporate');
     expect(cliente.porQueAgora).toMatch(/cliente/i);
+    // a versão do Thiago Chiovatto saiu do Passo 1 em 07/09
+    expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('b5f9555c-0e88-43b4-8834-b18aec327076');
   });
 
   it('os títulos e os GUIDs batem com o MAPA, um por um', () => {
     const esperado: Record<number, Array<[string, string, number]>> = {
       1: [
         ['Palestra Dani Martins · Mentalidade de CEO com Foco em Receita: o dono como o melhor vendedor do negócio', '22741290-9d9e-407b-8512-226c91d4ba47', 169.3],
-        ['Perfil do Cliente - Com Thiago Chiovatto', 'b5f9555c-0e88-43b4-8834-b18aec327076', 88.6],
+        ['Perfil Comportamental do Cliente', 'dc85b666-5282-42dc-b495-bded3345f416', 86.8],
       ],
       2: [
         ['A Arte de Fazer Perguntas - Com Pâmela Ferrari', '3fe9dfe7-a992-471b-afec-58f198ad547b', 81.0],
-        ['Spin Selling', '0d4089d0-3d20-46cd-8345-ee4566f8492b', 84.0],
       ],
       3: [
         ['Apresentação Cirúrgica - Com Thiago Chiovatto', 'b0f2fcdd-1673-45cc-8874-ae9a3247c5d7', 80.0],
@@ -102,7 +129,7 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
         ['Os Seis Porquês da Decisão - Com Dani Martins', '351d4990-e6ae-4a22-be99-e37cf9daec30', 61.2],
       ],
       6: [['Follow Up - Com Cláudio Rosa', '2b21162d-5d92-4bb1-91e9-08d1fe344c38', 60.6]],
-      7: [['Recomendação', '8a8cc7d2-7b67-4d09-8352-13df7625bf4e', 63.9], ['Palestra Dani Martins · Técnicas avançadas de venda', 'a88d0d5f-73da-43a9-aa73-b63aa1f46618', 95.6]],
+      7: [['Recomendação', '8a8cc7d2-7b67-4d09-8352-13df7625bf4e', 63.9]],
     };
     for (const p of PASSOS) {
       expect(treinamentosDoPasso(p).map((t) => [t.titulo, t.bunnyGuid, t.duracaoMin])).toEqual(esperado[p]);
@@ -162,17 +189,17 @@ describe('tarefas do movimento (components/script/script/tarefas.ts)', () => {
       for (const t of tarefas.slice(-3)) expect(t.texto).not.toContain('—');
     }
     expect(tarefasDoPasso(1)[0].texto).toContain('Assistir a "Palestra Dani Martins');
-    expect(tarefasDoPasso(1)).toHaveLength(5);
-    expect(tarefasDoPasso(6)).toHaveLength(4);
+    // 2 treinamentos viram 5 tarefas; 1 treinamento vira 4 (Passos 2, 6 e 7)
+    expect(PASSOS.map((p) => tarefasDoPasso(p).length)).toEqual([5, 4, 5, 5, 5, 4, 4]);
   });
 
   it('contagem por passo em cima das chaves concluídas', () => {
     const feitas = new Set([chaveTarefa(2, 'treinar-falas'), chaveTarefa(2, 'aplicar-reuniao'), chaveTarefa(3, 'treinar-falas')]);
-    expect(contagemDoPasso(2, feitas)).toEqual({ feitas: 2, total: 5 });
+    expect(contagemDoPasso(2, feitas)).toEqual({ feitas: 2, total: 4 });
     expect(contagemDoPasso(3, feitas)).toEqual({ feitas: 1, total: 5 });
     expect(contagemDoPasso(6, feitas)).toEqual({ feitas: 0, total: 4 });
     const todas = new Set(tarefasDoPasso(7).map((t) => chaveTarefa(7, t.id)));
-    expect(contagemDoPasso(7, todas)).toEqual({ feitas: 5, total: 5 });
+    expect(contagemDoPasso(7, todas)).toEqual({ feitas: 4, total: 4 });
     expect(chaveTarefa(4, 'aplicar-reuniao')).toBe('4:aplicar-reuniao');
   });
 });
