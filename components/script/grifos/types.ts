@@ -17,6 +17,58 @@ export const COR_DESCRICAO: Record<GrifoCor, string> = {
 export const GRIFO_TEXTO_MIN = 20;
 export const GRIFO_TEXTO_MAX = 600;
 export const GRIFO_NOTA_MAX = 300;
+/** Quanto de cada anexo cabe no comentário da revisão. Espelha ANEXO_TEXTO_MAX de utils/script-grifos.cjs. */
+export const GRIFO_ANEXO_TEXTO_MAX = 800;
+
+export type AnexoTipo = 'audio' | 'imagem' | 'video' | 'link' | 'nota';
+export const ANEXO_TIPOS: AnexoTipo[] = ['audio', 'imagem', 'video', 'link', 'nota'];
+export const ANEXO_ROTULO: Record<AnexoTipo, string> = { audio: 'Áudio', imagem: 'Imagem', video: 'Vídeo', link: 'Link', nota: 'Nota' };
+/** Verbo + objeto, igual ao contexto por pergunta da Ficha. */
+export const ANEXO_ACAO: Record<AnexoTipo, string> = {
+  audio: 'Gravar áudio',
+  imagem: 'Enviar foto',
+  video: 'Enviar vídeo',
+  link: 'Colar link',
+  nota: 'Escrever nota',
+};
+
+/** Material anexado a um grifo (mesma forma do contexto por pergunta da Ficha). */
+export interface GrifoAnexo {
+  id: string;
+  grifo_id?: string | null;
+  tipo: AnexoTipo;
+  file_id?: string | null;
+  file_name?: string | null;
+  file_type?: string | null;
+  file_size?: number | null;
+  url?: string | null;
+  texto?: string | null;
+  legenda?: string | null;
+  transcricao?: string | null;
+  erro_transcricao?: string | null;
+  autor_email?: string | null;
+  autor_nome?: string | null;
+  created_at?: string | null;
+  download_url?: string | null;
+}
+
+/** O que o balão guarda antes de o grifo existir: vai para o servidor logo depois do POST do grifo. */
+export interface AnexoPendente {
+  tipo: AnexoTipo;
+  file?: File | Blob | null;
+  fileName?: string;
+  url?: string;
+  texto?: string;
+  legenda?: string;
+}
+
+/** Chip do anexo: o que importa em uma linha. */
+export function resumoAnexo(a: GrifoAnexo | AnexoPendente, max = 60): string {
+  const bruto = (a as GrifoAnexo).transcricao || a.texto || a.legenda || a.url || (a as GrifoAnexo).file_name || (a as AnexoPendente).fileName || '';
+  const s = String(bruto).replace(/\s+/g, ' ').trim();
+  if (!s) return ANEXO_ROTULO[a.tipo];
+  return s.length > max ? `${s.slice(0, max).trimEnd()}...` : s;
+}
 
 export interface Grifo {
   id: string;
@@ -33,6 +85,8 @@ export interface Grifo {
   autor_nome: string | null;
   created_at: string;
   resolvido_em: string | null;
+  /** Materiais anexados ao grifo (o GET das versões já traz). */
+  contexto?: GrifoAnexo[];
 }
 
 export interface GrifoNovo {
@@ -45,11 +99,38 @@ export interface GrifoNovo {
   nota: string;
 }
 
-/** Um grifo -> um comentario da revisao: "[GRIFO ajustar] «trecho» → nota" (passo 0, 1..7 ou 9). Igual ao servidor. */
-export function grifoParaComentario(g: Pick<Grifo, 'cor' | 'texto' | 'nota' | 'passo'>): { passo: number; texto: string } {
+/** Um anexo -> o texto dele no comentário da revisão. Espelha `anexoParaTexto` de utils/script-grifos.cjs. */
+export function anexoParaTexto(a: GrifoAnexo): string {
+  const corta = (s: unknown) => {
+    const t = String(s || '').replace(/\s+/g, ' ').trim();
+    return t.length > GRIFO_ANEXO_TEXTO_MAX ? `${t.slice(0, GRIFO_ANEXO_TEXTO_MAX).trimEnd()}...` : t;
+  };
+  const nome = corta(a.legenda || a.file_name || '');
+  if (a.tipo === 'audio') {
+    const t = corta(a.transcricao);
+    return t ? `áudio (transcrição: "${t}")` : `áudio (${corta(a.erro_transcricao) ? 'sem transcrição' : 'transcrição a caminho'})`;
+  }
+  if (a.tipo === 'link') return `link (${corta(a.url) || 'sem endereço'})`;
+  if (a.tipo === 'nota') return `nota ("${corta(a.texto)}")`;
+  if (a.tipo === 'video') return a.url ? `vídeo (${corta(a.url)})` : `vídeo (${nome || 'arquivo enviado'})`;
+  return `imagem (${nome || 'arquivo enviado'})`;
+}
+
+/** " · anexos: áudio (transcrição: "..."), link (url)"; vazio quando o grifo não tem anexo. */
+export function anexosParaTexto(itens: GrifoAnexo[] | undefined | null): string {
+  const partes = (itens || []).map(anexoParaTexto).filter(Boolean);
+  return partes.length ? ` · anexos: ${partes.join(', ')}` : '';
+}
+
+/**
+ * Um grifo -> um comentario da revisao: "[GRIFO ajustar] «trecho» → nota" (passo 0, 1..7 ou 9). Igual ao servidor.
+ * Com anexos, ganha " · anexos: ..." no fim; sem anexos, o texto é o mesmo de sempre.
+ */
+export function grifoParaComentario(g: Pick<Grifo, 'cor' | 'texto' | 'nota' | 'passo'> & { contexto?: GrifoAnexo[] }): { passo: number; texto: string } {
   const acao = COR_ACAO[g.cor] || 'ajustar';
   const nota = (g.nota || '').trim();
-  return { passo: passoDaTela(g.passo), texto: `[GRIFO ${acao}] «${(g.texto || '').trim()}»${nota ? ` → ${nota}` : ''}` };
+  const base = `[GRIFO ${acao}] «${(g.texto || '').trim()}»${nota ? ` → ${nota}` : ''}`;
+  return { passo: passoDaTela(g.passo), texto: `${base}${anexosParaTexto(g.contexto)}` };
 }
 
 export interface ResumoGrifos { total: number; ajustar: number; manter: number; tirar: number; }

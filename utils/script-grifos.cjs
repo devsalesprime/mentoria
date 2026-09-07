@@ -4,14 +4,18 @@
  *   dourado = ajustar · verde = manter assim · vermelho = tirar. Nota opcional (ate 300 caracteres).
  * Ancora: trecho literal (`texto`, 20 a 600) + `prefixo`/`sufixo` (40 caracteres) + `passo` (a tela, 0 a 9) + `documento`.
  * Telas: 0 = cartao de bolso, 1 = sumario, 2..8 = Passo 1..7, 9 = preparacao e metricas.
+ * Cada grifo aceita 0..n ANEXOS (onda E3): audio (transcrito pela Groq), imagem, video, link e nota, guardados na
+ * mesma tabela do contexto por pergunta da ficha (script_field_context com `grifo_id`; utils/script-context.cjs).
  * "Pedir nova versao com os grifos": cada grifo vira um comentario da versao no formato
  *   "[GRIFO ajustar] «trecho» → nota" · "[GRIFO manter] «trecho»" · "[GRIFO tirar] «trecho» → nota"
+ * mais " · anexos: ..." quando o grifo tem material anexado (grifo sem anexo continua igual ao de antes).
  * com `passo` do comentario = 0 (cartao/sumario), 1..7 (o passo) ou 9 (preparacao). A tabela script_comments so aceita
  * 0..7: no banco o 9 vira 0 (geral); o payload do job `revisar` leva o 9.
  * Quando a versao nova e publicada (PUT /api/jobs/:id/script de um job `revisar`), os grifos pendentes ate a versao base
  * ficam `resolvido_em` (utils/script-versions.cjs insertVersion). Registro: migrations/021_script_grifos.sql.
  */
 const { z } = require('zod');
+const CTX = require('./script-context.cjs');
 
 const CORES = ['dourado', 'verde', 'vermelho'];
 const DOCUMENTOS = ['treinamento', 'campo'];
@@ -21,6 +25,10 @@ const TEXTO_MIN = 20;
 const TEXTO_MAX = 600;
 const NOTA_MAX = 300;
 const CONTEXTO = 40;
+/** Quanto de cada anexo cabe no comentario da revisao (a transcricao do audio e o que mais importa para quem escreve). */
+const ANEXO_TEXTO_MAX = 800;
+/** Teto do comentario inteiro, o mesmo que o front pode mandar em `comentarios` (grifoComentarioSchema). */
+const COMENTARIO_MAX = 5000;
 
 const DDL = [
   `CREATE TABLE IF NOT EXISTS script_grifos (
@@ -70,6 +78,30 @@ const grifoComentarioSchema = z.object({
   passo: z.coerce.number().int().min(0).max(9),
   texto: z.string().trim().min(1).max(5000),
 });
+
+/** Anexo do grifo -> texto do comentario. `nome` = legenda ou nome do arquivo. */
+function anexoParaTexto(item) {
+  if (!item) return '';
+  const corta = (s) => {
+    const t = String(s || '').replace(/\s+/g, ' ').trim();
+    return t.length > ANEXO_TEXTO_MAX ? `${t.slice(0, ANEXO_TEXTO_MAX).trimEnd()}...` : t;
+  };
+  const nome = corta(item.legenda || item.file_name || '');
+  if (item.tipo === 'audio') {
+    const t = corta(item.transcricao);
+    return t ? `áudio (transcrição: "${t}")` : `áudio (${corta(item.erro_transcricao) ? 'sem transcrição' : 'transcrição a caminho'})`;
+  }
+  if (item.tipo === 'link') return `link (${corta(item.url) || 'sem endereço'})`;
+  if (item.tipo === 'nota') return `nota ("${corta(item.texto)}")`;
+  if (item.tipo === 'video') return item.url ? `vídeo (${corta(item.url)})` : `vídeo (${nome || 'arquivo enviado'})`;
+  return `imagem (${nome || 'arquivo enviado'})`;
+}
+
+/** " · anexos: áudio (transcrição: "..."), link (url)": string vazia quando o grifo nao tem anexo. */
+function anexosParaTexto(itens) {
+  const partes = (itens || []).map(anexoParaTexto).filter(Boolean);
+  return partes.length ? ` · anexos: ${partes.join(', ')}` : '';
+}
 
 function rowToGrifo(r) {
   if (!r) return null;
@@ -150,9 +182,22 @@ async function updateGrifo({ dbGet, dbRun }, club_slug, id, patch) {
   return getGrifo({ dbGet }, club_slug, id);
 }
 
-async function deleteGrifo({ dbRun }, club_slug, id) {
+/** Apaga o grifo e, junto, os anexos dele (com os arquivos em disco). */
+async function deleteGrifo({ dbGet, dbAll, dbRun }, club_slug, id, { fs } = {}) {
+  if (dbGet && dbAll) await CTX.deleteGrifoContext({ dbGet, dbAll, dbRun }, club_slug, id, { fs });
   const r = await dbRun('DELETE FROM script_grifos WHERE club_slug = ? AND id = ?', [club_slug, id]);
   return r.changes || 0;
+}
+
+/**
+ * Pendura `contexto: [...]` (os anexos) em cada grifo, numa consulta so para a lista inteira.
+ * `fileUrl(fileId)` monta a URL de download (o membro nunca recebe caminho de disco).
+ */
+async function comContexto({ dbAll }, club_slug, grifos, { fileUrl = null } = {}) {
+  if (!grifos || !grifos.length) return grifos || [];
+  const itens = await CTX.listGrifoContext({ dbAll }, club_slug, { fileUrl });
+  const porGrifo = CTX.groupByGrifo(itens);
+  return grifos.map((g) => ({ ...g, contexto: porGrifo[g.id] || [] }));
 }
 
 /** Marca resolvidos os grifos pendentes ate a versao base (chamado quando a versao nova e publicada). */
@@ -179,12 +224,22 @@ function passoNoBanco(passo) {
   return p;
 }
 
-/** Um grifo -> um comentario da revisao: "[GRIFO ajustar] «trecho» → nota". */
+/**
+ * Um grifo -> um comentario da revisao: "[GRIFO ajustar] «trecho» → nota".
+ * Com anexos (`g.contexto`), ganha o sufixo " · anexos: áudio (transcrição: "..."), link (url), imagem (nome), nota ("...")".
+ * Sem anexo, o texto e byte a byte o de antes da onda E3.
+ */
 function grifoParaComentario(g) {
   const acao = COR_ACAO[g.cor] || 'ajustar';
   const nota = String(g.nota || '').trim();
-  const texto = `[GRIFO ${acao}] «${String(g.texto || '').trim()}»${nota ? ` → ${nota}` : ''}`;
-  return { passo: passoDaTela(g.passo), texto };
+  const base = `[GRIFO ${acao}] «${String(g.texto || '').trim()}»${nota ? ` → ${nota}` : ''}`;
+  const texto = `${base}${anexosParaTexto(g.contexto)}`;
+  return { passo: passoDaTela(g.passo), texto: texto.length > COMENTARIO_MAX ? `${texto.slice(0, COMENTARIO_MAX - 3).trimEnd()}...` : texto };
+}
+
+/** O comentario sem o sufixo dos anexos: casa o texto que o front mandou com o grifo do banco. */
+function comentarioSemAnexos(texto) {
+  return String(texto || '').split(' · anexos: ')[0].trim();
 }
 
 const GRIFO_COMENTARIO_RE = /^\[GRIFO (ajustar|manter|tirar)\]\s/;
@@ -208,6 +263,8 @@ module.exports = {
   TEXTO_MIN,
   TEXTO_MAX,
   NOTA_MAX,
+  ANEXO_TEXTO_MAX,
+  COMENTARIO_MAX,
   ensureScriptGrifosTable,
   grifoCreateSchema,
   grifoPatchSchema,
@@ -221,9 +278,13 @@ module.exports = {
   updateGrifo,
   deleteGrifo,
   resolveGrifos,
+  comContexto,
   passoDaTela,
   passoNoBanco,
+  anexoParaTexto,
+  anexosParaTexto,
   grifoParaComentario,
+  comentarioSemAnexos,
   comentarioEhGrifo,
   resumoGrifos,
 };

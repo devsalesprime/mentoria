@@ -1,17 +1,24 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Captura } from './anchor';
-import { CORES, COR_DESCRICAO, COR_ROTULO, GRIFO_NOTA_MAX, GRIFO_TEXTO_MAX, GRIFO_TEXTO_MIN, type GrifoCor } from './types';
+import { AnexosGrifo } from './AnexosGrifo';
+import { CORES, COR_DESCRICAO, COR_ROTULO, GRIFO_NOTA_MAX, GRIFO_TEXTO_MAX, GRIFO_TEXTO_MIN, type AnexoPendente, type GrifoCor } from './types';
 
 /**
  * Balao "Grifar" que aparece sobre a selecao: 3 cores (dourado = ajustar, verde = manter, vermelho = tirar) e nota opcional.
  * No celular vira uma folha fixa no rodape. Trabalha com a captura (o texto ja lido da selecao): se a selecao nativa
  * sumir ao tocar num botao, nada se perde.
+ *
+ * Onda E3: depois da cor aparece a linha "Anexar" (gravar áudio, foto, vídeo, link, nota). O grifo ainda não existe,
+ * então os itens ficam numa fila local com chips; ao salvar, o balão grava o grifo e só então manda a fila
+ * (`anexar`, que sobe no grifo recém-criado). Sem `anexar`, a linha some e o balão é o de antes.
  */
 interface GrifoBubbleProps {
   captura: Captura;
   onSalvar: (cor: GrifoCor, nota: string) => Promise<boolean>;
   onCancelar: () => void;
   erro?: string | null;
+  /** Sobe a fila de anexos no grifo que acabou de ser salvo (useGrifos.anexarNoUltimo). */
+  anexar?: (pendentes: AnexoPendente[]) => Promise<{ ok: boolean; message?: string }>;
 }
 
 const LARGURA = 340;
@@ -49,16 +56,17 @@ export function posicao(rect: Captura['rect'], altura: number, vw: number, vh: n
   };
 }
 
-export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onCancelar, erro }) => {
+export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onCancelar, erro, anexar }) => {
   const [cor, setCor] = useState<GrifoCor | null>(null);
   const [nota, setNota] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [falha, setFalha] = useState<string | null>(null);
+  const [pendentes, setPendentes] = useState<AnexoPendente[]>([]);
   const balaoRef = useRef<HTMLDivElement | null>(null);
   const [altura, setAltura] = useState(0);
 
   // Zera o formulario so quando a selecao muda de fato (outro trecho ou outra tela), nao a cada leitura da mesma selecao
-  useEffect(() => { setCor(null); setNota(''); setFalha(null); }, [captura.texto, captura.tela, captura.documento]);
+  useEffect(() => { setCor(null); setNota(''); setFalha(null); setPendentes([]); }, [captura.texto, captura.tela, captura.documento]);
 
   const folha = typeof window !== 'undefined' && window.innerWidth < 640;
   // A bolha cresce quando a cor e escolhida (aparece a nota); a altura real e medida antes de pintar,
@@ -67,7 +75,7 @@ export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onC
     if (folha) return;
     const h = balaoRef.current?.offsetHeight ?? 0;
     setAltura((prev) => (Math.abs(prev - h) > 1 ? h : prev));
-  }, [folha, cor, captura.texto, captura.tela, captura.documento, erro, falha]);
+  }, [folha, cor, captura.texto, captura.tela, captura.documento, erro, falha, pendentes.length]);
 
   const previa = captura.texto.length > 90 ? `${captura.texto.slice(0, 89)}…` : captura.texto;
   const invalido = captura.curto || captura.longo;
@@ -77,6 +85,14 @@ export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onC
     setSalvando(true);
     setFalha(null);
     const ok = await onSalvar(cor, nota.trim());
+    if (ok && anexar && pendentes.length) {
+      const r = await anexar(pendentes);
+      if (!r.ok) {
+        setSalvando(false);
+        setFalha(r.message || 'O grifo foi salvo, mas não deu para anexar o material.');
+        return;
+      }
+    }
     setSalvando(false);
     if (!ok) setFalha('Não deu para salvar o grifo. Tente de novo.');
   };
@@ -131,6 +147,15 @@ export const GrifoBubble: React.FC<GrifoBubbleProps> = ({ captura, onSalvar, onC
                   className="w-full bg-white border border-prosperus-navy-panel/20 rounded-lg px-3 py-2 text-sm text-prosperus-neutral-black placeholder-prosperus-navy-panel/40 outline-none focus:border-prosperus-gold-dark min-h-[56px]"
                 />
               </label>
+              {anexar && (
+                <AnexosGrifo
+                  id="balao"
+                  itens={pendentes}
+                  dica="Anexe áudio, foto, vídeo, link ou nota para explicar melhor este trecho."
+                  onEnviar={async (novo) => { setPendentes((prev) => [...prev, novo]); return { ok: true }; }}
+                  onRemover={(_, i) => setPendentes((prev) => prev.filter((_x, j) => j !== i))}
+                />
+              )}
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] text-prosperus-navy-panel/50">{nota.length}/{GRIFO_NOTA_MAX}</span>
                 <div className="flex gap-2">

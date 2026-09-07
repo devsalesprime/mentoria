@@ -1,10 +1,13 @@
 /**
- * Contexto por pergunta da Ficha do Script (tabela script_field_context).
+ * Contexto anexado no Script (tabela script_field_context). Dois donos possiveis na MESMA tabela:
+ *   - `field_key` preenchido e `grifo_id` NULL  -> contexto de uma pergunta da Ficha
+ *   - `grifo_id` preenchido e `field_key` ''    -> anexo de um grifo do leitor "Seu script" (onda E3)
  * Cada item pertence ao CLUBE (todos os socios veem) e tem autor (so o autor apaga).
  * Tipos: audio (transcrito na hora via Groq), imagem, video, link, nota.
  *
  * Arquivos vao para uploaded_files com category 'script_contexto' e module 'script' (mesmo diskStorage de routes/files.cjs);
- * NAO aparecem entre os Materiais (utils/cohort-materials.cjs filtra a categoria).
+ * NAO aparecem entre os Materiais (utils/cohort-materials.cjs filtra a categoria). O worker baixa os dois pela mesma
+ * rota (`getContextFile` nao distingue dono), entao o anexo de grifo ja chega no runner sem rota nova.
  *
  * Gotcha da casa (Groq): a API responde 403 sem um User-Agent de navegador.
  */
@@ -34,6 +37,9 @@ const contextBodySchema = z.object({
   legenda: z.string().trim().max(500).optional().default(''),
 });
 
+/** Igual, sem `field_key`: o dono e o grifo da URL (POST /api/script/grifos/:id/contexto). */
+const grifoContextBodySchema = contextBodySchema.omit({ field_key: true });
+
 const DDL = [
   `CREATE TABLE IF NOT EXISTS script_field_context (
   id TEXT PRIMARY KEY,
@@ -52,9 +58,24 @@ const DDL = [
   `CREATE INDEX IF NOT EXISTS idx_script_field_context_club_field ON script_field_context(club_slug, field_key)`,
 ];
 
-/** Idempotente; chamado pelos routers (script, admin-cohort, jobs). Registro: migrations/018_script_context_versions.sql */
+/** Onda E3: a mesma tabela guarda os anexos dos grifos. ALTER separado porque so ele repete em base ja criada. */
+const DDL_GRIFO = [`ALTER TABLE script_field_context ADD COLUMN grifo_id TEXT`];
+const DDL_GRIFO_INDEX = [`CREATE INDEX IF NOT EXISTS idx_script_field_context_grifo ON script_field_context(grifo_id)`];
+
+/**
+ * Idempotente; chamado pelos routers (script, admin-cohort, jobs).
+ * Registro: migrations/018_script_context_versions.sql e migrations/026_script_grifo_contexto.sql.
+ */
 async function ensureScriptContextTable(dbRun) {
   for (const s of DDL) await dbRun(s);
+  for (const s of DDL_GRIFO) {
+    try {
+      await dbRun(s);
+    } catch (e) {
+      if (!/duplicate column/i.test(String(e && e.message))) throw e;
+    }
+  }
+  for (const s of DDL_GRIFO_INDEX) await dbRun(s);
 }
 
 /**
@@ -83,6 +104,11 @@ function fileError(tipo, file) {
  */
 function validateContextRequest(body, file, fieldKeys) {
   if (!fieldKeys.includes(body.field_key)) return { ok: false, message: 'Campo desconhecido.' };
+  return validateContextItem(body, file);
+}
+
+/** So o item (sem dono): usado pelo contexto da ficha e pelo anexo do grifo. */
+function validateContextItem(body, file) {
   const { tipo } = body;
   if (tipo === 'link') {
     if (!isHttpUrl(body.url)) return { ok: false, message: 'Link inválido: comece com http:// ou https://.' };
@@ -151,6 +177,7 @@ function rowToItem(r, fileUrl) {
   return {
     id: r.id,
     field_key: r.field_key,
+    grifo_id: r.grifo_id || null,
     tipo: r.tipo,
     file_id: r.file_id || null,
     file_name: r.file_name || null,
@@ -169,10 +196,10 @@ function rowToItem(r, fileUrl) {
   };
 }
 
-/** Itens do clube (todos os campos, ou so `field`), mais antigos primeiro. */
+/** Itens da FICHA do clube (todos os campos, ou so `field`), mais antigos primeiro. Anexo de grifo fica de fora. */
 async function listContext({ dbAll }, club_slug, { field = null, fileUrl = null } = {}) {
   const rows = await dbAll(
-    `${SELECT} WHERE c.club_slug = ? ${field ? 'AND c.field_key = ?' : ''} ORDER BY c.created_at ASC, c.rowid ASC`,
+    `${SELECT} WHERE c.club_slug = ? AND c.grifo_id IS NULL ${field ? 'AND c.field_key = ?' : ''} ORDER BY c.created_at ASC, c.rowid ASC`,
     field ? [club_slug, field] : [club_slug]
   );
   return rows.map((r) => rowToItem(r, fileUrl));
@@ -185,22 +212,54 @@ function groupByField(items) {
   return out;
 }
 
+/**
+ * Anexos de grifos do clube, mais antigos primeiro. `grifo` = um id (so aquele grifo) ou nada (todos).
+ * Reusa a mesma tabela, o mesmo SELECT e o mesmo `rowToItem` do contexto da ficha.
+ */
+async function listGrifoContext({ dbAll }, club_slug, { grifo = null, fileUrl = null } = {}) {
+  const rows = await dbAll(
+    `${SELECT} WHERE c.club_slug = ? AND c.grifo_id IS NOT NULL ${grifo ? 'AND c.grifo_id = ?' : ''} ORDER BY c.created_at ASC, c.rowid ASC`,
+    grifo ? [club_slug, grifo] : [club_slug]
+  );
+  return rows.map((r) => rowToItem(r, fileUrl));
+}
+
+/** { grifo_id: [items] } */
+function groupByGrifo(items) {
+  const out = {};
+  for (const it of items) if (it.grifo_id) (out[it.grifo_id] = out[it.grifo_id] || []).push(it);
+  return out;
+}
+
+/** Um item de anexo do grifo (o dono confere antes de apagar). */
+async function getGrifoContextItem({ dbGet }, club_slug, grifo_id, id, fileUrl = null) {
+  const r = await dbGet(`${SELECT} WHERE c.id = ? AND c.club_slug = ? AND c.grifo_id = ?`, [id, club_slug, grifo_id]);
+  return r ? rowToItem(r, fileUrl) : null;
+}
+
+/** Apaga todos os anexos de um grifo (e os arquivos). Chamado quando o grifo e apagado. */
+async function deleteGrifoContext({ dbGet, dbAll, dbRun }, club_slug, grifo_id, { fs } = {}) {
+  const rows = await dbAll(`SELECT id FROM script_field_context WHERE club_slug = ? AND grifo_id = ?`, [club_slug, grifo_id]);
+  for (const r of rows) await deleteContext({ dbGet, dbRun }, club_slug, r.id, { fs });
+  return rows.length;
+}
+
 async function getContextItem({ dbGet }, club_slug, id, fileUrl = null) {
   const r = await dbGet(`${SELECT} WHERE c.id = ? AND c.club_slug = ?`, [id, club_slug]);
   return r ? rowToItem(r, fileUrl) : null;
 }
 
-/** { field_key: n } */
+/** { field_key: n } (so a ficha) */
 async function countByField({ dbAll }, club_slug) {
-  const rows = await dbAll(`SELECT field_key, COUNT(*) AS n FROM script_field_context WHERE club_slug = ? GROUP BY field_key`, [club_slug]);
+  const rows = await dbAll(`SELECT field_key, COUNT(*) AS n FROM script_field_context WHERE club_slug = ? AND grifo_id IS NULL GROUP BY field_key`, [club_slug]);
   return Object.fromEntries(rows.map((r) => [r.field_key, r.n]));
 }
 
-async function insertContext({ dbRun }, { id, club_slug, user_id, field_key, tipo, file_id = null, url = '', texto = '', legenda = '', transcricao = null, erro_transcricao = null }) {
+async function insertContext({ dbRun }, { id, club_slug, user_id, field_key = '', grifo_id = null, tipo, file_id = null, url = '', texto = '', legenda = '', transcricao = null, erro_transcricao = null }) {
   await dbRun(
-    `INSERT INTO script_field_context (id, club_slug, user_id, field_key, tipo, file_id, url, texto, legenda, transcricao, erro_transcricao)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, club_slug, user_id, field_key, tipo, file_id, url || null, texto || null, legenda || null, transcricao, erro_transcricao]
+    `INSERT INTO script_field_context (id, club_slug, user_id, field_key, grifo_id, tipo, file_id, url, texto, legenda, transcricao, erro_transcricao)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, club_slug, user_id, field_key || '', grifo_id, tipo, file_id, url || null, texto || null, legenda || null, transcricao, erro_transcricao]
   );
 }
 
@@ -234,13 +293,19 @@ module.exports = {
   CONTEXT_CATEGORY,
   LIMITS,
   contextBodySchema,
+  grifoContextBodySchema,
   ensureScriptContextTable,
   fileError,
   validateContextRequest,
+  validateContextItem,
   transcribeAudio,
   rowToItem,
   listContext,
   groupByField,
+  listGrifoContext,
+  groupByGrifo,
+  getGrifoContextItem,
+  deleteGrifoContext,
   getContextItem,
   countByField,
   insertContext,

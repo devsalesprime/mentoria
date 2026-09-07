@@ -1,16 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import type { Grifo, GrifoCor, GrifoNovo } from './types';
+import type { AnexoPendente, Grifo, GrifoAnexo, GrifoCor, GrifoNovo } from './types';
+
+/** FormData de um anexo (arquivo vai por multipart; link e nota vão nos mesmos campos). */
+export function formDataDoAnexo(novo: AnexoPendente): FormData {
+  const fd = new FormData();
+  fd.append('tipo', novo.tipo);
+  if (novo.file) fd.append('file', novo.file, novo.fileName || (novo.file as File).name || `${novo.tipo}-${Date.now()}`);
+  if (novo.url) fd.append('url', novo.url.trim());
+  if (novo.texto) fd.append('texto', novo.texto.trim());
+  if (novo.legenda) fd.append('legenda', novo.legenda.trim());
+  return fd;
+}
 
 /**
  * Grifos de uma versao do script: GET /api/script/versoes/:v/grifos (os da versao + os pendentes das anteriores),
  * POST para criar, PATCH (nota, cor) e DELETE (so o autor).
+ * Anexos do grifo (onda E3): POST /api/script/grifos/:id/contexto e DELETE .../contexto/:itemId: a mesma
+ * mecanica do contexto por pergunta da Ficha (audio transcrito pela Groq no envio).
  */
 export function useGrifos(token: string, versao: number | null) {
   const [grifos, setGrifos] = useState<Grifo[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const headers = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
+  /** Id do último grifo criado: o balão anexa nele logo depois de salvar, sem esperar o re-render. */
+  const ultimoCriado = useRef<string | null>(null);
 
   const recarregar = useCallback(async () => {
     if (versao == null) { setGrifos([]); return; }
@@ -34,6 +49,7 @@ export function useGrifos(token: string, versao: number | null) {
     try {
       const res = await axios.post(`/api/script/versoes/${versao}/grifos`, novo, headers);
       if (res.data?.success && res.data.grifo) {
+        ultimoCriado.current = res.data.grifo.id;
         setGrifos((prev) => [...prev, res.data.grifo]);
         return { ok: true, grifo: res.data.grifo };
       }
@@ -69,9 +85,48 @@ export function useGrifos(token: string, versao: number | null) {
     }
   }, [headers]);
 
+  /** Anexa um material a um grifo já salvo e devolve o item (com a transcrição, quando é áudio). */
+  const anexar = useCallback(async (grifoId: string, novo: AnexoPendente): Promise<{ ok: boolean; item?: GrifoAnexo; warning?: string; message?: string }> => {
+    try {
+      const res = await axios.post(`/api/script/grifos/${grifoId}/contexto`, formDataDoAnexo(novo), { ...headers, timeout: 120000 });
+      const item: GrifoAnexo | undefined = res.data?.item;
+      if (res.data?.success && item) {
+        setGrifos((prev) => prev.map((g) => (g.id === grifoId ? { ...g, contexto: [...(g.contexto || []).filter((x) => x.id !== item.id), item] } : g)));
+        return { ok: true, item, warning: res.data?.warning };
+      }
+      return { ok: false, message: res.data?.message || 'Não deu para anexar o material.' };
+    } catch (e: any) {
+      return { ok: false, message: mensagem(e, 'Não deu para anexar o material.') };
+    }
+  }, [headers]);
+
+  /** Anexa no grifo recém-criado (o balão salva o grifo e só depois manda o que estava na fila). */
+  const anexarNoUltimo = useCallback(async (pendentes: AnexoPendente[]): Promise<{ ok: boolean; message?: string }> => {
+    const id = ultimoCriado.current;
+    if (!id) return { ok: false, message: 'Salve o grifo antes de anexar.' };
+    for (const novo of pendentes) {
+      const r = await anexar(id, novo);
+      if (!r.ok) return r;
+    }
+    return { ok: true };
+  }, [anexar]);
+
+  const removerAnexo = useCallback(async (grifoId: string, itemId: string): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const res = await axios.delete(`/api/script/grifos/${grifoId}/contexto/${itemId}`, headers);
+      if (res.data?.success) {
+        setGrifos((prev) => prev.map((g) => (g.id === grifoId ? { ...g, contexto: (g.contexto || []).filter((x) => x.id !== itemId) } : g)));
+        return { ok: true };
+      }
+      return { ok: false, message: res.data?.message || 'Não deu para apagar o anexo.' };
+    } catch (e: any) {
+      return { ok: false, message: mensagem(e, 'Não deu para apagar o anexo.') };
+    }
+  }, [headers]);
+
   const pendentes = useMemo(() => grifos.filter((g) => !g.resolvido_em), [grifos]);
 
-  return { grifos, pendentes, carregando, erro, criar, editar, apagar, recarregar, setGrifos };
+  return { grifos, pendentes, carregando, erro, criar, editar, apagar, anexar, anexarNoUltimo, removerAnexo, recarregar, setGrifos };
 }
 
 export type UseGrifos = ReturnType<typeof useGrifos>;

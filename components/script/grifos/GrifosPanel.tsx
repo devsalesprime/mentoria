@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { COR_ROTULO, GRIFO_NOTA_MAX, mesmoEmail, primeiroNome, type Grifo } from './types';
+import { AnexosChips, AnexosGrifo } from './AnexosGrifo';
+import { useAnexosGrifo } from './useAnexosGrifo';
+import { COR_ROTULO, GRIFO_NOTA_MAX, mesmoEmail, primeiroNome, type AnexoPendente, type Grifo, type GrifoAnexo } from './types';
 import { nomeTela, TOTAL_TELAS } from '../script/telas';
 
 /**
  * "Seus grifos": lista agrupada por tela (cor, trecho, nota, autor, "ir para", "editar nota", "apagar" so do autor).
  * No desktop fica ao lado do leitor; no celular, numa folha no rodape. O grifo cujo trecho nao existe mais nesta versao
  * aparece com "trecho não encontrado nesta versão".
+ * Onda E3: cada cartao tem a linha "Anexar" (áudio, foto, vídeo, link, nota) e os chips do que já foi anexado, com
+ * remover para quem anexou. Sem `onAnexar`, o cartao e o de antes.
  */
 interface GrifosPanelProps {
   grifos: Grifo[];
@@ -16,6 +20,10 @@ interface GrifosPanelProps {
   onEditarNota: (g: Grifo, nota: string) => Promise<boolean>;
   onApagar: (g: Grifo) => Promise<boolean>;
   onFechar?: () => void;
+  /** Anexa um material ao grifo (POST /api/script/grifos/:id/contexto). Sem isso, o cartão fala direto com a API. */
+  onAnexar?: (g: Grifo, novo: AnexoPendente) => Promise<{ ok: boolean; message?: string; item?: GrifoAnexo }>;
+  /** Apaga um anexo (só quem anexou). */
+  onRemoverAnexo?: (g: Grifo, itemId: string) => Promise<{ ok: boolean; message?: string }>;
 }
 
 function truncar(s: string, n: number): string {
@@ -26,13 +34,17 @@ const Item: React.FC<{
   g: Grifo;
   achado: boolean;
   meu: boolean;
+  meuEmail: string | null;
   onIrPara: () => void;
   onEditarNota: (nota: string) => Promise<boolean>;
   onApagar: () => Promise<boolean>;
-}> = ({ g, achado, meu, onIrPara, onEditarNota, onApagar }) => {
+  onAnexar?: (novo: AnexoPendente) => Promise<{ ok: boolean; message?: string; item?: GrifoAnexo }>;
+  onRemoverAnexo?: (itemId: string) => Promise<{ ok: boolean; message?: string }>;
+}> = ({ g, achado, meu, meuEmail, onIrPara, onEditarNota, onApagar, onAnexar, onRemoverAnexo }) => {
   const [editando, setEditando] = useState(false);
   const [nota, setNota] = useState(g.nota || '');
   const [ocupado, setOcupado] = useState(false);
+  const anexos = useAnexosGrifo(g, { onEnviar: onAnexar, onRemover: onRemoverAnexo });
   const salvar = async () => {
     setOcupado(true);
     const ok = await onEditarNota(nota.trim());
@@ -73,6 +85,23 @@ const Item: React.FC<{
       ) : (
         g.nota && <p className="text-sm text-prosperus-neutral-black leading-snug whitespace-pre-line">{g.nota}</p>
       )}
+      {g.resolvido_em ? (
+        anexos.itens.length > 0 && (
+          <div className="mt-2">
+            <AnexosChips itens={anexos.itens} id={g.id} />
+          </div>
+        )
+      ) : (
+        <div className="mt-2 pt-2 border-t border-prosperus-navy-panel/10">
+          <AnexosGrifo
+            id={g.id}
+            itens={anexos.itens}
+            onEnviar={anexos.enviar}
+            onRemover={async (item) => { const a = item as GrifoAnexo; if (a.id) await anexos.remover(a.id); }}
+            podeRemover={(item) => mesmoEmail((item as GrifoAnexo).autor_email, meuEmail)}
+          />
+        </div>
+      )}
       {!editando && (
         <div className="flex flex-wrap gap-1 mt-1">
           <button type="button" onClick={onIrPara} className="script-grifo-acao">Ir para</button>
@@ -84,7 +113,7 @@ const Item: React.FC<{
   );
 };
 
-export const GrifosPanel: React.FC<GrifosPanelProps> = ({ grifos, encontrado, meuEmail, nomeDoPasso, onIrPara, onEditarNota, onApagar, onFechar }) => {
+export const GrifosPanel: React.FC<GrifosPanelProps> = ({ grifos, encontrado, meuEmail, nomeDoPasso, onIrPara, onEditarNota, onApagar, onFechar, onAnexar, onRemoverAnexo }) => {
   const porTela: Grifo[][] = Array.from({ length: TOTAL_TELAS }, () => []);
   for (const g of grifos) porTela[Math.max(0, Math.min(TOTAL_TELAS - 1, g.passo))].push(g);
   return (
@@ -111,9 +140,12 @@ export const GrifosPanel: React.FC<GrifosPanelProps> = ({ grifos, encontrado, me
                     g={g}
                     achado={encontrado(g)}
                     meu={mesmoEmail(g.autor_email, meuEmail)}
+                    meuEmail={meuEmail}
                     onIrPara={() => onIrPara(g)}
                     onEditarNota={(nota) => onEditarNota(g, nota)}
                     onApagar={() => onApagar(g)}
+                    onAnexar={onAnexar ? (novo) => onAnexar(g, novo) : undefined}
+                    onRemoverAnexo={onRemoverAnexo ? (itemId) => onRemoverAnexo(g, itemId) : undefined}
                   />
                 ))}
               </ul>

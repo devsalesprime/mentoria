@@ -68,7 +68,8 @@ export const BadgeRefinando: React.FC<{ className?: string }> = ({ className = '
 
 // ── gravador de áudio (MediaRecorder, até 2 min) ────────────────────────────
 
-const GravadorAudio: React.FC<{ onGravado: (blob: Blob, segundos: number) => void; enviando: boolean }> = ({ onGravado, enviando }) => {
+/** Reusado pelos anexos do grifo (components/script/grifos/AnexosGrifo.tsx): mesma gravação, mesma transcrição. */
+export const GravadorAudio: React.FC<{ onGravado: (blob: Blob, segundos: number) => void; enviando: boolean; claro?: boolean }> = ({ onGravado, enviando, claro = false }) => {
   const suportado = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof window !== 'undefined' && 'MediaRecorder' in window;
   const [gravando, setGravando] = useState(false);
   const [segundos, setSegundos] = useState(0);
@@ -122,29 +123,43 @@ const GravadorAudio: React.FC<{ onGravado: (blob: Blob, segundos: number) => voi
     }
   };
 
+  // No papel creme do leitor ("Seu script") o texto branco some: `claro` troca só as cores, nunca o comportamento.
+  const fraco = claro ? 'text-prosperus-navy-panel/60' : 'text-white/40';
+  const medio = claro ? 'text-prosperus-navy-panel/70' : 'text-white/50';
+  const forte = claro ? 'text-prosperus-navy-panel' : 'text-white';
+  const erroCor = claro ? 'text-red-700' : 'text-red-400';
+
   if (!suportado) {
-    return <p className="text-xs text-white/50 font-sans">Este navegador não grava áudio aqui. Escreva uma nota ou envie um vídeo.</p>;
+    return <p className={`text-xs ${medio} font-sans`}>Este navegador não grava áudio aqui. Escreva uma nota ou envie um vídeo.</p>;
   }
 
   return (
     <div className="space-y-2" data-testid="gravador-audio">
       <div className="flex flex-wrap items-center gap-3">
         {!gravando ? (
-          <Button variant="secondary" size="md" className={TAP} onClick={comecar} disabled={enviando} loading={enviando}>
-            {enviando ? 'Enviando e transcrevendo' : 'Começar a gravar'}
-          </Button>
+          claro ? (
+            <button type="button" onClick={comecar} disabled={enviando} className="script-grifo-btn script-grifo-btn-primario">
+              {enviando ? 'Enviando e transcrevendo' : 'Começar a gravar'}
+            </button>
+          ) : (
+            <Button variant="secondary" size="md" className={TAP} onClick={comecar} disabled={enviando} loading={enviando}>
+              {enviando ? 'Enviando e transcrevendo' : 'Começar a gravar'}
+            </Button>
+          )
+        ) : claro ? (
+          <button type="button" onClick={parar} className="script-grifo-btn script-grifo-btn-secundario">Parar a gravação</button>
         ) : (
           <Button variant="danger-soft" size="md" className={TAP} onClick={parar}>Parar a gravação</Button>
         )}
         {gravando && (
-          <span className="inline-flex items-center text-sm font-sans text-white tabular-nums" aria-live="polite" data-testid="gravador-timer">
+          <span className={`inline-flex items-center text-sm font-sans ${forte} tabular-nums`} aria-live="polite" data-testid="gravador-timer">
             <span className="inline-block w-2 h-2 rounded-full bg-red-400 animate-pulse mr-2" aria-hidden="true" />
             {mmss(segundos)} / {mmss(MAX_AUDIO_S)}
           </span>
         )}
       </div>
-      <p className="text-[11px] text-white/40 font-sans">Até 2 minutos. Fale como se estivesse explicando para a gente.</p>
-      {erro && <p className="text-xs text-red-400 font-sans">{erro}</p>}
+      <p className={`text-[11px] ${fraco} font-sans`}>Até 2 minutos. Fale como se estivesse explicando para a gente.</p>
+      {erro && <p className={`text-xs ${erroCor} font-sans`}>{erro}</p>}
     </div>
   );
 };
