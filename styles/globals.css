@@ -319,8 +319,10 @@ body {
 .script-comentarios-titulo::-webkit-details-marker { display: none; }
 .script-comentarios[open] .script-comentarios-titulo { background: rgba(10, 37, 64, 0.06); }
 
-/* ── Leitor em telas (ScriptReader): cartao, sumario, um passo por tela, preparacao ── */
-.script-reader { max-width: 760px; margin: 0 auto; min-width: 0; }
+/* ── Leitor em telas (ScriptReader): cartao, sumario, um passo por tela, preparacao ──
+   A barra de navegacao vem antes do papel no HTML e o CSS decide onde ela aparece: grudada no ALTO no
+   desktop, no RODAPE no celular (`order`). Assim existe uma barra so, com um mapa so. */
+.script-reader { display: flex; flex-direction: column; max-width: 760px; margin: 0 auto; min-width: 0; }
 .script-tela { min-width: 0; overflow-wrap: anywhere; }
 .script-tela-intro {
   font-size: 0.92rem;
@@ -355,42 +357,31 @@ body {
   transition: background-color 0.15s;
 }
 .script-passo-linha:hover { background: rgba(10, 37, 64, 0.05); }
-.script-abas {
-  display: inline-flex;
-  border: 1px solid rgba(10, 37, 64, 0.2);
-  border-radius: 0.6rem;
-  overflow: hidden;
-}
-.script-aba {
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 1rem;
-  font-family: var(--font-sans);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(10, 37, 64, 0.7);
-  background: transparent;
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-}
-.script-aba:hover { background: rgba(10, 37, 64, 0.06); }
-.script-aba-ativa { background: #0A2540; color: #FFE39B; }
+/* Barra do mapa: no desktop ela vem antes do papel e gruda no alto; no celular vai para o rodape (order) */
 .script-barra {
   position: sticky;
-  bottom: 0;
+  top: 0;
   z-index: 20;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.75rem;
-  padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 0.9rem;
   background: rgba(3, 26, 43, 0.96);
   backdrop-filter: blur(6px);
   min-width: 0;
+}
+@media (max-width: 639.98px) {
+  .script-barra {
+    order: 2;
+    top: auto;
+    bottom: 0;
+    margin-top: 0.75rem;
+    margin-bottom: 0;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 .script-barra-btn {
   flex: none;
@@ -599,19 +590,48 @@ body {
   font-size: 0.68em; letter-spacing: 0.08em; line-height: 1.8;
 }
 
-/* Abas Treinamento | Campo: segmentadas, 44px, estado claro */
-.script-abas {
-  display: flex; width: 100%; max-width: 420px; padding: 3px;
-  border: 1px solid rgba(10, 37, 64, 0.12); border-radius: 0.8rem;
-  background: rgba(10, 37, 64, 0.06); overflow: visible;
+/* Barra de cima de "Seu script" (onda E1): esquerda = versão e "O que mudou"; direita = "Baixar" e a
+   chave Treinamento | Campo, na mesma altura e hierarquia. */
+.script-topo {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem;
 }
-.script-aba {
-  flex: 1 1 0; min-height: 44px; padding: 0 0.75rem; border-radius: 0.6rem;
-  font-size: 0.78rem; letter-spacing: 0.08em; color: rgba(10, 37, 64, 0.72);
+.script-topo-lado { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.script-topo-direita { margin-left: auto; }
+.script-topo-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  min-height: 44px; padding: 0 1rem; border-radius: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.2); background: transparent; color: rgba(255, 255, 255, 0.88);
+  font-family: var(--font-sans); font-size: 0.82rem; font-weight: 600; cursor: pointer; list-style: none;
 }
-.script-aba:hover { background: rgba(10, 37, 64, 0.08); }
-.script-aba-ativa, .script-aba-ativa:hover { background: #0A2540; color: #FFE39B; box-shadow: 0 1px 2px rgba(10, 37, 64, 0.25); }
-.script-abas-legenda { margin-top: 0.4rem; font-size: 0.82rem; line-height: 1.4; color: rgba(10, 37, 64, 0.65); }
+.script-topo-btn::-webkit-details-marker { display: none; }
+.script-topo-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.script-topo-btn-forte { background: #CA9A43; border-color: #CA9A43; color: #080808; font-weight: 700; }
+.script-topo-btn-forte:hover { background: #D4B050; }
+/* Chave Treinamento | Campo: mesma altura do "Baixar" */
+.script-modo {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0.8rem; background: rgba(255, 255, 255, 0.06);
+}
+.script-modo-btn {
+  min-height: 38px; padding: 0 0.9rem; border-radius: 0.6rem; background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-family: var(--font-sans); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.script-modo-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.script-modo-btn-ativo, .script-modo-btn-ativo:hover { background: #FCF7F0; color: #0A2540; }
+.script-modo-legenda { font-size: 0.8rem; line-height: 1.4; color: rgba(255, 255, 255, 0.6); }
+@media (max-width: 639.98px) {
+  .script-topo { gap: 0.5rem; }
+  .script-topo-lado { width: 100%; }
+  .script-topo-direita { margin-left: 0; }
+  .script-mais, .script-modo { flex: 1 1 0; min-width: 0; }
+  .script-topo-btn { width: 100%; padding: 0 0.6rem; }
+  .script-modo-btn {
+    flex: 1 1 0; min-width: 0; padding: 0 0.4rem; font-size: 0.72rem; letter-spacing: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+}
 
 /* "Por que funciona": a anatomia da fala fica fechada por padrao */
 .script-porque {
@@ -705,15 +725,22 @@ body {
 .script-menu-item-perigo { color: #f2a7a7; }
 .script-menu-rotulo { display: block; padding: 0.6rem 0.85rem 0.2rem; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.45); }
 .script-menu-sep { height: 1px; margin: 0.3rem 0.5rem; background: rgba(255, 255, 255, 0.1); }
-.script-mudou > summary {
-  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px; cursor: pointer; list-style: none;
-  font-size: 0.78rem; color: rgba(255, 255, 255, 0.6);
-}
+/* "O que mudou": botão da barra de cima que abre uma folha (celular) ou um balão (desktop) com o resumo */
+.script-mudou { position: relative; }
+.script-mudou > summary { list-style: none; cursor: pointer; }
 .script-mudou > summary::-webkit-details-marker { display: none; }
-.script-mudou > summary:hover { color: #FFE39B; }
-.script-mudou > summary::before { content: "\25B8"; font-size: 0.7em; transition: transform 0.15s; }
-.script-mudou[open] > summary::before { transform: rotate(90deg); }
-.script-mudou-texto { max-width: 68ch; margin-top: 0.25rem; padding: 0.7rem 0.9rem; border-radius: 0.6rem; background: rgba(255, 255, 255, 0.05); font-size: 0.86rem; line-height: 1.55; color: rgba(255, 255, 255, 0.8); }
+.script-mudou-folha {
+  position: absolute; left: 0; top: calc(100% + 0.35rem); z-index: 30; width: 340px; max-width: 86vw; padding: 0.35rem 0.5rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 0.75rem; background: #061A2B; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.script-mudou-texto { margin-top: 0.25rem; padding: 0 0.35rem; font-size: 0.86rem; line-height: 1.55; color: rgba(255, 255, 255, 0.8); }
+@media (max-width: 639.98px) {
+  .script-mudou[open]::before { content: ""; position: fixed; inset: 0; z-index: 40; background: rgba(3, 26, 43, 0.7); }
+  .script-mudou-folha {
+    position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 41; width: auto; max-width: none;
+    padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); border-radius: 1rem 1rem 0 0; border-bottom: 0;
+  }
+}
 .script-mais { position: relative; }
 .script-mais > summary { list-style: none; cursor: pointer; }
 .script-mais > summary::-webkit-details-marker { display: none; }
@@ -730,12 +757,66 @@ body {
   }
   .script-mais-fechar { display: flex; justify-content: center; margin-top: 0.4rem; color: rgba(255, 255, 255, 0.6); }
 }
-.script-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-@media (max-width: 639.98px) {
-  .script-acoes { display: grid; grid-template-columns: 1fr 1fr; }
-  .script-acoes-primaria { grid-column: 1 / -1; }
-  .script-acoes-primaria > button { width: 100%; }
+/* "Ações": o bloco do fim do leitor (depois do Passo 7 e da Preparação). Vive no papel creme. */
+.script-acoes-fim {
+  margin-top: 2rem;
+  padding: 1rem 1.1rem 1.2rem;
+  border: 1px solid rgba(10, 37, 64, 0.15);
+  border-radius: 0.9rem;
+  background: rgba(10, 37, 64, 0.04);
 }
+.script-acoes-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.script-acao {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 44px; padding: 0 1rem; border-radius: 0.7rem;
+  border: 1px solid rgba(10, 37, 64, 0.25); background: transparent; color: #0A2540;
+  font-family: var(--font-sans); font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  transition: background-color 0.15s;
+}
+.script-acao:hover:not(:disabled) { background: rgba(10, 37, 64, 0.07); }
+.script-acao:disabled { opacity: 0.45; cursor: default; }
+.script-acao-forte { background: #CA9A43; border-color: #CA9A43; color: #080808; font-weight: 700; }
+.script-acao-forte:hover:not(:disabled) { background: #D4B050; }
+.script-acao-perigo { border-color: rgba(178, 96, 60, 0.5); color: #8f4a2a; }
+.script-acao-aprovado { border-color: rgba(22, 128, 74, 0.5); background: rgba(22, 128, 74, 0.1); color: #14663d; cursor: default; }
+.script-acoes-apresentacao { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 1rem; }
+.script-acoes-apresentacao > .script-nota-rotulo { flex-basis: 100%; margin-bottom: 0; }
+.script-acoes-nota { flex-basis: 100%; font-size: 0.86rem; line-height: 1.5; color: rgba(10, 37, 64, 0.75); }
+@media (max-width: 639.98px) {
+  .script-acoes-linha > *, .script-acoes-linha > * > button { width: 100%; }
+  .script-acao { width: 100%; }
+}
+
+/* Lista de grifos no celular: botão flutuante (a barra do mapa não carrega mais esse peso) */
+.script-grifos-flutuante {
+  position: fixed;
+  right: 0.9rem;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 9999px;
+  border: 1px solid #CA9A43;
+  background: rgba(3, 26, 43, 0.96);
+  color: #FFE39B;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.script-grifos-flutuante:hover { background: #0A2540; }
+
+/* Cartão de bolso que vira imagem ("Baixar cartão"): fica fora da tela, em creme com texto navy */
+.script-cartao-export-fora { position: fixed; left: -12000px; top: 0; width: 620px; pointer-events: none; }
+.script-cartao-export { background: #FCF7F0; color: #0A2540; border-color: #CA9A43; }
+.script-cartao-export h2,
+.script-cartao-export .script-cartao-corpo h3,
+.script-cartao-export .script-cartao-corpo strong { color: #0A2540; }
+.script-cartao-export .script-cartao-corpo li::marker { color: #CA9A43; }
+.script-cartao-export .script-cartao-valor { background: rgba(202, 154, 67, 0.18); color: #8a6516; }
 
 /* Grifos: pintura sem mexer no DOM (CSS Custom Highlight API) */
 ::highlight(script-grifo-dourado) { background-color: rgba(255, 218, 113, 0.55); }
@@ -871,6 +952,60 @@ body {
 .script-grifo-acao:hover { background: rgba(10, 37, 64, 0.06); }
 .script-grifo-acao-forte { background: #0A2540; color: #FFE39B; }
 .script-grifo-acao-apagar { color: #b91c1c; }
+/* Anexos do grifo (onda E3): linha "Anexar" e chips do que já foi anexado, no papel creme */
+.script-grifo-anexar-botao {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 37, 64, 0.18);
+  background: transparent;
+  color: rgba(10, 37, 64, 0.78);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.script-grifo-anexar-botao:hover { border-color: rgba(202, 154, 67, 0.7); }
+.script-grifo-anexar-botao-ativo { background: #CA9A43; border-color: #CA9A43; color: #0A2540; font-weight: 700; }
+.script-grifo-anexar-painel {
+  padding: 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(202, 154, 67, 0.3);
+  background: rgba(202, 154, 67, 0.05);
+}
+.script-grifo-anexo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.15rem 0.15rem 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 37, 64, 0.14);
+  background: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  color: rgba(10, 37, 64, 0.85);
+}
+.script-grifo-anexo-icone { display: inline-flex; color: #CA9A43; }
+.script-grifo-anexo-miniatura { width: 28px; height: 28px; border-radius: 0.4rem; object-fit: cover; }
+.script-grifo-anexo-texto { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.script-grifo-anexo-tipo { font-weight: 700; color: rgba(10, 37, 64, 0.6); }
+.script-grifo-anexo-tirar {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: -0.6rem -0.4rem -0.6rem 0;
+  color: rgba(10, 37, 64, 0.45);
+  background: transparent;
+  cursor: pointer;
+}
+.script-grifo-anexo-tirar:hover { color: #b91c1c; }
 .script-grifos-folha-fundo {
   position: fixed;
   inset: 0;
@@ -891,21 +1026,8 @@ body {
 .script-grifos-folha .script-grifos-painel { max-height: none; border-radius: 1rem 1rem 0 0; }
 
 @media print {
-  /* "Imprimir cartão": so o cartao de bolso, em A6 (a folha inteira fica escondida) */
-  #script-cartao-print { display: none; }
-  body.script-print-cartao #script-print-root { display: none !important; }
-  body.script-print-cartao #script-cartao-print {
-    display: block;
-    visibility: visible;
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    color: #111;
-  }
-  body.script-print-cartao #script-cartao-print * { visibility: visible; }
-  body.script-print-cartao #script-cartao-print .script-cartao-corpo h3 { color: #0A2540; font-family: "EB Garamond", Georgia, serif; font-size: 11pt; margin: 6pt 0 2pt; }
-  body.script-print-cartao #script-cartao-print .script-cartao-corpo li { font-size: 9pt; line-height: 1.3; }
+  /* O cartão de bolso agora sai em imagem ("Baixar cartão"); o cartão escondido do export nunca é impresso */
+  .script-cartao-export-fora { display: none !important; }
   .script-slot { border-color: #999; background: #fff; color: #111; }
   .script-proibido { border-color: #b91c1c; background: #fff; }
   .script-premissa { background: #fff; border-color: #CA9A43; }
@@ -1047,19 +1169,42 @@ input[type='range'].regua-nativa::-moz-range-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
   width: 100%;
   height: 100%;
   min-height: 44px;
   color: #FFE39B;
-  font-family: var(--font-sans);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
   cursor: pointer;
 }
-.script-treino-assistir:hover { background: rgba(255, 227, 155, 0.08); }
+.script-treino-assistir:hover .script-treino-play { background: #D4B050; transform: scale(1.06); }
+/* Thumbnail da Bunny; sem imagem, a placa navy com o título do treinamento */
+.script-treino-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.script-treino-placa {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.25rem;
+  background: #0A2540;
+  color: #FFE39B;
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  line-height: 1.3;
+  text-align: center;
+}
+.script-treino-play {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 9999px;
+  background: #CA9A43;
+  color: #0A2540;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: background-color 0.15s, transform 0.15s;
+}
 
 /* Tabela "Quem está do outro lado": rola na horizontal no celular sem quebrar a coluna do texto. */
 .script-perfis-rolagem {

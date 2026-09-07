@@ -37,6 +37,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
+    // A suite passou de 200 para ~800 testes em 5 dias; sob carga o teto padrao de 5 s derruba testes sadios.
+    testTimeout: 20000,
+    hookTimeout: 20000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

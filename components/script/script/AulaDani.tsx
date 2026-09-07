@@ -1,20 +1,26 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AULA_7_PASSOS, capituloDoPasso, urlDaAula, type AulaReferencia } from '../../../data/aula-7-passos';
+import { BUNNY_CDN } from './TreinamentosPasso';
 
 /**
  * A aula da Dani sobre os 7 passos, como referência de aprofundamento do script.
- * - `AulaDani`: cartão navy 16:9 com a etiqueta dourada, a frase de uso e "Abrir em tela cheia". O player (iframe)
- *   só entra quando o cartão aparece na tela (IntersectionObserver) ou quando a pessoa toca em "Assistir"; até lá
- *   fica um pôster com o botão de tocar. Assim o leitor não carrega um player por tela.
- * - `AulaFolha`: o mesmo cartão numa folha que sobe do rodapé (celular) ou num painel lateral (desktop), aberta de
- *   qualquer tela pelo item "Aula" da barra ou por "Ver na aula da Dani" no passo. No desktop o painel não é modal:
- *   dá para ler o passo enquanto a aula toca.
+ * - `AulaDani`: cartão navy 16:9 com a etiqueta dourada e a frase de uso. Nasce com a THUMBNAIL da Bunny e o
+ *   botão de tocar; o player (iframe) só é montado quando a pessoa toca. Onda E1 (SPEC-workflow-v3-decisoes-07-09
+ *   §2, item 7): nada de player carregado sozinho (o cartão do Sumário começava a tocar por conta própria) e nada
+ *   de "Abrir em tela cheia".
+ * - `AulaFolha`: o mesmo cartão numa folha que sobe do rodapé (celular) ou num painel lateral (desktop).
  * Sem estado de rede; a aula vem de data/aula-7-passos.ts.
  */
 
 /** Permissões que o player da Bunny pede (as mesmas do RecommendationCard). */
 export const AULA_ALLOW = 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;';
+
+/** Pôster da aula: o `preview.webp` público da Bunny, tirado do GUID do próprio embed. */
+export function thumbDaAula(aula: AulaReferencia): string | null {
+  const m = /\/embed\/\d+\/([0-9a-f-]+)/i.exec(aula.embedUrl);
+  return m ? `${BUNNY_CDN}/${m[1]}/preview.webp` : null;
+}
 
 export const FRASE_AULA = 'Assista à aula da Dani antes da primeira reunião: o script é o que dizer; a aula é por que funciona.';
 
@@ -39,36 +45,20 @@ export const AulaDani: React.FC<AulaDaniProps> = ({ aula = AULA_7_PASSOS, passo 
   const [carregado, setCarregado] = useState(autoCarregar);
   const [pedido, setPedido] = useState(autoCarregar);
   const [passoAtivo, setPassoAtivo] = useState<number | null>(passo);
-  const raizRef = useRef<HTMLElement>(null);
+  const [semImagem, setSemImagem] = useState(false);
   const tituloId = useId();
 
   useEffect(() => { setPassoAtivo(passo); }, [passo]);
 
-  // Carrega o player quando o cartão entra na tela (celular: o sumário é longo; o cartão fica abaixo da dobra).
-  useEffect(() => {
-    if (carregado || typeof IntersectionObserver === 'undefined') return;
-    const el = raizRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver((entradas) => {
-      if (entradas.some((e) => e.isIntersecting)) {
-        setCarregado(true);
-        io.disconnect();
-      }
-    }, { rootMargin: '160px 0px' });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [carregado]);
-
   const capitulo = capituloDoPasso(aula, passoAtivo);
   const src = urlDaAula(aula, { passo: passoAtivo, autoplay: pedido });
-  const linkTelaCheia = urlDaAula(aula, { passo: passoAtivo });
+  const thumb = thumbDaAula(aula);
   const marcados = aula.capitulos.filter((c) => Number.isFinite(c.inicioSegundos) && (c.inicioSegundos as number) > 0);
 
   const assistir = () => { setPedido(true); setCarregado(true); };
 
   return (
     <section
-      ref={raizRef}
       aria-labelledby={tituloId}
       data-testid="aula-dani"
       className={`script-aula min-w-0 ${compacto ? '' : 'rounded-2xl border border-prosperus-gold-dark bg-prosperus-navy-panel p-4 sm:p-5'} text-prosperus-neutral-white ${className || ''}`}
@@ -100,10 +90,21 @@ export const AulaDani: React.FC<AulaDaniProps> = ({ aula = AULA_7_PASSOS, passo 
             aria-label={`Assistir: ${aula.titulo}`}
             className="absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-3 bg-[radial-gradient(ellipse_at_center,_rgba(18,63,91,0.9)_0%,_rgba(2,15,25,0.98)_75%)] text-prosperus-gold-light transition-colors hover:text-prosperus-gold"
           >
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-prosperus-gold-dark text-prosperus-navy-dark shadow-lg" aria-hidden="true">
+            {thumb && !semImagem && (
+              <img
+                src={thumb}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                data-testid="aula-thumb"
+                className="absolute inset-0 h-full w-full object-cover opacity-75"
+                onError={() => setSemImagem(true)}
+              />
+            )}
+            <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-prosperus-gold-dark text-prosperus-navy-dark shadow-lg" aria-hidden="true">
               <IconePlay tamanho={30} />
             </span>
-            <span className="text-[11px] uppercase tracking-[0.2em] font-semibold">Assistir</span>
+            <span className="relative text-[11px] uppercase tracking-[0.2em] font-semibold">Assistir</span>
           </button>
         )}
       </div>
@@ -126,18 +127,7 @@ export const AulaDani: React.FC<AulaDaniProps> = ({ aula = AULA_7_PASSOS, passo 
 
       <p className="mt-3 text-sm leading-relaxed text-prosperus-neutral-white/85">{FRASE_AULA}</p>
 
-      <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1">
-        {aula.duracaoAprox && <span className="text-xs text-white/60">{aula.duracaoAprox}</span>}
-        <a
-          href={linkTelaCheia}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex min-h-[44px] items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] font-semibold text-prosperus-gold-light underline-offset-4 hover:underline"
-        >
-          <IconePlay tamanho={12} />
-          Abrir em tela cheia
-        </a>
-      </div>
+      {aula.duracaoAprox && <p className="mt-1 text-xs text-white/60">{aula.duracaoAprox}</p>}
     </section>
   );
 };

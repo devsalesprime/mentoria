@@ -1,15 +1,15 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import axios from 'axios';
 import { ScriptScreen } from '../../components/script/ScriptScreen';
 
 /**
- * A pilula da versao ("v2 05/09/2026 ▾") da barra da tela "Seu script" e um <details> nativo, igual ao
- * menu "Mais". O "Mais" ja fechava no Esc e no clique fora; a lista de versoes nao, e ficava aberta por
- * cima do script depois que a pessoa desistia de trocar de versao. Agora os dois fecham do mesmo jeito.
+ * A pilula da versao ("v2 05/09/2026 ▾") da barra de cima de "Seu script" e um <details> nativo, igual ao
+ * menu "Baixar". Os dois fecham no Esc e no clique fora, senao ficam abertos por cima do script depois que
+ * a pessoa desiste.
  *
- * O <details> "O que mudou nesta versao" fica de fora de proposito: e um texto que a pessoa abre para
- * ler enquanto mexe no script, nao um menu, e nao pode sumir sozinho.
+ * Onda E1: "O que mudou" deixou de ser um texto aberto na barra e virou um balao (folha no celular), entao
+ * ele fecha do mesmo jeito que os outros dois.
  */
 
 vi.mock('axios');
@@ -60,7 +60,7 @@ async function abrirMenu() {
   expect(await screen.findByText('Script v2')).toBeInTheDocument();
   // O titulo "Script v2" ja aparece com a LISTA de versoes; o resumo so depois que GET /versoes/2 volta.
   // Esperar por ele e o que garante a barra inteira montada (pilula + "O que mudou") em maquina lenta.
-  expect(await screen.findByText('O que mudou nesta versão')).toBeInTheDocument();
+  expect(await screen.findByTestId('mudou-botao')).toBeInTheDocument();
   const menu = container.querySelector('details.script-versao-menu') as HTMLDetailsElement;
   expect(menu).not.toBeNull();
   // jsdom nao abre o <details> sozinho no clique do summary
@@ -103,15 +103,18 @@ describe('menu de versões: fechar sem trocar de versão', () => {
     expect(menu.open).toBe(true);
   });
 
-  it('o texto "O que mudou nesta versão" não fecha junto: não é menu', async () => {
+  it('"O que mudou" abre o resumo e fecha no Esc e no clique fora, como os outros', async () => {
     const { container } = await abrirMenu();
     const mudou = container.querySelector('details.script-mudou') as HTMLDetailsElement;
     expect(mudou).not.toBeNull();
     mudou.open = true;
+    expect(within(screen.getByTestId('mudou-folha')).getByText('trocamos a abertura')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    pointerdown(document.body);
+    expect(mudou.open).toBe(false);
 
-    expect(mudou.open).toBe(true);
+    mudou.open = true;
+    pointerdown(document.body);
+    expect(mudou.open).toBe(false);
   });
 });

@@ -279,7 +279,7 @@ describe('ScriptScreen', () => {
     expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=ambos&versao=1$/), '_blank', 'noopener');
 
     // as decisões saíram do topo e vivem no "Ações", no fim do leitor
-    expect(screen.queryByText('Aprovar o script')).toBeNull();
+    expect(within(screen.getByTestId('script-topo')).queryByText('Aprovar o script')).toBeNull();
     const acoes = await irParaAcoes();
     expect(acoes.getByText('Aprovar o script')).toBeInTheDocument();
     expect(acoes.getByText('Pedir nova versão')).toBeInTheDocument();

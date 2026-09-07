@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { toPng } from 'html-to-image';
 import { Button } from '../ui/Button';
 import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo } from '../../hooks/useScriptFicha';
 import { AvisoModoAutomatico } from './AvisoModoAutomatico';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
-import { ScriptPaper } from './script/ScriptPaper';
+import { ScriptPaper, destacarValores } from './script/ScriptPaper';
 import { ScriptReader, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
 import { TELA_CARTAO, TOTAL_TELAS, clampTela, ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId } from './script/telas';
 import { chaveTarefa } from './script/tarefas';
@@ -20,23 +21,35 @@ export { splitScript };
 /**
  * "Seu script" (/dashboard/script): o script escrito pelo worker a partir da ficha confirmada.
  * Estado 1: sem versao -> aviso "está sendo escrito" + status do job `script`, se houver.
- * Estado 2: versao -> leitor em telas (components/script/script/ScriptReader.tsx): 0 Cartao de bolso (primeira coisa que
- * aparece num script novo; copiar e imprimir em A6) · 1 Sumario (para quem vende, quem conduz, promessa, 3 blocos, os 7
- * passos em uma linha, premissa REP, como usar) · 2..8 um passo por tela com abas Treinamento | Campo · 9 Preparacao e
- * metricas. Barra fixa com Anterior / Proximo e o mapa; setas do teclado; a tela fica lembrada por versao (localStorage);
- * a versao nova abre na mesma tela. Ctrl+P imprime o script inteiro (ScriptPaper escondido, so na impressao).
+ * Estado 2: versao -> barra de cima + leitor em telas (components/script/script/ScriptReader.tsx): 0 Cartao de bolso
+ * (primeira coisa que aparece num script novo) · 1 Sumario · 2..8 um passo por tela · 9 Preparacao e metricas.
+ *
+ * Barra de cima (onda E1, SPEC-workflow-v3-decisoes-07-09 §2, itens 2, 4 e 8):
+ *   esquerda -> pilula da versao (com a troca de versao) e "O que mudou" (folha/popover com o resumo);
+ *   direita  -> "Baixar" (cartao em imagem, os PDFs, o texto .md e a apresentacao quando existe) e a chave
+ *               Treinamento | Campo, na mesma altura e hierarquia do "Baixar".
+ * A chave Treinamento | Campo e GLOBAL: vale para o leitor inteiro, fica lembrada na sessao (sessionStorage) e
+ * nao existe mais dentro do passo. Aprovar, "Pedir nova versão" (com grifos), "Escrever do zero" e "Gerar
+ * apresentação" sairam do topo e viraram o bloco "Ações", no fim do leitor (depois do Passo 7 e da Preparacao).
+ * "Revisar a ficha" e "Aprofundar para o completo" saem daqui: quem leva ate elas e o menu do Dashboard (Ficha).
+ *
+ * Setas do teclado; a tela fica lembrada por versao (localStorage); a versao nova abre na mesma tela. Ctrl+P imprime
+ * o script inteiro (ScriptPaper escondido, so na impressao).
  * Grifos (components/script/grifos/*): selecionar texto -> balao "Grifar" (dourado ajustar, verde manter, vermelho tirar,
- * nota opcional); painel "Seus grifos" ao lado (desktop) ou em folha (celular); "Pedir nova versao com os grifos" converte
- * cada grifo em comentario da revisao ("[GRIFO ajustar] «trecho» → nota") e chama POST /api/script/versoes/:v/revisar.
- * Comentarios por passo continuam (recolhidos em cada tela de passo; o geral fica no sumario). Acoes: Baixar (.md),
- * Imprimir ou salvar em PDF, Aprovar, Pedir nova versao, Gerar do zero. Classes .script-* e a folha de impressao vivem em styles/globals.css.
- * Movimentos (onda C): cada tela de passo traz os treinamentos recomendados, o script, a tabela de perfis quando o markdown
- * tem a secao e as tarefas com checkbox. Esta tela e quem guarda o estado das tarefas: le em GET /api/script/versoes/:v/tarefas
- * quando a versao abre, marca na hora (otimista) e grava em PUT .../tarefas/:passo/:tarefa_id; recusa do servidor volta o
- * checkbox e avisa. Nada no localStorage: a marcacao e por pessoa e por versao, no banco (tabela script_tarefas).
- * Apresentacao comercial (menu "Mais"): a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job`
- * (pedido na fila). Com arquivo -> baixar o PPTX, ver o PDF e as notas; na fila -> "Apresentação sendo montada";
- * sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
+ * nota opcional); painel "Seus grifos" ao lado (desktop) ou em folha (celular, pelo botao flutuante do leitor); "Pedir
+ * nova versao com os grifos" converte cada grifo em comentario da revisao ("[GRIFO ajustar] «trecho» → nota") e chama
+ * POST /api/script/versoes/:v/revisar. Comentarios por passo continuam (recolhidos em cada tela de passo; o geral fica
+ * no sumario). Classes .script-* e a folha de impressao vivem em styles/globals.css.
+ * Movimentos: cada tela de passo traz o script, a tabela de perfis quando o markdown tem a secao, as tarefas com
+ * checkbox e, no fim, os treinamentos recomendados (ocultos na vista Campo). Esta tela e quem guarda o estado das
+ * tarefas: le em GET /api/script/versoes/:v/tarefas quando a versao abre, marca na hora (otimista) e grava em
+ * PUT .../tarefas/:passo/:tarefa_id; recusa do servidor volta o checkbox e avisa. Nada no localStorage: a marcacao
+ * e por pessoa e por versao, no banco (tabela script_tarefas).
+ * Apresentacao comercial: a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job` (pedido na
+ * fila). Com arquivo -> baixar o PPTX (e ver o PDF / as notas no bloco "Ações"); na fila -> "Apresentação sendo
+ * montada"; sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
+ * "Baixar cartão": o cartao de bolso vira PNG (html-to-image, 2x, fundo creme e texto navy) a partir de um cartao
+ * escondido fora da tela (#script-cartao-export), entao funciona de qualquer tela do leitor.
  */
 
 interface ScriptScreenProps {
@@ -90,12 +103,33 @@ interface EntregavelArquivo { campo: string; nome: string; bytes: number; url: s
 interface Entregavel { tipo: string; versao: number; created_at: string; arquivos: EntregavelArquivo[] }
 type VersaoComEntregaveis = ScriptVersion & { entregaveis?: Entregavel[]; slides_job?: ScriptJobInfo | null };
 
-/** Rotulo de cada arquivo da apresentacao no menu (a ordem e a de leitura). */
-const SLIDES_ITENS: Array<{ campo: string; rotulo: string; inline: boolean }> = [
-  { campo: 'pptx', rotulo: 'Baixar apresentação (PPTX)', inline: false },
+/** Os outros arquivos da apresentacao, no bloco "Ações" (o PPTX tem botao proprio). */
+const SLIDES_OUTROS: Array<{ campo: string; rotulo: string; inline: boolean }> = [
   { campo: 'pdf', rotulo: 'Ver em PDF', inline: true },
   { campo: 'notas', rotulo: 'Notas do apresentador', inline: false },
 ];
+
+/** Chave da vista Treinamento | Campo lembrada na sessao (a escolha vale para o leitor inteiro). */
+const MODO_SESSAO = 'script-aba';
+
+function lerModoDaSessao(): DocumentoId | null {
+  try {
+    const v = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(MODO_SESSAO);
+    return v === 'campo' || v === 'treinamento' ? v : null;
+  } catch { return null; }
+}
+
+function guardarModoNaSessao(modo: DocumentoId): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(MODO_SESSAO, modo);
+  } catch { /* sem armazenamento */ }
+}
+
+const IconeBaixar: React.FC = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" />
+  </svg>
+);
 
 export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavigate, pollMs = 20000 }) => {
   const [versoes, setVersoes] = useState<VersaoComEntregaveis[] | null>(null);
@@ -114,9 +148,9 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const [aprovando, setAprovando] = useState(false);
   const [pedindo, setPedindo] = useState(false);
   const [gerandoSlides, setGerandoSlides] = useState(false);
-  const [aprofundando, setAprofundando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [docAtivo, setDocAtivo] = useState<DocumentoId>('treinamento');
+  // Vista Treinamento | Campo: global (a barra de cima manda) e lembrada na sessao
+  const [docAtivo, setDocAtivo] = useState<DocumentoId>(() => lerModoDaSessao() || 'treinamento');
   // leitor em telas
   const [tela, setTelaState] = useState<number>(TELA_CARTAO);
   // grifos
@@ -250,7 +284,6 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     (campo: string) => (slides ? slides.arquivos.find((a) => a.campo === campo) || null : null),
     [slides]
   );
-  const itensDaApresentacao = useMemo(() => SLIDES_ITENS.filter((it) => !!arquivoDoSlides(it.campo)), [arquivoDoSlides]);
   const pptx = useMemo(() => arquivoDoSlides('pptx'), [arquivoDoSlides]);
 
   // Enquanto o job esta na fila/rodando (sem versao, escrevendo a proxima ou montando a apresentacao), consulta de novo a cada 20 s
@@ -265,6 +298,12 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const parsed = useMemo(() => (versao?.content_md ? parseScript(versao.content_md) : null), [versao?.content_md]);
   const multiplos = !!parsed && parsed.documentos.length > 1;
   const temPassos = parsed ? parsed.documentos.some((d) => d.passos.length > 0) : false;
+
+  /** Trocar de vista pela barra de cima: vale para o leitor inteiro e fica lembrada na sessao. */
+  const trocarModo = useCallback((modo: DocumentoId) => {
+    setDocAtivo(modo);
+    guardarModoNaSessao(modo);
+  }, []);
 
   // Tela lembrada por versao: script novo abre no cartao; trocar de versao na mesma sessao mantem a tela
   useEffect(() => {
@@ -300,14 +339,13 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     return () => window.removeEventListener('keydown', onKey);
   }, [modalGrifos, captura, parsed, irPara]);
 
-  // Os menus da barra ("Mais" e a pilula da versao) sao <details> nativos: o navegador nao fecha no Esc
-  // nem ao clicar fora. Aqui os dois passam a fechar dos dois jeitos; no Esc o foco volta para o proprio
-  // botao que abriu. `script-mudou` fica de fora de proposito: e um texto que a pessoa abre para ler,
-  // nao um menu, e nao deve sumir sozinho.
+  // Os menus da barra de cima ("Baixar", a pilula da versao e "O que mudou") sao <details> nativos: o navegador
+  // nao fecha no Esc nem ao clicar fora. Aqui os tres passam a fechar dos dois jeitos; no Esc o foco volta para o
+  // proprio botao que abriu.
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const abertos = () => Array.from(
-      document.querySelectorAll<HTMLDetailsElement>('details.script-mais[open], details.script-versao-menu[open]'),
+      document.querySelectorAll<HTMLDetailsElement>('details.script-mais[open], details.script-versao-menu[open], details.script-mudou[open]'),
     );
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -430,17 +468,42 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   const refFor = useCallback((key: string) => (el: HTMLElement | null) => { sectionRefs.current[key] = el; }, []);
 
+  /** Baixa um arquivo montado aqui (o .md e a imagem do cartao). */
+  const baixarArquivo = (href: string, nome: string) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const download = () => {
     if (!versao?.content_md) return;
     const blob = new Blob([cleanScriptMarkdown(versao.content_md)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `script-${slugify(ficha.data?.club.nome || 'clube')}-v${versao.versao}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    baixarArquivo(url, `script-${slugify(ficha.data?.club.nome || 'clube')}-v${versao.versao}.md`);
     URL.revokeObjectURL(url);
+  };
+
+  /**
+   * "Baixar cartão" (onda E1, item 5 da spec): o cartao de bolso vira PNG. A imagem sai de um cartao escondido
+   * fora da tela (#script-cartao-export), em creme com texto navy, entao dá para baixar de qualquer tela do leitor
+   * e a imagem fica legivel impressa ou no celular. 2x para não sair borrada.
+   */
+  const baixarCartao = async () => {
+    if (typeof document === 'undefined') return;
+    const alvo = document.getElementById('script-cartao-export');
+    if (!alvo || !parsed?.cartao) {
+      setAviso('Esta versão veio sem cartão de bolso.');
+      return;
+    }
+    try {
+      const imagem = await toPng(alvo, { pixelRatio: 2, backgroundColor: '#FCF7F0', cacheBust: true });
+      baixarArquivo(imagem, `cartao-de-bolso-${slugify(ficha.data?.club.nome || 'clube')}-v${versao?.versao ?? selected ?? 1}.png`);
+    } catch {
+      setAviso('Não deu para baixar o cartão agora. Tente de novo.');
+    }
   };
 
   /**
@@ -456,27 +519,6 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       if (aberta) return;
     }
     window.location.assign(url);
-  };
-
-  /** Imprime so o cartao de bolso (A6): classe no body + @page temporario; a folha de impressao normal fica escondida. */
-  const imprimirCartao = () => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    const style = document.createElement('style');
-    style.id = 'script-cartao-page';
-    style.textContent = '@page { size: A6; margin: 8mm; }';
-    document.head.appendChild(style);
-    document.body.classList.add('script-print-cartao');
-    let limpo = false;
-    const limpar = () => {
-      if (limpo) return;
-      limpo = true;
-      document.body.classList.remove('script-print-cartao');
-      style.remove();
-      window.removeEventListener('afterprint', limpar);
-    };
-    window.addEventListener('afterprint', limpar);
-    window.print();
-    setTimeout(limpar, 60000);
   };
 
   /** Abre um arquivo da apresentacao comercial (o token vai na URL: o link nasce fora do axios). */
@@ -511,27 +553,20 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   };
 
   /**
-   * Bloco da apresentacao no Cartao de bolso (SPEC-workflow-v2-decisoes-06-09 §1, decisao 3): o cartao e o que
-   * vai para a reuniao, entao o PPTX fica ali, com a instrucao de modo apresentador e duas telas. Mesmo pedido
-   * do menu "Mais" (POST /api/script/versoes/:versao/slides).
+   * Bloco da apresentacao no "Ações", no fim do leitor (onda E1, item 1: ele saiu do Cartao de bolso).
+   * Mesmo pedido de sempre: POST /api/script/versoes/:versao/slides.
    */
   const apresentacao: ApresentacaoCartao = pptx
-    ? { estado: 'pronta', onBaixar: () => abrirEntregavel(pptx, false) }
+    ? {
+      estado: 'pronta',
+      onBaixar: () => abrirEntregavel(pptx, false),
+      outros: SLIDES_OUTROS
+        .filter((it) => !!arquivoDoSlides(it.campo))
+        .map((it) => ({ campo: it.campo, rotulo: it.rotulo, onAbrir: () => abrirEntregavel(arquivoDoSlides(it.campo)!, it.inline) })),
+    }
     : slidesJobAtivo
     ? { estado: 'montando' }
     : { estado: 'ausente', onGerar: gerarSlides, gerando: gerandoSlides };
-
-  /** "Aprofundar para o completo": quem entrou pelo essencial abre a ficha inteira sem perder o que respondeu. */
-  const modoEssencial = ficha.data?.modo === 'essencial';
-  const aprofundar = async () => {
-    if (aprofundando) return;
-    setAprofundando(true);
-    const r = await ficha.definirModo('completo');
-    setAprofundando(false);
-    setAviso(r.ok
-      ? 'Pronto: a ficha completa está aberta. O que você já respondeu continua salvo.'
-      : (r.message || 'Não deu para abrir a ficha completa agora. Tente de novo.'));
-  };
 
   const enviarComentario = async (passo: number) => {
     const texto = (draft[passo] || '').trim();
@@ -769,6 +804,42 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const aprovado = versao?.status === 'aprovado';
   const totalPendentes = pendentes.length;
 
+  /**
+   * "Ações", no fim do leitor (onda E1, item 2 da spec: nada disso fica no topo). Aprovar, pedir a nova versão
+   * (com os grifos, quando houver) e escrever do zero, que é o caminho de volta quando a versão não serve.
+   */
+  const acoesFinais = (
+    <>
+      {!aprovado ? (
+        <Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar o script</Button>
+      ) : (
+        <span className="script-acao script-acao-aprovado" data-testid="script-aprovado">
+          Aprovado{versao?.aprovado_em ? ` em ${formatDate(versao.aprovado_em)}` : ''}
+        </span>
+      )}
+      {totalPendentes > 0 && (
+        <Button variant="primary" size="md" onClick={() => setModalGrifos(true)} disabled={pedindo || scriptJobAtivo || !versao} data-testid="pedir-com-grifos">
+          {scriptJobAtivo ? 'Nova versão a caminho' : `Pedir nova versão com os grifos (${totalPendentes})`}
+        </Button>
+      )}
+      <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || scriptJobAtivo || !versao}>
+        {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
+      </Button>
+      <button
+        type="button"
+        className="script-acao script-acao-perigo"
+        data-testid="escrever-do-zero"
+        onClick={() => {
+          if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm('Escrever o script do zero? Isso ignora os grifos e os comentários desta versão e escreve de novo a partir da ficha.')) return;
+          gerarDoZero();
+        }}
+        disabled={pedindo || scriptJobAtivo}
+      >
+        Escrever do zero
+      </button>
+    </>
+  );
+
   const painel = parsed && (
     <GrifosPanel
       grifos={grifos}
@@ -793,151 +864,102 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           onEssencial={() => ficha.definirModo('essencial')}
         />
       </div>
-      {/* Cabecalho e acoes: pilula da versao (com a troca num menu), "O que mudou", Aprovar, Pedir nova versao e o menu "Mais" */}
+      {/* Barra de cima: esquerda = versão e "O que mudou"; direita = "Baixar" e a chave Treinamento | Campo */}
       <div className="script-no-print flex flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-prosperus-gold-dark font-semibold">Seu script</p>
-            <h2 className="font-serif text-2xl sm:text-3xl text-white leading-tight">
-              Script v{versao?.versao ?? selected}
-              {aprovado && <span className="ml-3 align-middle text-[11px] font-sans font-semibold px-2 py-0.5 rounded-full bg-green-600/20 text-green-400">aprovado</span>}
-            </h2>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <details className="script-versao-menu">
-                <summary className="script-versao-pilula" aria-label="Trocar a versão do script" data-testid="versao-pilula">
-                  <span className="font-semibold text-prosperus-gold-light">v{versao?.versao ?? selected}</span>
-                  {versao?.created_at && <span className="text-white/60">{formatDate(versao.created_at)}</span>}
-                  {versoes.length > 1 && <span aria-hidden="true" className="text-white/50">&#x25BE;</span>}
-                </summary>
-                {versoes.length > 1 && (
-                  <div className="script-versao-lista" role="menu" aria-label="Versões do script">
-                    {versoes.map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        role="menuitem"
-                        className={`script-menu-item ${v.versao === selected ? 'script-menu-item-atual' : ''}`}
-                        onClick={(e) => { setSelected(v.versao); e.currentTarget.closest('details')?.removeAttribute('open'); }}
-                      >
-                        <span>Versão {v.versao}{v.status === 'aprovado' ? ' · aprovada' : ''}</span>
-                        <span className="text-xs text-white/50">{formatDate(v.created_at)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </details>
-              {versao?.resumo && (
-                <details className="script-mudou">
-                  <summary>O que mudou nesta versão</summary>
-                  <p className="script-mudou-texto">{versao.resumo}</p>
-                </details>
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-prosperus-gold-dark font-semibold">Seu script</p>
+          <h2 className="font-serif text-2xl sm:text-3xl text-white leading-tight">
+            Script v{versao?.versao ?? selected}
+            {aprovado && <span className="ml-3 align-middle text-[11px] font-sans font-semibold px-2 py-0.5 rounded-full bg-green-600/20 text-green-400">aprovado</span>}
+          </h2>
+        </div>
+
+        <div className="script-topo" data-testid="script-topo">
+          <div className="script-topo-lado">
+            <details className="script-versao-menu">
+              <summary className="script-versao-pilula" aria-label="Trocar a versão do script" data-testid="versao-pilula">
+                <span className="font-semibold text-prosperus-gold-light">v{versao?.versao ?? selected}</span>
+                {versao?.created_at && <span className="text-white/60">{formatDate(versao.created_at)}</span>}
+                {versoes.length > 1 && <span aria-hidden="true" className="text-white/50">&#x25BE;</span>}
+              </summary>
+              {versoes.length > 1 && (
+                <div className="script-versao-lista" role="menu" aria-label="Versões do script">
+                  {versoes.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="menuitem"
+                      className={`script-menu-item ${v.versao === selected ? 'script-menu-item-atual' : ''}`}
+                      onClick={(e) => { setSelected(v.versao); e.currentTarget.closest('details')?.removeAttribute('open'); }}
+                    >
+                      <span>Versão {v.versao}{v.status === 'aprovado' ? ' · aprovada' : ''}</span>
+                      <span className="text-xs text-white/50">{formatDate(v.created_at)}</span>
+                    </button>
+                  ))}
+                </div>
               )}
-            </div>
+            </details>
+            {versao?.resumo && (
+              <details className="script-mudou">
+                <summary className="script-topo-btn" aria-label="Ver o que mudou nesta versão" data-testid="mudou-botao">O que mudou</summary>
+                <div className="script-mudou-folha" data-testid="mudou-folha">
+                  <span className="script-menu-rotulo">O que mudou nesta versão</span>
+                  <p className="script-mudou-texto">{versao.resumo}</p>
+                  <button type="button" className="script-menu-item script-mais-fechar" onClick={(e) => e.currentTarget.closest('details')?.removeAttribute('open')}>Fechar</button>
+                </div>
+              </details>
+            )}
           </div>
 
-          <div className="script-acoes">
-            {!aprovado ? (
-              <span className="script-acoes-primaria"><Button variant="primary" size="md" onClick={aprovar} loading={aprovando} disabled={aprovando || !versao}>Aprovar o script</Button></span>
-            ) : (
-              <span className="script-acoes-primaria inline-flex min-h-[44px] items-center justify-center rounded-lg border border-green-500/40 px-4 text-sm font-semibold text-green-300">
-                Aprovado{versao?.aprovado_em ? ` em ${formatDate(versao.aprovado_em)}` : ''}
-              </span>
-            )}
-            {totalPendentes > 0 && (
-              <Button variant="primary" size="md" onClick={() => setModalGrifos(true)} disabled={pedindo || scriptJobAtivo || !versao} data-testid="pedir-com-grifos">
-                {scriptJobAtivo ? 'Nova versão a caminho' : `Pedir nova versão com os grifos (${totalPendentes})`}
-              </Button>
-            )}
-            <Button variant="secondary" size="md" onClick={pedirNova} loading={pedindo} disabled={pedindo || scriptJobAtivo || !versao}>
-              {scriptJobAtivo ? 'Nova versão a caminho' : 'Pedir nova versão'}
-            </Button>
+          <div className="script-topo-lado script-topo-direita">
             <details className="script-mais">
-              <summary className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-white/20 px-4 text-sm font-semibold text-white/85 hover:bg-white/10" aria-label="Mais ações">
-                Mais <span aria-hidden="true" className="text-white/50">&#x25BE;</span>
+              <summary className="script-topo-btn script-topo-btn-forte" aria-label="Baixar" data-testid="baixar-botao">
+                <IconeBaixar />
+                Baixar
+                <span aria-hidden="true" className="text-black/50">&#x25BE;</span>
               </summary>
-              <div className="script-mais-menu">
-                <div role="group" aria-label="Imprimir ou salvar em PDF">
-                  <span className="script-menu-rotulo">Imprimir ou salvar em PDF</span>
-                  {multiplos ? (
-                    <>
-                      <button type="button" className="script-menu-item" onClick={() => abrirImpressao('treinamento')} disabled={!versao?.content_md} data-testid="pdf-treinamento">Treinamento</button>
-                      <button type="button" className="script-menu-item" onClick={() => abrirImpressao('campo')} disabled={!versao?.content_md} data-testid="pdf-campo">Campo</button>
-                      <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Os dois</button>
-                    </>
-                  ) : (
-                    <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Imprimir o script</button>
-                  )}
-                </div>
+              <div className="script-mais-menu" role="group" aria-label="Baixar">
+                <button type="button" className="script-menu-item" data-testid="baixar-cartao" disabled={!parsed?.cartao} onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); baixarCartao(); }}>Cartão de bolso (imagem)</button>
                 <div className="script-menu-sep" />
-                <div role="group" aria-label="Apresentação comercial">
-                  <span className="script-menu-rotulo">Apresentação comercial</span>
-                  {itensDaApresentacao.length > 0 ? (
-                    itensDaApresentacao.map((it) => (
-                      <button
-                        key={it.campo}
-                        type="button"
-                        className="script-menu-item"
-                        data-testid={`slides-${it.campo}`}
-                        onClick={() => abrirEntregavel(arquivoDoSlides(it.campo)!, it.inline)}
-                      >
-                        {it.rotulo}
-                      </button>
-                    ))
-                  ) : slidesJobAtivo ? (
-                    <button type="button" className="script-menu-item" data-testid="slides-montando" disabled>Apresentação sendo montada</button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="script-menu-item"
-                      data-testid="slides-gerar"
-                      disabled={gerandoSlides || !versao}
-                      onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); gerarSlides(); }}
-                    >
-                      Gerar apresentação
-                    </button>
-                  )}
-                </div>
-                <div className="script-menu-sep" />
-                <button type="button" className="script-menu-item" onClick={download} disabled={!versao?.content_md}>Baixar o texto</button>
-                {onNavigate && (
-                  <button type="button" className="script-menu-item" onClick={() => onNavigate('script_ficha')} data-testid="link-revisar-ficha">
-                    {modoEssencial ? 'Revisar a ficha essencial' : 'Revisar a ficha'}
-                  </button>
+                {multiplos ? (
+                  <>
+                    <button type="button" className="script-menu-item" onClick={() => abrirImpressao('campo')} disabled={!versao?.content_md} data-testid="pdf-campo">Script de campo (PDF)</button>
+                    <button type="button" className="script-menu-item" onClick={() => abrirImpressao('treinamento')} disabled={!versao?.content_md} data-testid="pdf-treinamento">Treinamento (PDF)</button>
+                    <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Os dois (PDF)</button>
+                  </>
+                ) : (
+                  <button type="button" className="script-menu-item" onClick={() => abrirImpressao('ambos')} disabled={!versao?.content_md} data-testid="pdf-ambos">Script (PDF)</button>
                 )}
-                {modoEssencial && (
-                  <button
-                    type="button"
-                    className="script-menu-item"
-                    data-testid="aprofundar-completo"
-                    disabled={aprofundando}
-                    onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); aprofundar(); }}
-                  >
-                    Aprofundar para o completo
-                  </button>
+                <button type="button" className="script-menu-item" data-testid="baixar-md" onClick={download} disabled={!versao?.content_md}>Texto (.md)</button>
+                {pptx && (
+                  <button type="button" className="script-menu-item" data-testid="slides-pptx" onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); abrirEntregavel(pptx, false); }}>Apresentação (PPTX)</button>
                 )}
-                <div className="script-menu-sep" />
-                <button
-                  type="button"
-                  className="script-menu-item script-menu-item-perigo"
-                  onClick={(e) => {
-                    e.currentTarget.closest('details')?.removeAttribute('open');
-                    if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm('Escrever o script do zero? Isso ignora os grifos e os comentários desta versão e escreve de novo a partir da ficha.')) return;
-                    gerarDoZero();
-                  }}
-                  disabled={pedindo || scriptJobAtivo}
-                >
-                  Escrever do zero
-                </button>
                 <button type="button" className="script-menu-item script-mais-fechar" onClick={(e) => e.currentTarget.closest('details')?.removeAttribute('open')}>Fechar</button>
               </div>
             </details>
-            {parsed && (
-              <Button variant="outline" size="md" className="lg:hidden" onClick={() => setPainelAberto(true)} aria-label="Abrir a lista de grifos">
-                Grifos{grifos.length ? ` (${grifos.length})` : ''}
-              </Button>
+            {multiplos && (
+              <div className="script-modo" role="group" aria-label="Modo de leitura" data-testid="script-modo">
+                {(['treinamento', 'campo'] as DocumentoId[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={docAtivo === id}
+                    data-testid={`modo-${id}`}
+                    onClick={() => trocarModo(id)}
+                    className={`script-modo-btn ${docAtivo === id ? 'script-modo-btn-ativo' : ''}`}
+                  >
+                    {id === 'campo' ? 'Campo' : 'Treinamento'}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
+        {multiplos && (
+          <p className="script-modo-legenda" data-testid="modo-legenda">
+            {docAtivo === 'campo' ? 'Campo: só o que dizer e perguntar, para levar aberto na conversa.' : 'Treinamento: cada fala com o porquê, mais as gravações recomendadas.'}
+          </p>
+        )}
         {aviso && <p className="text-xs text-prosperus-gold-light">{aviso}</p>}
         {scriptJobAtivo && !aviso && (
           <p className="text-xs text-white/60 flex items-center gap-2">
@@ -962,12 +984,12 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               tela={tela}
               onTela={irPara}
               documento={docAtivo}
-              onDocumento={setDocAtivo}
               marcadas={marcadas}
               comentariosDo={renderComentarios}
               ficha={fichaResumo}
-              onImprimirCartao={imprimirCartao}
+              onBaixarCartao={baixarCartao}
               apresentacao={apresentacao}
+              acoes={acoesFinais}
               totalGrifos={grifos.length}
               onAbrirGrifos={() => setPainelAberto(true)}
               rootRef={readerRef}
@@ -1000,7 +1022,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
       {/* Balao "Grifar" sobre a selecao */}
       {parsed && captura && (
-        <GrifoBubble captura={captura} onSalvar={salvarGrifo} onCancelar={() => setCaptura(null)} erro={grifosApi.erro} />
+        <GrifoBubble captura={captura} onSalvar={salvarGrifo} onCancelar={() => setCaptura(null)} erro={grifosApi.erro} anexar={grifosApi.anexarNoUltimo} />
       )}
 
       {parsed && (
@@ -1029,10 +1051,14 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         </div>
       )}
 
-      {/* Cartao de bolso para a impressao em A6 ("Imprimir cartão") */}
+      {/* Cartao de bolso de onde sai a imagem do "Baixar cartão": fora da tela, em creme com texto navy.
+          Fica sempre montado para o download funcionar de qualquer tela do leitor. */}
       {parsed && parsed.cartao && (
-        <div id="script-cartao-print" className="hidden" aria-hidden="true">
-          <div className="script-cartao-corpo" dangerouslySetInnerHTML={{ __html: parsed.cartao.html }} />
+        <div className="script-cartao-export-fora script-no-print" aria-hidden="true">
+          <div id="script-cartao-export" className="script-cartao script-cartao-export">
+            <h2 className="font-serif text-2xl leading-tight">Cartão de bolso</h2>
+            <div className="script-cartao-corpo mt-2" dangerouslySetInnerHTML={{ __html: destacarValores(parsed.cartao.html) }} />
+          </div>
         </div>
       )}
     </div>

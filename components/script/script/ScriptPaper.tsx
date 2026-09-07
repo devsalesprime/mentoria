@@ -8,7 +8,8 @@ import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
 /**
  * A folha do script: papel creme, bloco de titulo, cabecalho, "Como usar", os documentos (treinamento e campo),
  * cada passo com medalhao dourado, falas em cartoes de citacao com "copiar", perguntas em checklist, notas lado a
- * lado, Mapa de preparacao em tabela e Cartao de bolso com "Copiar cartao". Sem estado de rede: recebe tudo pronto.
+ * lado, Mapa de preparacao em tabela e Cartao de bolso (as acoes dele vem de fora, em `acoes`; onda E1 tirou o
+ * "Copiar cartao" e o "Imprimir cartao" em favor de um "Baixar cartao" so). Sem estado de rede: recebe tudo pronto.
  * Classes `.script-*` e a folha de impressao vivem em styles/globals.css.
  */
 
@@ -85,10 +86,10 @@ export function comTags(texto: string): React.ReactNode {
  * Cartao de uma fala: a citacao grande e legivel; a "Anatomia da fala" (treinamento) fica fechada atras de
  * "Por que funciona" (sao dezenas de anatomias por script; abertas, atrapalham a leitura).
  */
-const FalaCard: React.FC<{ fala: Fala; passo: number }> = ({ fala, passo }) => {
+const FalaCard: React.FC<{ fala: Fala; passo: number; semAnatomia?: boolean }> = ({ fala, passo, semAnatomia }) => {
   const [ativo, setAtivo] = useState<number | null>(null);
   const [porque, setPorque] = useState(false);
-  const temAnatomia = fala.anatomia.length > 0 || fala.anatomiaBruta.length > 0;
+  const temAnatomia = !semAnatomia && (fala.anatomia.length > 0 || fala.anatomiaBruta.length > 0);
   return (
     <figure className="script-fala">
       <div className="flex items-start justify-between gap-3">
@@ -138,10 +139,7 @@ export const CartaoView: React.FC<{ cartao: NonNullable<ScriptDoc['cartao']>; mo
   <section id={id || 'script-cartao'} className="script-cartao scroll-mt-20 lg:scroll-mt-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <h2 className="font-serif text-2xl sm:text-[1.7rem] text-prosperus-gold-light leading-tight">Cartão de bolso</h2>
-      <div className="script-cartao-acoes">
-        <CopyButton texto={cartao.texto} rotulo="Copiar cartão" ariaLabel="Copiar cartão de bolso" className="script-copiar-claro" />
-        {acoes}
-      </div>
+      {acoes && <div className="script-cartao-acoes">{acoes}</div>}
     </div>
     {montado && <p className="text-sm text-prosperus-gold-light/80 mt-2">Montado a partir do script de campo: a primeira fala de cada passo.</p>}
     <div className="script-cartao-corpo mt-2" dangerouslySetInnerHTML={{ __html: destacarValores(cartao.html) }} />
@@ -201,12 +199,12 @@ const Objecoes: React.FC<{ bloco: Bloco }> = ({ bloco }) => (
   </div>
 );
 
-const Dizer: React.FC<{ bloco: Bloco; passo: number }> = ({ bloco, passo }) => (
+const Dizer: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean }> = ({ bloco, passo, semAnatomia }) => (
   <div className="script-dizer space-y-3">
     <Rotulo>{bloco.rotulo}</Rotulo>
     {bloco.dizer.map((node, i) => node.kind === 'sub'
       ? <h3 key={i} className="script-h3 font-serif text-lg text-prosperus-navy-panel pt-2">{node.titulo}</h3>
-      : <FalaCard key={i} fala={node} passo={passo} />)}
+      : <FalaCard key={i} fala={node} passo={passo} semAnatomia={semAnatomia} />)}
   </div>
 );
 
@@ -238,7 +236,7 @@ export function agrupa(blocos: Bloco[]): (Bloco | Bloco[])[] {
   return out;
 }
 
-const BlocoView: React.FC<{ bloco: Bloco; passo: number }> = ({ bloco, passo }) => {
+const BlocoView: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean }> = ({ bloco, passo, semAnatomia }) => {
   switch (bloco.tipo) {
     case 'objetivo':
       return (
@@ -247,7 +245,7 @@ const BlocoView: React.FC<{ bloco: Bloco; passo: number }> = ({ bloco, passo }) 
           <span className="font-serif text-[1.15rem] leading-snug text-prosperus-navy-panel">{comTags(bloco.inline || bloco.itens.join(' '))}</span>
         </p>
       );
-    case 'dizer': return <Dizer bloco={bloco} passo={passo} />;
+    case 'dizer': return <Dizer bloco={bloco} passo={passo} semAnatomia={semAnatomia} />;
     case 'perguntas': return <Checklist bloco={bloco} />;
     case 'objecoes': return <Objecoes bloco={bloco} />;
     case 'outro': return <Generico bloco={bloco} />;
@@ -255,12 +253,15 @@ const BlocoView: React.FC<{ bloco: Bloco; passo: number }> = ({ bloco, passo }) 
   }
 };
 
-/** So os blocos de um passo (o leitor em telas poe o proprio cabecalho). */
-export const PassoCorpo: React.FC<{ passo: PassoDoc }> = ({ passo }) => (
+/**
+ * So os blocos de um passo (o leitor em telas poe o proprio cabecalho).
+ * `semAnatomia` esconde o "Por que funciona" das falas: e o que a vista Campo pede (onda E1, item 2).
+ */
+export const PassoCorpo: React.FC<{ passo: PassoDoc; semAnatomia?: boolean }> = ({ passo, semAnatomia }) => (
   <div className="space-y-4">
     {agrupa(passo.blocos).map((item, i) => Array.isArray(item)
-      ? <div key={i} className="grid gap-3 sm:grid-cols-2">{item.map((b, j) => <BlocoView key={j} bloco={b} passo={passo.n} />)}</div>
-      : <BlocoView key={i} bloco={item} passo={passo.n} />)}
+      ? <div key={i} className="grid gap-3 sm:grid-cols-2">{item.map((b, j) => <BlocoView key={j} bloco={b} passo={passo.n} semAnatomia={semAnatomia} />)}</div>
+      : <BlocoView key={i} bloco={item} passo={passo.n} semAnatomia={semAnatomia} />)}
   </div>
 );
 

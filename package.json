@@ -27,6 +27,7 @@
     "express-rate-limit": "^8.2.1",
     "framer-motion": "^12.23.25",
     "helmet": "^8.1.0",
+    "html-to-image": "^1.11.13",
     "html2pdf.js": "^0.14.0",
     "jsonwebtoken": "^9.0.3",
     "marked": "^17.0.3",

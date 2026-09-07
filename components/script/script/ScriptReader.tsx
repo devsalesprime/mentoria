@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { ScriptDoc } from './parseScript';
 import { documentoDe } from './parseScript';
 import { CartaoView, MapaSection, PassoCorpo, PremissaBox, comTags } from './ScriptPaper';
-import { AulaDani, AulaFolha } from './AulaDani';
+import { AulaDani } from './AulaDani';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
 import { TreinamentosPasso } from './TreinamentosPasso';
 import { TarefasPasso } from './TarefasPasso';
@@ -13,32 +13,32 @@ import {
 } from './telas';
 
 /**
- * O leitor em telas de "Seu script": 0 Cartao de bolso · 1 Sumario · 2..8 um passo por tela (abas Treinamento | Campo)
- * · 9 Preparacao e metricas. Barra fixa no rodape com Anterior, Proximo, o item "Aula" e o mapa (Cartao · Sumario · 1 a 7 ·
- * Preparacao; a tela atual em dourado; um ponto quando a tela tem grifo ou comentario). No celular a barra tem duas
- * linhas (o mapa em cima, os botoes embaixo) para caber em 390px sem rolagem horizontal. Cada tela leva `data-tela` e
- * `data-documento` para a ancora dos grifos. Sem estado de rede: recebe tudo pronto.
+ * O leitor em telas de "Seu script": 0 Cartao de bolso · 1 Sumario · 2..8 um passo por tela · 9 Preparacao e metricas.
  *
- * A aula da Dani sobre os 7 passos (data/aula-7-passos.ts) aparece em tres lugares: o cartao no Sumario (logo depois da
- * lista dos 7 passos), o item "Aula" da barra (abre a folha/painel de qualquer tela) e "Ver na aula da Dani" sob o titulo
- * de cada passo (abre a mesma folha ja no passo). A folha e o AulaFolha (components/script/script/AulaDani.tsx).
+ * Onda E1 (SPEC-workflow-v3-decisoes-07-09 §2):
+ * - a escolha Treinamento | Campo saiu de dentro do passo e virou global, na barra de cima da tela (ScriptScreen);
+ *   aqui ela chega pronta em `documento`. Na vista Campo o leitor esconde os treinamentos e o "Por que funciona"
+ *   das falas: fica so o que o vendedor usa na reuniao;
+ * - a navegacao (mapa Cartao · Sumario · 1 a 7 · Preparacao) fica numa barra so: grudada no ALTO no desktop e no
+ *   RODAPE no celular (a ordem visual e do CSS, `.script-barra`), sempre com Anterior e Proximo e as setas do teclado;
+ * - a barra nao tem mais "Aula" nem "Grifos": a aula macro vive so no Sumario e a lista de grifos abre num botao
+ *   flutuante (celular);
+ * - os treinamentos foram para o FIM da tela do passo, depois das tarefas;
+ * - o Cartao de bolso tem um botao so, "Baixar cartão" (imagem), e a apresentacao comercial saiu dele;
+ * - "Ações" (aprovar, pedir nova versao, escrever do zero e a apresentacao) fica no FIM de tudo, depois do Passo 7,
+ *   na tela de Preparacao.
  *
- * Onda C (SPEC-workflow-v2-decisoes-06-09 §1 decisao 4 e §3): cada tela de passo e um MOVIMENTO, nesta ordem:
- *   objetivo -> "Treinamentos deste passo" (ate 2 gravacoes, player so no toque) -> o script (abas Treinamento | Campo)
- *   -> a tabela "Quem esta do outro lado", quando o markdown traz a secao -> "Tarefas" com checkbox.
- * As tarefas sao por pessoa e por versao e vivem no servidor (tabela script_tarefas); esta tela e controlada:
- * recebe `tarefasConcluidas` e chama `onTarefa`. O Sumario mostra a contagem de cada passo num chip.
+ * Cada tela leva `data-tela` e `data-documento` para a ancora dos grifos. Sem estado de rede: recebe tudo pronto.
  */
 
 /** Valores da ficha que o sumario mostra quando o cabecalho do script nao os traz. */
 export interface FichaResumo { oferta?: string; promessa?: string; quemConduz?: string; paraQuem?: string; }
 
 /**
- * Apresentacao comercial no Cartao de bolso (SPEC-workflow-v2-decisoes-06-09 §1, decisao 3): o cartao e o que
- * o mentor leva para a reuniao, entao o PPTX mora aqui, com a instrucao de modo apresentador e duas telas.
- *   'pronta'  -> "Baixar apresentação (PPTX)" + como usar
+ * Apresentacao comercial (PPTX). Onda E1, item 1: o bloco sai do Cartao de bolso e vai para o "Ações", no fim.
+ *   'pronta'  -> "Baixar apresentação (PPTX)" + como usar (+ os outros arquivos, quando existirem)
  *   'montando'-> "Apresentação sendo montada" (job `slides` na fila ou rodando)
- *   'ausente' -> "Gerar apresentação" (o mesmo pedido do menu "Mais")
+ *   'ausente' -> "Gerar apresentação"
  */
 export type EstadoApresentacao = 'pronta' | 'montando' | 'ausente';
 export interface ApresentacaoCartao {
@@ -46,12 +46,16 @@ export interface ApresentacaoCartao {
   onBaixar?: () => void;
   onGerar?: () => void;
   gerando?: boolean;
+  /** Outros arquivos da apresentacao ja publicados (o PDF para ver e as notas do apresentador). */
+  outros?: Array<{ campo: string; rotulo: string; onAbrir: () => void }>;
 }
 
 export const COPY_PPTX_BAIXAR = 'Baixar apresentação (PPTX)';
 export const COPY_PPTX_MONTANDO = 'Apresentação sendo montada';
 export const COPY_PPTX_GERAR = 'Gerar apresentação';
 export const COPY_PPTX_COMO_USAR = 'Abra no PowerPoint, escolha Modo de apresentador e conecte uma segunda tela: os slides vão para o cliente e o roteiro do script fica com você, nas notas.';
+export const COPY_BAIXAR_CARTAO = 'Baixar cartão';
+export const ROTULO_ACOES = 'Ações';
 
 interface ScriptReaderProps {
   doc: ScriptDoc;
@@ -59,14 +63,16 @@ interface ScriptReaderProps {
   tela: number;
   onTela: (t: number) => void;
   documento: DocumentoId;
-  onDocumento: (d: DocumentoId) => void;
   /** Telas com grifo ou comentario (ponto no mapa). */
   marcadas: Set<number>;
   comentariosDo: (passo: number) => React.ReactNode;
   ficha?: FichaResumo;
-  onImprimirCartao?: () => void;
-  /** Apresentação comercial (PPTX) no Cartão de bolso; ausente = a tela não mostra o bloco. */
+  /** "Baixar cartão": o cartao de bolso vira imagem (PNG). */
+  onBaixarCartao?: () => void;
+  /** Apresentação comercial (PPTX), no bloco "Ações" do fim. */
   apresentacao?: ApresentacaoCartao;
+  /** Botoes de decisao (aprovar, pedir nova versao, escrever do zero), no bloco "Ações" do fim. */
+  acoes?: React.ReactNode;
   totalGrifos: number;
   onAbrirGrifos?: () => void;
   rootRef: React.RefObject<HTMLDivElement | null>;
@@ -79,18 +85,15 @@ interface ScriptReaderProps {
 const SEM_TAREFAS: ReadonlySet<string> = new Set<string>();
 
 const DICA_GRIFO = 'script-dica-grifo';
-const ABA_SESSAO = 'script-aba';
 
-function lerFlag(chave: string, store: 'localStorage' | Storage = 'localStorage'): string | null {
+function lerFlag(chave: string): string | null {
   try {
-    const s = store === 'localStorage' ? (typeof localStorage === 'undefined' ? null : localStorage) : store;
-    return s ? s.getItem(chave) : null;
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem(chave);
   } catch { return null; }
 }
-function guardarFlag(chave: string, valor: string, store: 'localStorage' | Storage = 'localStorage'): void {
+function guardarFlag(chave: string, valor: string): void {
   try {
-    const s = store === 'localStorage' ? (typeof localStorage === 'undefined' ? null : localStorage) : store;
-    if (s) s.setItem(chave, valor);
+    if (typeof localStorage !== 'undefined') localStorage.setItem(chave, valor);
   } catch { /* sem armazenamento */ }
 }
 
@@ -112,57 +115,68 @@ const Intro: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p className="script-tela-intro">{children}</p>
 );
 
-/** Bloco da apresentacao comercial embaixo do cartao: o PPTX com o roteiro nas notas. */
+/** Bloco da apresentacao comercial dentro de "Ações": o PPTX com o roteiro nas notas. */
 const BlocoApresentacao: React.FC<{ apresentacao: ApresentacaoCartao }> = ({ apresentacao }) => (
-  <section className="script-no-print rounded-lg border border-white/10 bg-prosperus-navy-panel p-4 space-y-2" aria-label="Apresentação comercial" data-testid="cartao-apresentacao">
-    <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Apresentação comercial</p>
+  <section className="script-no-print script-acoes-apresentacao" aria-label="Apresentação comercial" data-testid="cartao-apresentacao">
+    <p className="script-nota-rotulo">Apresentação comercial</p>
     {apresentacao.estado === 'pronta' ? (
       <>
-        <button
-          type="button"
-          onClick={apresentacao.onBaixar}
-          className="min-h-[44px] inline-flex items-center justify-center rounded-lg bg-prosperus-gold-dark px-5 text-sm font-bold text-black hover:bg-prosperus-gold-hover transition"
-          data-testid="cartao-pptx-baixar"
-        >
+        <button type="button" onClick={apresentacao.onBaixar} className="script-acao script-acao-forte" data-testid="cartao-pptx-baixar">
           {COPY_PPTX_BAIXAR}
         </button>
-        <p className="text-sm text-white/70 font-sans leading-relaxed" data-testid="cartao-pptx-como-usar">{COPY_PPTX_COMO_USAR}</p>
+        {(apresentacao.outros || []).map((o) => (
+          <button key={o.campo} type="button" onClick={o.onAbrir} className="script-acao" data-testid={`slides-${o.campo}`}>
+            {o.rotulo}
+          </button>
+        ))}
+        <p className="script-acoes-nota" data-testid="cartao-pptx-como-usar">{COPY_PPTX_COMO_USAR}</p>
       </>
     ) : apresentacao.estado === 'montando' ? (
-      <p className="text-sm text-white/70 font-sans" data-testid="cartao-pptx-montando">{COPY_PPTX_MONTANDO}</p>
+      <p className="script-acoes-nota" data-testid="cartao-pptx-montando">{COPY_PPTX_MONTANDO}</p>
     ) : (
       <>
         <button
           type="button"
           onClick={apresentacao.onGerar}
           disabled={apresentacao.gerando}
-          className="min-h-[44px] inline-flex items-center justify-center rounded-lg border border-white/20 px-5 text-sm font-semibold text-white/85 hover:bg-white/10 transition disabled:opacity-50"
+          className="script-acao"
           data-testid="cartao-pptx-gerar"
         >
           {COPY_PPTX_GERAR}
         </button>
-        <p className="text-sm text-white/70 font-sans leading-relaxed">Os slides saem com as falas do script nas notas do apresentador.</p>
+        <p className="script-acoes-nota">Os slides saem com as falas do script nas notas do apresentador.</p>
       </>
     )}
   </section>
 );
 
-const TelaCartao: React.FC<{ doc: ScriptDoc; onImprimir?: () => void; apresentacao?: ApresentacaoCartao }> = ({ doc, onImprimir, apresentacao }) => (
+/** "Ações": o fim de tudo, depois do Passo 7 e da Preparação. */
+const BlocoAcoes: React.FC<{ acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao }> = ({ acoes, apresentacao }) => {
+  if (!acoes && !apresentacao) return null;
+  return (
+    <section className="script-acoes-fim script-no-print" aria-label={ROTULO_ACOES} data-testid="acoes-fim">
+      <p className="script-nota-rotulo">{ROTULO_ACOES}</p>
+      {acoes && <div className="script-acoes-linha">{acoes}</div>}
+      {apresentacao && <BlocoApresentacao apresentacao={apresentacao} />}
+    </section>
+  );
+};
+
+const TelaCartao: React.FC<{ doc: ScriptDoc; onBaixar?: () => void }> = ({ doc, onBaixar }) => (
   <div data-tela={TELA_CARTAO} data-documento="campo" className="space-y-4">
-    <Intro>O que cabe numa folha dobrada, para levar na reunião. Copie ou imprima; o script inteiro vem nas telas seguintes.</Intro>
+    <Intro>O que cabe numa folha dobrada, para levar na reunião. Baixe a imagem e leve no celular; o script inteiro vem nas telas seguintes.</Intro>
     {doc.cartao ? (
       <CartaoView
         cartao={doc.cartao}
         montado={doc.cartaoMontado}
         id="script-cartao-tela"
-        acoes={onImprimir && (
-          <button type="button" onClick={onImprimir} className="script-no-print script-copiar script-copiar-claro" aria-label="Imprimir cartão de bolso">Imprimir cartão</button>
+        acoes={onBaixar && (
+          <button type="button" onClick={onBaixar} className="script-no-print script-copiar script-copiar-claro" data-testid="baixar-cartao-tela" aria-label="Baixar o cartão de bolso como imagem">{COPY_BAIXAR_CARTAO}</button>
         )}
       />
     ) : (
       <p className="text-sm text-prosperus-navy-panel/70">Esta versão veio sem cartão de bolso.</p>
     )}
-    {apresentacao && <BlocoApresentacao apresentacao={apresentacao} />}
   </div>
 );
 
@@ -258,7 +272,7 @@ const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaRes
           <div className="grid gap-3 sm:grid-cols-2 mb-2">
             <div>
               <p className="font-serif text-lg text-prosperus-navy-panel">Treinamento</p>
-              <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leia antes da reunião. Em cada passo: objetivo, estado do cliente, princípio, falas com a anatomia, perguntas, o que observar, objeções, erro a evitar e critério de sucesso.</p>
+              <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leia antes da reunião. Em cada passo: objetivo, estado do cliente, princípio, falas com a anatomia, perguntas, o que observar, objeções, erro a evitar, critério de sucesso e as gravações recomendadas.</p>
             </div>
             <div>
               <p className="font-serif text-lg text-prosperus-navy-panel">Campo</p>
@@ -288,14 +302,12 @@ interface TelaPassoProps {
   doc: ScriptDoc;
   tela: number;
   documento: DocumentoId;
-  onDocumento: (d: DocumentoId) => void;
   comentarios: React.ReactNode;
-  onVerAula: (passo: number) => void;
   tarefasConcluidas: ReadonlySet<string>;
   onTarefa?: (passo: number, tarefaId: string, concluida: boolean) => void;
 }
 
-const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, onDocumento, comentarios, onVerAula, tarefasConcluidas, onTarefa }) => {
+const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios, tarefasConcluidas, onTarefa }) => {
   const n = passoNaTela(tela);
   const multiplos = doc.documentos.length > 1;
   const d = documentoDe(doc, documento);
@@ -305,7 +317,9 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, onDocumento
   const objetivo = p1?.blocos.find((b) => b.tipo === 'objetivo') || null;
   const mostraObjetivo = objetivo && !(p && p.blocos.some((b) => b.tipo === 'objetivo'));
   const docAtivo: DocumentoId = multiplos ? documento : 'treinamento';
-  // "Quem esta do outro lado" vira tabela de verdade depois das abas; o bloco sai do corpo para nao repetir.
+  // Vista Campo: so o que o vendedor usa na reuniao (sem treinamentos e sem "Por que funciona")
+  const campo = docAtivo === 'campo';
+  // "Quem esta do outro lado" vira tabela de verdade depois do corpo; o bloco sai do corpo para nao repetir.
   const perfis = extrairPerfis(p) || extrairPerfis(p1);
   const corpo = p && perfis && p.blocos.includes(perfis.bloco)
     ? { ...p, blocos: p.blocos.filter((b) => b !== perfis.bloco) }
@@ -317,15 +331,6 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, onDocumento
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">Passo {n} de 7</p>
           <h2 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">{nome}</h2>
-          <button
-            type="button"
-            onClick={() => onVerAula(n)}
-            aria-haspopup="dialog"
-            className="script-no-print script-ver-aula -mb-2 inline-flex min-h-[44px] items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] font-semibold text-prosperus-gold-dark underline-offset-4 hover:underline"
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 5.5v13l11-6.5z" /></svg>
-            Ver na aula da Dani
-          </button>
         </div>
       </header>
       {mostraObjetivo && objetivo && (
@@ -334,41 +339,20 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, onDocumento
           <span className="font-serif text-[1.15rem] leading-snug text-prosperus-navy-panel">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>
         </p>
       )}
-      <TreinamentosPasso passo={n} />
-      {multiplos && (
-        <div className="script-no-print">
-          <div role="tablist" aria-label="Documento do script" className="script-abas">
-            {(['treinamento', 'campo'] as DocumentoId[]).map((id) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={documento === id}
-                onClick={() => onDocumento(id)}
-                className={`script-aba ${documento === id ? 'script-aba-ativa' : ''}`}
-              >
-                {id === 'campo' ? 'Campo' : 'Treinamento'}
-              </button>
-            ))}
-          </div>
-          <p className="script-abas-legenda">
-            {documento === 'campo' ? 'Para levar aberto durante a conversa: só o que dizer e perguntar.' : 'Para ler antes da reunião: cada fala com o porquê.'}
-          </p>
-        </div>
-      )}
-      <div role={multiplos ? 'tabpanel' : undefined} key={`${docAtivo}-${n}`} className="mt-4">
-        {corpo ? <PassoCorpo passo={corpo} /> : (
-          <p className="text-sm text-prosperus-navy-panel/70">Este passo não está no script de {docAtivo === 'campo' ? 'campo' : 'treinamento'} desta versão.</p>
+      <div key={`${docAtivo}-${n}`} className="mt-4">
+        {corpo ? <PassoCorpo passo={corpo} semAnatomia={campo} /> : (
+          <p className="text-sm text-prosperus-navy-panel/70">Este passo não está no script de {campo ? 'campo' : 'treinamento'} desta versão.</p>
         )}
       </div>
       {perfis && <PerfisTabela tabela={perfis.tabela} />}
       <TarefasPasso passo={n} concluidas={tarefasConcluidas} onTarefa={onTarefa} />
+      {!campo && <TreinamentosPasso passo={n} />}
       {comentarios}
     </div>
   );
 };
 
-const TelaPreparacao: React.FC<{ doc: ScriptDoc }> = ({ doc }) => {
+const TelaPreparacao: React.FC<{ doc: ScriptDoc; acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao }> = ({ doc, acoes, apresentacao }) => {
   const extras = doc.documentos.flatMap((d) => d.extras.filter((e) => e.titulo !== 'Abertura'));
   return (
     <div data-tela={TELA_PREPARACAO} data-documento="treinamento" className="space-y-6">
@@ -384,12 +368,13 @@ const TelaPreparacao: React.FC<{ doc: ScriptDoc }> = ({ doc }) => {
         </section>
       ))}
       {!doc.mapa && extras.length === 0 && <p className="text-sm text-prosperus-navy-panel/70">Esta versão veio sem mapa de preparação e sem métricas.</p>}
+      <BlocoAcoes acoes={acoes} apresentacao={apresentacao} />
     </div>
   );
 };
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
-  doc, clubNome, tela, onTela, documento, onDocumento, marcadas, comentariosDo, ficha, onImprimirCartao, apresentacao, totalGrifos, onAbrirGrifos, rootRef,
+  doc, clubNome, tela, onTela, documento, marcadas, comentariosDo, ficha, onBaixarCartao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
   tarefasConcluidas = SEM_TAREFAS, onTarefa,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -397,18 +382,6 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   // Dica unica sobre os grifos: some quando a pessoa fecha (fica lembrado).
   const [dica, setDica] = useState<boolean>(() => lerFlag(DICA_GRIFO) !== '1');
   const fecharDica = () => { setDica(false); guardarFlag(DICA_GRIFO, '1'); };
-  // Aba (Treinamento | Campo) lembrada na sessao.
-  useEffect(() => {
-    const salva = lerFlag(ABA_SESSAO, sessionStorage);
-    if ((salva === 'campo' || salva === 'treinamento') && salva !== documento) onDocumento(salva);
-    // so na abertura
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => { guardarFlag(ABA_SESSAO, documento, sessionStorage); }, [documento]);
-  // Folha da aula: aberta pela barra (com o passo da tela atual, se for tela de passo) ou por "Ver na aula da Dani".
-  const [aula, setAula] = useState<{ aberta: boolean; passo: number | null }>({ aberta: false, passo: null });
-  const abrirAula = (passo: number | null) => setAula({ aberta: true, passo });
-  const fecharAula = () => setAula((a) => ({ ...a, aberta: false }));
 
   useEffect(() => {
     const atual = stripRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
@@ -425,10 +398,10 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   const nomeDoPasso = (n: number) => nomeDoPassoEm(doc, n);
 
   let conteudo: React.ReactNode;
-  if (tela === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onImprimir={onImprimirCartao} apresentacao={apresentacao} />;
+  if (tela === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onBaixar={onBaixarCartao} />;
   else if (tela === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={onTela} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} />;
-  else if (ehTelaDePasso(tela)) conteudo = <TelaPasso doc={doc} tela={tela} documento={documento} onDocumento={onDocumento} comentarios={comentariosDo(passoNaTela(tela))} onVerAula={abrirAula} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} />;
-  else conteudo = <TelaPreparacao doc={doc} />;
+  else if (ehTelaDePasso(tela)) conteudo = <TelaPasso doc={doc} tela={tela} documento={documento} comentarios={comentariosDo(passoNaTela(tela))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} />;
+  else conteudo = <TelaPreparacao doc={doc} acoes={acoes} apresentacao={apresentacao} />;
 
   // No celular (< 640px) a barra vira duas linhas: o mapa em cima, inteiro; os botoes embaixo, com menos respiro.
   // As classes com `!` vencem o CSS de .script-barra-btn / .script-mapa-strip (styles/globals.css, fora de @layer).
@@ -436,16 +409,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
 
   return (
     <div className="script-reader script-no-print" data-testid="script-reader">
-      <div ref={rootRef} className="script-paper script-tela w-full rounded-2xl px-5 py-6 sm:px-10 sm:py-9 shadow-2xl" data-tela-atual={tela}>
-        {dica && (
-          <p className="script-dica script-no-print" data-testid="dica-grifo">
-            <span>Marque um trecho para grifar: dourado para ajustar, verde para manter, vermelho para tirar.</span>
-            <button type="button" onClick={fecharDica} className="script-dica-fechar" aria-label="Fechar a dica">Entendi</button>
-          </p>
-        )}
-        {conteudo}
-      </div>
-
+      {/* Uma barra so: grudada no alto no desktop, no rodape no celular (a ordem visual vem do CSS) */}
       <nav aria-label="Índice do script" className="script-barra script-no-print max-sm:flex-wrap">
         <div className="script-barra-progresso" aria-hidden="true"><span style={{ width: `${((tela + 1) / TOTAL_TELAS) * 100}%` }} /></div>
         <button type="button" onClick={() => onTela(tela - 1)} disabled={tela <= 0} className={`script-barra-btn ${btnMovel}`} aria-label="Tela anterior">Anterior</button>
@@ -474,26 +438,31 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
           })}
         </div>
         <span className="script-barra-contador" aria-label={`Tela ${tela + 1} de ${TOTAL_TELAS}`}>{tela + 1}/{TOTAL_TELAS}</span>
-        <button
-          type="button"
-          onClick={() => abrirAula(ehTelaDePasso(tela) ? passoNaTela(tela) : null)}
-          className={`script-barra-btn script-barra-aula ${btnMovel} !border-prosperus-gold-dark/70 !text-prosperus-gold-light`}
-          aria-label="Aula da Dani sobre os 7 passos"
-          aria-haspopup="dialog"
-          aria-expanded={aula.aberta}
-          title="Aula da Dani sobre os 7 passos"
-        >
-          Aula
-        </button>
-        {onAbrirGrifos && (
-          <button type="button" onClick={onAbrirGrifos} className={`script-barra-btn lg:hidden ${btnMovel}`} aria-label="Abrir a lista de grifos">
-            Grifos{totalGrifos > 0 ? ` · ${totalGrifos}` : ''}
-          </button>
-        )}
         <button type="button" onClick={() => onTela(tela + 1)} disabled={tela >= TOTAL_TELAS - 1} className={`script-barra-btn script-barra-btn-forte ${btnMovel}`} aria-label="Próxima tela">Próximo</button>
       </nav>
 
-      <AulaFolha aberta={aula.aberta} passo={aula.passo} onFechar={fecharAula} />
+      <div ref={rootRef} className="script-paper script-tela w-full rounded-2xl px-5 py-6 sm:px-10 sm:py-9 shadow-2xl" data-tela-atual={tela}>
+        {dica && (
+          <p className="script-dica script-no-print" data-testid="dica-grifo">
+            <span>Marque um trecho para grifar: dourado para ajustar, verde para manter, vermelho para tirar.</span>
+            <button type="button" onClick={fecharDica} className="script-dica-fechar" aria-label="Fechar a dica">Entendi</button>
+          </p>
+        )}
+        {conteudo}
+      </div>
+
+      {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso) */}
+      {onAbrirGrifos && (
+        <button
+          type="button"
+          onClick={onAbrirGrifos}
+          className="script-grifos-flutuante script-no-print lg:hidden"
+          aria-label="Abrir a lista de grifos"
+          data-testid="grifos-flutuante"
+        >
+          Grifos{totalGrifos > 0 ? ` · ${totalGrifos}` : ''}
+        </button>
+      )}
     </div>
   );
 };

@@ -4,8 +4,9 @@ import axios from 'axios';
 import { ScriptScreen } from '../../components/script/ScriptScreen';
 
 /**
- * O menu "Mais" da tela "Seu script" e um <details> nativo: o navegador nao fecha no Esc nem ao clicar
- * fora, entao o menu ficava aberto por cima do script depois que a pessoa desistia. Agora fecha nos dois.
+ * O menu "Baixar" da barra de cima de "Seu script" (o antigo "Mais") e um <details> nativo: o navegador nao
+ * fecha no Esc nem ao clicar fora, entao o menu ficava aberto por cima do script depois que a pessoa desistia.
+ * Fecha nos dois. A classe continua `script-mais`; o que mudou foi o rotulo e o conteudo (onda E1).
  */
 
 vi.mock('axios');
@@ -56,10 +57,10 @@ async function abrirMenu() {
   return { menu, container };
 }
 
-describe('menu "Mais": fechar sem escolher nada', () => {
-  beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
+describe('menu "Baixar": fechar sem escolher nada', () => {
+  beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); sessionStorage.clear(); });
 
-  it('fecha no Esc e devolve o foco para o botão "Mais"', async () => {
+  it('fecha no Esc e devolve o foco para o botão "Baixar"', async () => {
     const { menu } = await abrirMenu();
     const summary = menu.querySelector('summary') as HTMLElement;
 
@@ -80,7 +81,7 @@ describe('menu "Mais": fechar sem escolher nada', () => {
   it('continua aberto quando o clique é dentro do próprio menu', async () => {
     const { menu } = await abrirMenu();
 
-    pointerdown(screen.getByRole('group', { name: 'Imprimir ou salvar em PDF' }));
+    pointerdown(screen.getByRole('group', { name: 'Baixar' }));
 
     expect(menu.open).toBe(true);
   });

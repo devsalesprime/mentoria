@@ -1,11 +1,12 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import axios from 'axios';
 import { ScriptScreen } from '../../components/script/ScriptScreen';
 
 /**
- * Apresentacao comercial no menu "Mais" da tela "Seu script", nos 3 estados:
- * pronta (baixar PPTX, ver o PDF, notas do apresentador) · sendo montada (item desligado) · nada ainda ("Gerar apresentação").
+ * Apresentacao comercial depois da onda E1: ela vive no bloco "Ações", no fim do leitor (depois do Passo 7 e da
+ * Preparacao), nos 3 estados: pronta (baixar o PPTX, ver o PDF, notas do apresentador) · sendo montada · nada
+ * ainda ("Gerar apresentação"). O menu "Baixar" da barra de cima oferece o PPTX quando ele existe.
  */
 
 vi.mock('axios');
@@ -54,46 +55,59 @@ function mockVersao({ entregaveis = [] as any[], slidesJob = null as any } = {})
   });
 }
 
-describe('ScriptScreen: apresentação comercial no menu "Mais"', () => {
+/** O bloco "Ações" (com a apresentação) fica na última tela do leitor. */
+async function irParaAcoes() {
+  const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
+  fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+  return within(await screen.findByTestId('acoes-fim'));
+}
+
+describe('ScriptScreen: apresentação comercial no bloco "Ações"', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('com a apresentação pronta: baixar o PPTX, ver em PDF e as notas do apresentador', async () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
-    render(<ScriptScreen ficha={fichaMock()} token="tok" />);
+    const { container } = render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     expect(await screen.findByText('Script v1')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Mais'));
+    const acoes = await irParaAcoes();
 
-    expect(screen.getByRole('group', { name: 'Apresentação comercial' })).toBeInTheDocument();
-    expect(screen.getByTestId('slides-pptx')).toHaveTextContent('Baixar apresentação (PPTX)');
-    expect(screen.getByTestId('slides-pdf')).toHaveTextContent('Ver em PDF');
-    expect(screen.getByTestId('slides-notas')).toHaveTextContent('Notas do apresentador');
-    expect(screen.queryByTestId('slides-gerar')).toBeNull();
-    expect(screen.queryByTestId('slides-montando')).toBeNull();
+    expect(acoes.getByRole('region', { name: 'Apresentação comercial' })).toBeInTheDocument();
+    expect(acoes.getByTestId('cartao-pptx-baixar')).toHaveTextContent('Baixar apresentação (PPTX)');
+    expect(acoes.getByTestId('slides-pdf')).toHaveTextContent('Ver em PDF');
+    expect(acoes.getByTestId('slides-notas')).toHaveTextContent('Notas do apresentador');
+    expect(acoes.queryByTestId('cartao-pptx-gerar')).toBeNull();
+    expect(acoes.queryByTestId('cartao-pptx-montando')).toBeNull();
 
     const open = vi.fn().mockReturnValue({});
     Object.defineProperty(window, 'open', { value: open, configurable: true, writable: true });
-    fireEvent.click(screen.getByTestId('slides-pptx'));
+    fireEvent.click(acoes.getByTestId('cartao-pptx-baixar'));
     expect(open).toHaveBeenLastCalledWith('/api/script/versoes/1/entregaveis/slides/pptx?token=tok', '_blank', 'noopener');
     // o PDF abre no navegador em vez de baixar
-    fireEvent.click(screen.getByTestId('slides-pdf'));
+    fireEvent.click(acoes.getByTestId('slides-pdf'));
     expect(open).toHaveBeenLastCalledWith('/api/script/versoes/1/entregaveis/slides/pdf?token=tok&inline=1', '_blank', 'noopener');
-    fireEvent.click(screen.getByTestId('slides-notas'));
+    fireEvent.click(acoes.getByTestId('slides-notas'));
     expect(open).toHaveBeenLastCalledWith('/api/script/versoes/1/entregaveis/slides/notas?token=tok', '_blank', 'noopener');
+
+    // o menu "Baixar" da barra de cima também oferece o PPTX
+    const menu = container.querySelector('details.script-mais') as HTMLDetailsElement;
+    menu.open = true;
+    fireEvent.click(screen.getByTestId('slides-pptx'));
+    expect(open).toHaveBeenLastCalledWith('/api/script/versoes/1/entregaveis/slides/pptx?token=tok', '_blank', 'noopener');
   });
 
-  it('com o pedido na fila: item desligado "Apresentação sendo montada"', async () => {
+  it('com o pedido na fila: "Apresentação sendo montada", sem botão', async () => {
     mockVersao({ slidesJob: { id: 'js1', tipo: 'slides', status: 'running', attempts: 1 } });
     render(<ScriptScreen ficha={fichaMock()} token="tok" pollMs={100000} />);
     expect(await screen.findByText('Script v1')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Mais'));
+    const acoes = await irParaAcoes();
 
-    const item = screen.getByTestId('slides-montando');
-    expect(item).toHaveTextContent('Apresentação sendo montada');
-    expect(item).toBeDisabled();
-    expect(screen.queryByTestId('slides-gerar')).toBeNull();
+    expect(acoes.getByTestId('cartao-pptx-montando')).toHaveTextContent('Apresentação sendo montada');
+    expect(acoes.queryByTestId('cartao-pptx-gerar')).toBeNull();
+    expect(acoes.queryByTestId('cartao-pptx-baixar')).toBeNull();
     expect(screen.queryByTestId('slides-pptx')).toBeNull();
   });
 
@@ -105,16 +119,16 @@ describe('ScriptScreen: apresentação comercial no menu "Mais"', () => {
     });
     render(<ScriptScreen ficha={fichaMock()} token="tok" pollMs={100000} />);
     await screen.findByTestId('script-reader');
-    fireEvent.click(screen.getByText('Mais'));
+    const acoes = await irParaAcoes();
 
-    const gerar = screen.getByTestId('slides-gerar');
+    const gerar = acoes.getByTestId('cartao-pptx-gerar');
     expect(gerar).toHaveTextContent('Gerar apresentação');
     expect(gerar).not.toBeDisabled();
     fireEvent.click(gerar);
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/slides', {}, expect.anything()));
     expect(await screen.findByText('Vamos montar a sua apresentação com as falas do script nas notas. Avisamos quando ficar pronta.')).toBeInTheDocument();
-    // o menu ja mostra que a apresentação está sendo montada
-    await waitFor(() => expect(screen.getByTestId('slides-montando')).toBeDisabled());
+    // o bloco já mostra que a apresentação está sendo montada
+    await waitFor(() => expect(screen.getByTestId('cartao-pptx-montando')).toBeInTheDocument());
   });
 });

@@ -1,13 +1,14 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import axios from 'axios';
 import { ScriptScreen } from '../../components/script/ScriptScreen';
 import { COPY_PPTX_BAIXAR, COPY_PPTX_COMO_USAR, COPY_PPTX_GERAR, COPY_PPTX_MONTANDO } from '../../components/script/script/ScriptReader';
 
 /**
- * Apresentacao comercial NO CARTAO DE BOLSO (SPEC-workflow-v2-decisoes-06-09 §1, decisao 3): o cartao e o que
- * o mentor leva para a reuniao, entao o PPTX mora ali, com a instrucao de modo apresentador e duas telas.
- * Tres estados: pronta (baixar + como usar) · sendo montada · nada ainda ("Gerar apresentação").
+ * Apresentacao comercial NO FIM DE TUDO (SPEC-workflow-v3-decisoes-07-09 §2, item 1): ela saiu do Cartao de
+ * bolso e virou parte do bloco "Ações", depois do Passo 7 e da Preparacao, com a instrucao de modo apresentador
+ * e duas telas. Tres estados: pronta (baixar + como usar) · sendo montada · nada ainda ("Gerar apresentação").
+ * "Revisar a ficha" e "Aprofundar para o completo" nao vivem mais aqui: quem leva ate elas e o menu do Dashboard.
  */
 
 vi.mock('axios');
@@ -71,18 +72,29 @@ function mockVersao({ entregaveis = [] as any[], slidesJob = null as any } = {})
   });
 }
 
-describe('ScriptScreen: a apresentação no Cartão de bolso', () => {
+/** O bloco "Ações" (com a apresentação) fica na última tela do leitor. */
+async function irParaAcoes() {
+  const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
+  fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+  return await screen.findByTestId('acoes-fim');
+}
+
+describe('ScriptScreen: a apresentação no bloco "Ações"', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('com o PPTX pronto: botão de baixar e a instrução de modo apresentador com duas telas', async () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
     render(<ScriptScreen ficha={fichaMock()} token="tok" />);
-    // o script novo abre no Cartão de bolso (tela 0)
-    const bloco = await screen.findByTestId('cartao-apresentacao');
-    expect(bloco.closest('[data-tela="0"]')).not.toBeNull();
+    await screen.findByTestId('script-reader');
+    // o script novo abre no Cartão de bolso (tela 0) e o cartão não tem mais o bloco
+    expect(screen.queryByTestId('cartao-apresentacao')).toBeNull();
+    await irParaAcoes();
+    const bloco = screen.getByTestId('cartao-apresentacao');
+    expect(bloco.closest('[data-tela="9"]')).not.toBeNull();
 
     const baixar = screen.getByTestId('cartao-pptx-baixar');
     expect(baixar).toHaveTextContent(COPY_PPTX_BAIXAR);
@@ -101,55 +113,50 @@ describe('ScriptScreen: a apresentação no Cartão de bolso', () => {
   it('com o pedido na fila: "Apresentação sendo montada", sem botão', async () => {
     mockVersao({ slidesJob: { id: 'js1', tipo: 'slides', status: 'queued', attempts: 0 } });
     render(<ScriptScreen ficha={fichaMock()} token="tok" pollMs={100000} />);
-    expect(await screen.findByTestId('cartao-pptx-montando')).toHaveTextContent(COPY_PPTX_MONTANDO);
+    await screen.findByTestId('script-reader');
+    await irParaAcoes();
+    expect(screen.getByTestId('cartao-pptx-montando')).toHaveTextContent(COPY_PPTX_MONTANDO);
     expect(screen.queryByTestId('cartao-pptx-baixar')).toBeNull();
     expect(screen.queryByTestId('cartao-pptx-gerar')).toBeNull();
   });
 
-  it('sem apresentação: "Gerar apresentação" pede a montagem (o mesmo pedido do menu "Mais")', async () => {
+  it('sem apresentação: "Gerar apresentação" pede a montagem', async () => {
     mockVersao();
     (axios.post as any).mockImplementation(async (url: string) => {
       if (url === '/api/script/versoes/1/slides') return { data: { success: true, versao: 1, job: { id: 'js2', tipo: 'slides', status: 'queued', existing: false } } };
       throw new Error('post inesperado ' + url);
     });
     render(<ScriptScreen ficha={fichaMock()} token="tok" pollMs={100000} />);
-    const gerar = await screen.findByTestId('cartao-pptx-gerar');
+    await screen.findByTestId('script-reader');
+    await irParaAcoes();
+    const gerar = screen.getByTestId('cartao-pptx-gerar');
     expect(gerar).toHaveTextContent(COPY_PPTX_GERAR);
     fireEvent.click(gerar);
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/slides', {}, expect.anything()));
-    // o cartão passa a mostrar que está sendo montada
+    // o bloco passa a mostrar que está sendo montada
     await waitFor(() => expect(screen.getByTestId('cartao-pptx-montando')).toBeInTheDocument());
   });
 
   it('a copy do bloco segue as regras da casa: sem travessão, sem "diagnóstico", sem emoji', async () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
     render(<ScriptScreen ficha={fichaMock()} token="tok" />);
-    const bloco = await screen.findByTestId('cartao-apresentacao');
-    const texto = bloco.textContent || '';
+    await screen.findByTestId('script-reader');
+    await irParaAcoes();
+    const texto = screen.getByTestId('cartao-apresentacao').textContent || '';
     expect(texto).not.toMatch(/—/);
     expect(texto).not.toMatch(/diagn[oó]stico/i);
     expect(texto).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  it('modo essencial: "Seu script" oferece "Aprofundar para o completo" no menu Mais', async () => {
+  it('modo essencial: "Seu script" não oferece mais "Revisar a ficha" nem "Aprofundar para o completo" (isso é do menu do Dashboard)', async () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
     const ficha = fichaMock({ modo: 'essencial' });
-    render(<ScriptScreen ficha={ficha} token="tok" onNavigate={vi.fn()} />);
-    await screen.findByTestId('cartao-apresentacao');
-    fireEvent.click(screen.getByText('Mais'));
-    expect(screen.getByTestId('link-revisar-ficha')).toHaveTextContent('Revisar a ficha essencial');
-    const link = screen.getByTestId('aprofundar-completo');
-    expect(link).toHaveTextContent('Aprofundar para o completo');
-    fireEvent.click(link);
-    await waitFor(() => expect(ficha.definirModo).toHaveBeenCalledWith('completo'));
-  });
-
-  it('modo completo: nada de "Aprofundar para o completo"', async () => {
-    mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
-    render(<ScriptScreen ficha={fichaMock()} token="tok" onNavigate={vi.fn()} />);
-    await screen.findByTestId('cartao-apresentacao');
-    fireEvent.click(screen.getByText('Mais'));
-    expect(screen.getByTestId('link-revisar-ficha')).toHaveTextContent('Revisar a ficha');
+    const { container } = render(<ScriptScreen ficha={ficha} token="tok" onNavigate={vi.fn()} />);
+    await screen.findByTestId('script-reader');
+    const menu = container.querySelector('details.script-mais') as HTMLDetailsElement;
+    menu.open = true;
+    expect(screen.queryByTestId('link-revisar-ficha')).toBeNull();
     expect(screen.queryByTestId('aprofundar-completo')).toBeNull();
+    expect(ficha.definirModo).not.toHaveBeenCalled();
   });
 });

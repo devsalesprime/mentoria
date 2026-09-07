@@ -108,6 +108,9 @@ const cohortMembersSchema = z.object({
     add: z.array(z.object({
         email: z.string().email('Email inválido').max(320),
         nome: z.string().max(200).optional(),
+        // Telefone que veio do cadastro (HubSpot): vira `notify_phone_sugerido` e SO pre-preenche o campo
+        // do WhatsApp na tela do mentor. Nunca e usado para mandar mensagem sem a permissao dele.
+        telefone_sugerido: z.string().max(40).optional(),
     })).max(50).optional().default([]),
     remove: z.array(z.string().email('Email inválido').max(320)).max(50).optional().default([]),
 });
