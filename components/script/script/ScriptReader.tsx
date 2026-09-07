@@ -101,6 +101,13 @@ interface ScriptReaderProps {
   tarefasConcluidas?: ReadonlySet<string>;
   /** Marcar ou desmarcar uma tarefa; sem ela os checkboxes ficam so para leitura. */
   onTarefa?: (passo: number, tarefaId: string, concluida: boolean) => void;
+  /**
+   * Modo amostra (onda I, item A1): o leitor abre o script de exemplo configurado pelo admin.
+   * Conteudo e navegacao inteiros; nada de grifo, comentario, tarefa nem acao. Quem chama nao passa
+   * `acoes`, `apresentacao`, `onBaixarCartao` nem `onAbrirGrifos`; esta marca tira o resto (a dica do
+   * grifo, os checkboxes das tarefas, os contadores de tarefa e a tela de Inicio do script proprio).
+   */
+  amostra?: boolean;
 }
 
 const SEM_TAREFAS: ReadonlySet<string> = new Set<string>();
@@ -263,11 +270,35 @@ const TelaInicio: React.FC<{ clubNome: string; versao?: number | null; ajustes?:
   );
 };
 
+export const COPY_AMOSTRA_TITULO = 'Um script completo, de ponta a ponta';
+export const COPY_AMOSTRA_INTRO =
+  'Este é o script de outro clube, publicado como exemplo. Navegue pelas telas para ver o cartão de bolso, os 7 passos e a preparação. O seu vai sair com a sua voz, os seus números e o seu método.';
+
+/** Tela 0 no modo amostra: sem grifo, sem rodada de ajustes, sem promessa de nada. So as portas de entrada. */
+const TelaInicioAmostra: React.FC<{ clubNome: string; onTela: (t: number) => void }> = ({ clubNome, onTela }) => (
+  <div className="script-inicio space-y-6" data-testid="tela-inicio-amostra">
+    <header className="script-titulo">
+      <p className="text-[11px] uppercase tracking-[0.24em] text-prosperus-gold-dark font-semibold">{clubNome}</p>
+      <h2 className="script-h1 font-serif text-3xl sm:text-[2.2rem] leading-tight text-prosperus-navy-panel mt-1">{COPY_AMOSTRA_TITULO}</h2>
+      <p className="script-tela-intro mt-2">{COPY_AMOSTRA_INTRO}</p>
+      <div className="script-rule mt-4" aria-hidden="true" />
+    </header>
+    <div className="script-inicio-botoes">
+      <button type="button" onClick={() => onTela(NAV_CARTAO)} className="script-acao script-acao-forte" data-testid="inicio-cartao">
+        Começar pelo cartão de bolso
+      </button>
+      <button type="button" onClick={() => onTela(NAV_SUMARIO)} className="script-acao" data-testid="inicio-sumario">
+        Ver o sumário
+      </button>
+    </div>
+  </div>
+);
+
 /**
  * Rodape de navegacao (onda E4): fica no FIM do conteudo de toda tela, para ninguem precisar voltar ao topo
  * para avancar. Na ultima tela o "Próximo" vira "Ir para as ações" e rola ate o bloco de decisao.
  */
-const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxima: string }> = ({ tela, onTela, nomeProxima }) => {
+const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxima: string; amostra?: boolean }> = ({ tela, onTela, nomeProxima, amostra = false }) => {
   const ultima = tela >= TOTAL_NAV - 1;
   const irParaAcoes = () => {
     if (typeof document === 'undefined') return;
@@ -287,7 +318,7 @@ const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxi
       >
         Anterior
       </button>
-      {ultima ? (
+      {ultima && amostra ? null : ultima ? (
         <button type="button" onClick={irParaAcoes} className="script-rodape-btn script-rodape-btn-forte" data-testid="rodape-proximo">
           Ir para as ações
         </button>
@@ -334,7 +365,7 @@ const ChipTarefas: React.FC<{ passo: number; concluidas: ReadonlySet<string> }> 
   );
 };
 
-const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaResumo; onTela: (t: number) => void; comentarios: React.ReactNode; tarefasConcluidas: ReadonlySet<string> }> = ({ doc, clubNome, ficha, onTela, comentarios, tarefasConcluidas }) => {
+const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaResumo; onTela: (t: number) => void; comentarios: React.ReactNode; tarefasConcluidas: ReadonlySet<string>; amostra?: boolean }> = ({ doc, clubNome, ficha, onTela, comentarios, tarefasConcluidas, amostra = false }) => {
   const tem = (re: RegExp) => doc.cabecalho.some((c) => re.test(c.rotulo));
   const extras: { rotulo: string; valor: string }[] = [];
   if (ficha?.paraQuem && !tem(/para quem/i)) extras.push({ rotulo: 'Para quem este script vende', valor: ficha.paraQuem });
@@ -391,7 +422,7 @@ const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaRes
                       <span className="block font-serif text-[1.1rem] leading-snug text-prosperus-navy-panel">{p.nome}</span>
                       {objetivo && <span className="block text-sm text-prosperus-navy-panel/70 leading-snug">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>}
                     </span>
-                    <ChipTarefas passo={p.n} concluidas={tarefasConcluidas} />
+                    {!amostra && <ChipTarefas passo={p.n} concluidas={tarefasConcluidas} />}
                   </button>
                 </li>
               );
@@ -444,9 +475,10 @@ interface TelaPassoProps {
   comentarios: React.ReactNode;
   tarefasConcluidas: ReadonlySet<string>;
   onTarefa?: (passo: number, tarefaId: string, concluida: boolean) => void;
+  amostra?: boolean;
 }
 
-const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios, tarefasConcluidas, onTarefa }) => {
+const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios, tarefasConcluidas, onTarefa, amostra = false }) => {
   const n = passoNaTela(tela);
   const multiplos = doc.documentos.length > 1;
   const d = documentoDe(doc, documento);
@@ -474,7 +506,7 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios
         />
       </div>
       {perfis && <PerfisTabela tabela={perfis.tabela} />}
-      <TarefasPasso passo={n} concluidas={tarefasConcluidas} onTarefa={onTarefa} />
+      {!amostra && <TarefasPasso passo={n} concluidas={tarefasConcluidas} onTarefa={onTarefa} />}
       {!campo && <TreinamentosPasso passo={n} />}
       {comentarios}
     </div>
@@ -504,12 +536,12 @@ const TelaPreparacao: React.FC<{ doc: ScriptDoc; acoes?: React.ReactNode; aprese
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
   doc, clubNome, tela, onTela, versao, ajustes, documento, marcadas, comentariosDo, ficha, onBaixarCartao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
-  tarefasConcluidas = SEM_TAREFAS, onTarefa,
+  tarefasConcluidas = SEM_TAREFAS, onTarefa, amostra = false,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
   const primeiraRef = useRef(true);
   // Dica unica sobre os grifos: some quando a pessoa fecha (fica lembrado).
-  const [dica, setDica] = useState<boolean>(() => lerFlag(DICA_GRIFO) !== '1');
+  const [dica, setDica] = useState<boolean>(() => !amostra && lerFlag(DICA_GRIFO) !== '1');
   const fecharDica = () => { setDica(false); guardarFlag(DICA_GRIFO, '1'); };
 
   useEffect(() => {
@@ -530,10 +562,12 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   const irParaSumario = (t: number) => onTela(t + 1);
 
   let conteudo: React.ReactNode;
-  if (ehTelaDeInicio(tela)) conteudo = <TelaInicio clubNome={clubNome} versao={versao} ajustes={ajustes} onTela={onTela} />;
+  if (ehTelaDeInicio(tela)) conteudo = amostra
+    ? <TelaInicioAmostra clubNome={clubNome} onTela={onTela} />
+    : <TelaInicio clubNome={clubNome} versao={versao} ajustes={ajustes} onTela={onTela} />;
   else if (c === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onBaixar={onBaixarCartao} />;
-  else if (c === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={irParaSumario} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} />;
-  else if (ehTelaDePasso(c)) conteudo = <TelaPasso doc={doc} tela={c} documento={documento} comentarios={comentariosDo(passoNaTela(c))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} />;
+  else if (c === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={irParaSumario} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} amostra={amostra} />;
+  else if (ehTelaDePasso(c)) conteudo = <TelaPasso doc={doc} tela={c} documento={documento} comentarios={comentariosDo(passoNaTela(c))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} amostra={amostra} />;
   else conteudo = <TelaPreparacao doc={doc} acoes={acoes} apresentacao={apresentacao} />;
 
   // No celular (< 640px) a barra vira duas linhas: o mapa em cima, inteiro; os botoes embaixo, com menos respiro.
@@ -584,7 +618,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
         )}
         {conteudo}
         {/* Onda E4: avancar sem voltar ao topo. Fica no fim do conteudo de toda tela. */}
-        <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} />
+        <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} amostra={amostra} />
       </div>
 
       {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso) */}

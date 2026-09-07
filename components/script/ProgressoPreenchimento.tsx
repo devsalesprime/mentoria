@@ -90,9 +90,14 @@ interface ProgressoPreenchimentoProps {
   atualizadoEm?: number | null;
   /** "Entendi" no estado pronto. */
   onDispensar?: () => void;
+  /**
+   * Previsao da espera (onda I, item I4): a fila com o nome dos clubes na frente, o tempo medio e o
+   * WhatsApp. Entra so enquanto a leitura esta na fila ou em andamento. Vem pronta de fora (EtaEspera).
+   */
+  eta?: React.ReactNode;
 }
 
-export const ProgressoPreenchimento: React.FC<ProgressoPreenchimentoProps> = ({ job, sugestoes = 0, novas = [], atualizadoEm = null, onDispensar }) => {
+export const ProgressoPreenchimento: React.FC<ProgressoPreenchimentoProps> = ({ job, sugestoes = 0, novas = [], atualizadoEm = null, onDispensar, eta }) => {
   const ativo = job?.status === 'queued' || job?.status === 'running';
   const [agora, setAgora] = useState(() => Date.now());
   useEffect(() => {
@@ -150,6 +155,8 @@ export const ProgressoPreenchimento: React.FC<ProgressoPreenchimentoProps> = ({ 
       </div>
 
       {mensagem && <p className="text-sm text-white/80 font-sans leading-relaxed" data-testid="progresso-mensagem">{mensagem}</p>}
+
+      {ativo && eta}
 
       {mostrarTrilha && (
         <ol className="grid grid-cols-7 gap-1" aria-label="Etapas da leitura dos materiais">

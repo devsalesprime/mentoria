@@ -10,6 +10,8 @@ const SV = require('../utils/script-versions.cjs');
 const SG = require('../utils/script-grifos.cjs');
 const ST = require('../utils/script-tarefas.cjs');
 const SUF = require('../utils/suficiencia.cjs');
+const TEMPOS = require('../utils/script-tempos.cjs');
+const MARCOS = require('../utils/script-marcos.cjs');
 
 /**
  * Script 7 Passos (membro): Materiais + Ficha do Script + contexto por pergunta + versoes do script.
@@ -33,6 +35,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   ST.ensureScriptTarefasTable(dbRun).catch((e) => console.error('script_tarefas DDL error:', e.message));
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
   SF.ensureModoColumn(dbRun).catch((e) => console.error('script_fichas modo DDL error:', e.message));
+  MARCOS.ensureMarcosColumns(dbRun).catch((e) => console.error('cohort_members marcos DDL error:', e.message));
 
   // Mesmo diskStorage de routes/files.cjs (data/uploads/<userId>/<timestamp>-<nome>); limite por tipo em CTX.fileError
   const contextStorage = multerLib.diskStorage({
@@ -57,6 +60,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
 
   // PUT /api/script/ficha/modo  { modo: 'essencial' | 'completo' }
   const modoSchema = z.object({ modo: z.enum(['essencial', 'completo']) });
+
+  // PUT /api/script/visto  { marco: 'como_funciona' | 'whatsapp_lembrete' }
+  const marcoSchema = z.object({ marco: z.enum(Object.keys(MARCOS.MARCOS)) });
 
   // POST /api/script/versoes/:versao/revisar  { pedido?, comentarios? }
   // comentarios = os grifos ja convertidos pelo front ("[GRIFO ajustar] «trecho» → nota", passo 0..7 ou 9); opcional.
@@ -206,7 +212,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return {
       club: { slug: user.club_slug, nome: user.club_nome },
       ficha_status: ficha.ficha_status,
-      // Caminho escolhido na entrada: 'essencial' (12 perguntas) | 'completo' (34) | null (ainda nao escolheu)
+      // Caminho escolhido na entrada: 'essencial' (16 perguntas) | 'completo' (34) | null (ainda nao escolheu)
       modo: ficha.modo === 'essencial' || ficha.modo === 'completo' ? ficha.modo : null,
       // 'automatico' quando o app escolheu o completo sozinho (os materiais bastaram antes da tela de escolha):
       // a ficha mostra uma vez "Você está no caminho completo. Prefere o essencial?"
@@ -231,7 +237,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         ajustes_usados: extra.ajustes ? extra.ajustes.usados : 0,
         ajustes_limite: extra.ajustes ? extra.ajustes.limite : 1,
       },
-      config,
+      // So o que a tela do membro precisa: o prazo escrito pelo admin e se existe amostra configurada
+      // (o clube e a versao da amostra ficam so no servidor; quem os le e GET /api/script/amostra)
+      config: {
+        prazo_materiais: (config && config.prazo_materiais) || '',
+        amostra_disponivel: !!VM.parseAmostra(config && config.amostra_script),
+      },
+      // Marcos desta PESSOA (onda I): data ISO ou null. `null` na primeira = a tela "Como funciona" abre antes de tudo
+      visto_como_funciona: extra.marcos ? extra.marcos.como_funciona : null,
+      visto_whatsapp_lembrete: extra.marcos ? extra.marcos.whatsapp_lembrete : null,
       prefilled_at: ficha.prefilled_at,
       reviewed_at: ficha.reviewed_at,
       last_user_activity_at: ficha.last_user_activity_at,
@@ -258,7 +272,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
-      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes] = await Promise.all([
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
         JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
@@ -269,11 +283,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         SV.entregaveisPorVersao({ dbAll }, slug, entregavelUrl),
         nomesDoClube(slug),
         contarAjustes(slug),
+        MARCOS.lerMarcos({ dbGet }, req.cohort.email),
       ]);
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
@@ -282,7 +297,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   });
 
   // PUT /api/script/ficha/modo  { modo: 'essencial' | 'completo' }
-  // Escolha na entrada (SPEC-workflow-v2-decisoes-06-09 §1 e §2): 'essencial' abre so as 12 perguntas que
+  // Escolha na entrada (SPEC-workflow-v2-decisoes-06-09 §1 e §2): 'essencial' abre so as 16 perguntas que
   // fecham o cartao de bolso; 'completo' abre a ficha inteira. Do essencial da para aprofundar para o completo
   // quando quiser (mesmas chaves, mesmo estado: nada se perde). O caminho de volta nao e oferecido na tela.
   router.put('/api/script/ficha/modo', authMiddleware, cohortGuard, validateBody(modoSchema), async (req, res) => {
@@ -306,6 +321,95 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       res.json({ success: true, modo });
     } catch (error) {
       console.error('Error in PUT /api/script/ficha/modo:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Onda I: entrada, tempo real das etapas, fila e amostra ───────────────
+
+  /**
+   * PUT /api/script/visto  { marco: 'como_funciona' | 'whatsapp_lembrete' }
+   * Marca por PESSOA, idempotente (regravar mantem a primeira data):
+   *   como_funciona     -> "Começar o meu script" na tela inicial; a tela sai da frente e vira item de menu
+   *   whatsapp_lembrete -> a pessoa dispensou o lembrete unico do WhatsApp numa tela de espera
+   */
+  router.put('/api/script/visto', authMiddleware, cohortGuard, validateBody(marcoSchema), async (req, res) => {
+    try {
+      const ok = await MARCOS.marcarMarco({ dbRun, dbGet }, {
+        email: req.cohort.email,
+        club_slug: req.cohort.club_slug,
+        marco: req.body.marco,
+      });
+      if (!ok) return res.status(400).json({ success: false, message: 'Marco desconhecido.' });
+      res.json({ success: true, marcos: await MARCOS.lerMarcos({ dbGet }, req.cohort.email) });
+    } catch (error) {
+      console.error('Error in PUT /api/script/visto:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  /**
+   * GET /api/script/tempos -> { tempos: { prefill: { mediana_min, n }, script, refinar, slides } }
+   * Mediana dos ultimos 20 trabalhos concluidos por tipo, em minutos, arredondada para cima, piso de 5.
+   * `mediana_min` null = sem historico: a tela mostra a copy sem numero. So leitura.
+   */
+  router.get('/api/script/tempos', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      res.json({ success: true, tempos: await TEMPOS.temposPorTipo({ dbAll }) });
+    } catch (error) {
+      console.error('Error in GET /api/script/tempos:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  /**
+   * GET /api/script/fila?tipo=prefill|script -> { na_frente, clubes: [nome], status, tem_job }
+   * Quantos trabalhos do mesmo tipo entraram antes do desta pessoa e ainda estao em andamento, com o
+   * nome dos clubes na ordem de entrada (decisao D8). So leitura.
+   */
+  router.get('/api/script/fila', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const tipo = req.query.tipo ? String(req.query.tipo) : 'prefill';
+      if (tipo !== 'prefill' && tipo !== 'script') {
+        return res.status(400).json({ success: false, message: 'tipo inválido (use prefill|script).' });
+      }
+      const fila = await TEMPOS.filaDoMembro({ dbAll, dbGet }, {
+        tipo,
+        club_slug: req.cohort.club_slug,
+        email: req.cohort.email,
+      });
+      res.json({ success: true, tipo, ...fila });
+    } catch (error) {
+      console.error('Error in GET /api/script/fila:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  /**
+   * GET /api/script/amostra -> o script de exemplo configurado pelo admin (cohort_config.amostra_script,
+   * um JSON { club_slug, versao }), no mesmo formato que o leitor ja consome. 404 sem configuracao,
+   * com configuracao quebrada ou quando a versao nao existe mais. Nenhum clube nem versao no codigo.
+   */
+  router.get('/api/script/amostra', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const config = await VM.readCohortConfig(dbAll);
+      const alvo = VM.parseAmostra(config.amostra_script);
+      if (!alvo) return res.status(404).json({ success: false, message: 'Ainda não há um exemplo publicado.' });
+      const versao = await SV.getVersion({ dbGet }, alvo.club_slug, alvo.versao);
+      if (!versao) return res.status(404).json({ success: false, message: 'Ainda não há um exemplo publicado.' });
+      const clube = await dbGet(`SELECT nome FROM cohort_clubs WHERE slug = ?`, [alvo.club_slug]);
+      res.json({
+        success: true,
+        amostra: {
+          club_slug: alvo.club_slug,
+          club_nome: (clube && clube.nome) || alvo.club_slug,
+          versao: versao.versao,
+          content_md: versao.content_md,
+          created_at: versao.created_at,
+        },
+      });
+    } catch (error) {
+      console.error('Error in GET /api/script/amostra:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
@@ -469,7 +573,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // o resto do que os materiais trouxeram e confirmado em nome dele (origem 'automatica') na hora de fechar.
   router.post('/api/script/ficha/complete', authMiddleware, cohortGuard, async (req, res) => {
     try {
-      // Modo essencial: fecha com as 12 perguntas decididas; o resto fica em aberto para quando aprofundar
+      // Modo essencial: fecha com as 16 perguntas decididas; o resto fica em aberto para quando aprofundar
       const modo = SF.normalizeModo(req.ficha.modo);
       let fields = safeJsonParse(req.ficha.fields, {});
       let missing = SF.missingPorModo(fields, modo);

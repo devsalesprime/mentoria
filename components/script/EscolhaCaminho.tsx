@@ -9,6 +9,7 @@
  */
 import React, { useState } from 'react';
 import type { UseScriptFicha } from '../../hooks/useScriptFicha';
+import { frasePorMediana, useTemposScript } from '../../hooks/useEsperaScript';
 import type { ScriptModo } from '../../data/script-ficha-fields';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
@@ -16,6 +17,19 @@ import { Button } from '../ui/Button';
 interface EscolhaCaminhoProps {
   ficha: UseScriptFicha;
   onNavigate?: (id: string) => void;
+  /** Token do membro: a linha do tempo real lê GET /api/script/tempos com ele. */
+  token?: string;
+}
+
+/**
+ * Onda I, item I3: a promessa de tempo é uma só e vem do histórico real (mediana dos últimos scripts
+ * escritos). O "em minutos" que morava no cartão do essencial saiu: ninguém media aquilo e ele brigava
+ * com o "em menos de um dia" da tela de Materiais. Sem histórico, a linha sai sem número nenhum.
+ */
+export const COPY_TEMPO_SEM_NUMERO = 'Depois da ficha, o seu script entra na fila e aparece aqui.';
+export function copyDoTempo(medianaMin: number | null): string {
+  const frase = frasePorMediana(medianaMin);
+  return frase ? `Depois da ficha, a escrita ${frase}.` : COPY_TEMPO_SEM_NUMERO;
 }
 
 export const TITULO_ESCOLHA = 'Como você quer construir o seu script?';
@@ -25,7 +39,7 @@ const CAMINHOS: { modo: ScriptModo; nome: string; descricao: string; botao: stri
   {
     modo: 'essencial',
     nome: 'Essencial',
-    descricao: 'O cartão de bolso em minutos: as falas-chave dos 7 passos, o investimento total e a pergunta de recomendação, para levar para a reunião de amanhã.',
+    descricao: 'O cartão de bolso: as falas-chave dos 7 passos, o investimento total e a pergunta de recomendação, para levar para a reunião de amanhã.',
     botao: 'Começar pelo essencial',
   },
   {
@@ -36,8 +50,9 @@ const CAMINHOS: { modo: ScriptModo; nome: string; descricao: string; botao: stri
   },
 ];
 
-export const EscolhaCaminho: React.FC<EscolhaCaminhoProps> = ({ ficha, onNavigate }) => {
+export const EscolhaCaminho: React.FC<EscolhaCaminhoProps> = ({ ficha, onNavigate, token = '' }) => {
   const { data, loading, loaded, error, definirModo } = ficha;
+  const { medianaDe } = useTemposScript(token, !!token);
   const [salvando, setSalvando] = useState<ScriptModo | null>(null);
   const [falha, setFalha] = useState<string | null>(null);
 
@@ -78,6 +93,7 @@ export const EscolhaCaminho: React.FC<EscolhaCaminhoProps> = ({ ficha, onNavigat
         <p className="text-[11px] uppercase tracking-widest text-prosperus-gold-dark font-sans">Script 7 Passos · {data.club.nome}</p>
         <h2 className="font-serif text-2xl sm:text-3xl text-white">{TITULO_ESCOLHA}</h2>
         <p className="text-sm text-white/70 font-sans leading-relaxed">{NADA_SE_PERDE}</p>
+        <p className="text-sm text-prosperus-gold-light font-sans" data-testid="escolha-tempo">{copyDoTempo(medianaDe('script'))}</p>
       </div>
 
       <div className="grid gap-3 sm:gap-4 md:grid-cols-2">

@@ -98,9 +98,30 @@ function normalizePhone(raw) {
 /** PUT /api/admin/cohort/config */
 const cohortConfigSchema = z.object({
     prazo_materiais: z.string().trim().max(200).optional().default(''),
+    // Amostra da tela "Como funciona" (onda I, item A1): JSON {"club_slug":"...","versao":5}. Vazio esconde o bloco.
+    amostra_script: z.string().trim().max(300).optional(),
 });
 
-const COHORT_CONFIG_KEYS = ['prazo_materiais'];
+const COHORT_CONFIG_KEYS = ['prazo_materiais', 'amostra_script'];
+
+/**
+ * `amostra_script` guardado pelo admin -> { club_slug, versao } ou null (vazio, JSON quebrado, sem clube
+ * ou versao invalida). Nunca ha clube nem versao no codigo: quem escolhe e o admin.
+ */
+function parseAmostra(valor) {
+    if (!valor) return null;
+    let obj = valor;
+    if (typeof valor === 'string') {
+        const bruto = valor.trim();
+        if (!bruto) return null;
+        try { obj = JSON.parse(bruto); } catch { return null; }
+    }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    const club_slug = String(obj.club_slug || '').trim();
+    const versao = Number(obj.versao);
+    if (!club_slug || !Number.isInteger(versao) || versao < 1) return null;
+    return { club_slug, versao };
+}
 
 // ─── cohort_config (chave/valor) ─────────────────────────────────────────────
 
@@ -315,6 +336,7 @@ module.exports = {
     normalizePhone,
     cohortConfigSchema,
     COHORT_CONFIG_KEYS,
+    parseAmostra,
     COHORT_CONFIG_DDL,
     ensureCohortConfigTable,
     JOB_STATUSES,

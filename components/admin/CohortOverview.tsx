@@ -378,6 +378,12 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
   const [prazo, setPrazo] = useState('');
   const [prazoSaved, setPrazoSaved] = useState('');
   const [savingPrazo, setSavingPrazo] = useState(false);
+  // Amostra da tela "Como funciona" (onda I, A1): clube + versão do script que vira o exemplo.
+  // Nada fica no código: sem os dois campos preenchidos o bloco some da tela do mentor.
+  const [amostraClube, setAmostraClube] = useState('');
+  const [amostraVersao, setAmostraVersao] = useState('');
+  const [amostraSaved, setAmostraSaved] = useState('');
+  const [savingAmostra, setSavingAmostra] = useState(false);
 
   const fetchCohort = useCallback(async () => {
     setLoading(true);
@@ -398,6 +404,16 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
         const v = res.data.data?.prazo_materiais || '';
         setPrazo(v);
         setPrazoSaved(v);
+        const bruto = res.data.data?.amostra_script || '';
+        setAmostraSaved(bruto);
+        try {
+          const obj = bruto ? JSON.parse(bruto) : null;
+          setAmostraClube(obj?.club_slug ? String(obj.club_slug) : '');
+          setAmostraVersao(obj?.versao ? String(obj.versao) : '');
+        } catch {
+          setAmostraClube('');
+          setAmostraVersao('');
+        }
       }
     } catch { /* silencioso: a tabela pode nao existir ainda */ }
   }, [token]);
@@ -418,6 +434,26 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
       showToast(e.response?.data?.message || 'Erro ao salvar o prazo', 'error');
     } finally {
       setSavingPrazo(false);
+    }
+  };
+
+  /** Clube + versão viram um JSON só (`{"club_slug":"...","versao":5}`); os dois vazios limpam a amostra. */
+  const amostraAtual = amostraClube.trim() && Number(amostraVersao) >= 1
+    ? JSON.stringify({ club_slug: amostraClube.trim(), versao: Number(amostraVersao) })
+    : '';
+
+  const saveAmostra = async () => {
+    setSavingAmostra(true);
+    try {
+      const res = await axios.put('/api/admin/cohort/config', { amostra_script: amostraAtual }, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        setAmostraSaved(res.data.data?.amostra_script || '');
+        showToast(amostraAtual ? 'Amostra salva' : 'Amostra removida', 'success');
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erro ao salvar a amostra', 'error');
+    } finally {
+      setSavingAmostra(false);
     }
   };
 
@@ -515,6 +551,41 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
           className="px-4 py-2 bg-prosperus-gold text-black text-sm font-semibold rounded-lg transition disabled:opacity-40"
         >
           {savingPrazo ? 'Salvando...' : 'Salvar prazo'}
+        </button>
+      </div>
+
+      <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-2" data-testid="cohort-amostra">
+        <label htmlFor="cohort-amostra-clube" className="text-xs text-white/60 sm:w-64">
+          Amostra do script <span className="text-white/40">(abre em "Ver um script completo de exemplo", na tela inicial do mentor. Os dois campos vazios escondem o bloco)</span>
+        </label>
+        <input
+          id="cohort-amostra-clube"
+          type="text"
+          value={amostraClube}
+          onChange={(e) => setAmostraClube(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveAmostra(); } }}
+          maxLength={120}
+          placeholder="slug do clube"
+          aria-label="Clube da amostra"
+          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-prosperus-gold/50"
+        />
+        <input
+          id="cohort-amostra-versao"
+          type="number"
+          min={1}
+          value={amostraVersao}
+          onChange={(e) => setAmostraVersao(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveAmostra(); } }}
+          placeholder="versão"
+          aria-label="Versão da amostra"
+          className="sm:w-28 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-prosperus-gold/50"
+        />
+        <button
+          onClick={saveAmostra}
+          disabled={savingAmostra || amostraAtual === amostraSaved}
+          className="px-4 py-2 bg-prosperus-gold text-black text-sm font-semibold rounded-lg transition disabled:opacity-40"
+        >
+          {savingAmostra ? 'Salvando...' : 'Salvar amostra'}
         </button>
       </div>
 

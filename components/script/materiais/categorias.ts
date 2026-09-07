@@ -47,15 +47,14 @@ export const MATERIAL_CATEGORIA_LABEL: Record<string, string> = Object.fromEntri
   MATERIAL_CATEGORIAS.map((c) => [c.id, c.label]),
 );
 
-export const COMO_FUNCIONA_PASSOS: string[] = [
-  'Você envia o que tiver, aqui em Materiais. Só você e o Danilo veem o que você enviou.',
-  'A gente monta a sua ficha com o que você enviou e com o que já sabemos de você, cada item com a fonte ao lado.',
-  'Você revisa e aprova: confirma o que está certo, ajusta o que mudou, preenche o que faltou.',
-  'Com a ficha aprovada, sai o seu script dos 7 passos da venda, na sua voz, personalizado para a sua mentoria e para o seu cliente.',
-];
-
-export const COMO_FUNCIONA_FRASE =
-  'Quem faz antes recebe antes. Mandou os arquivos e revisou a ficha? Em menos de um dia o seu script está na sua mão para a próxima reunião.';
+/**
+ * A explicação do processo saiu daqui na onda I (decisão D6): quem conta como funciona agora é a tela
+ * inicial do módulo (components/script/ComoFuncionaScreen.tsx), com o tempo real de cada etapa vindo
+ * de GET /api/script/tempos. A promessa antiga ("em menos de um dia") brigava com a da tela de escolha
+ * ("em minutos") e nenhuma das duas era medida: as duas saíram.
+ */
+export const COMO_FUNCIONA_ORDEM =
+  'Quem faz antes recebe antes: mandou os arquivos e revisou a ficha, o seu script entra na fila.';
 
 export const LINKS_DICA =
   'Links do seu site, página de vendas, Instagram, podcasts, entrevistas, reportagens, blog, aulas públicas. Só o link; acesso com senha vai na seção abaixo.';

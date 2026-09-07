@@ -26,7 +26,7 @@ export interface ScriptFieldDef {
   previa?: string | Record<string, string>;
   /** Ajuda curta embaixo da pergunta. */
   ajuda?: string;
-  /** Uma das 12 perguntas da ficha essencial (SPEC-workflow-v2-decisoes-06-09 §2). */
+  /** Uma das perguntas da ficha essencial (SPEC-workflow-v2-decisoes-06-09 §2); hoje são 16. */
   essencial?: boolean;
 }
 
@@ -50,7 +50,7 @@ export type FichaStatus = 'vazia' | 'pre_preenchida' | 'em_revisao' | 'confirmad
 export type MaterialsStatus = 'pending' | 'submitted' | 'skipped';
 /**
  * Caminho escolhido na entrada (SPEC-workflow-v2-decisoes-06-09 §1 e §2):
- * 'essencial' = as 12 perguntas que fecham o cartão de bolso; 'completo' = a ficha inteira.
+ * 'essencial' = as 16 perguntas que fecham o cartão de bolso; 'completo' = a ficha inteira.
  */
 export type ScriptModo = 'essencial' | 'completo';
 export const SCRIPT_MODOS: ScriptModo[] = ['essencial', 'completo'];
@@ -84,7 +84,7 @@ export interface ScriptFieldView {
   tipo: ScriptFieldType;
   tipoRaw: string;
   obrigatorio: boolean;
-  /** Entra na ficha essencial (as 12 perguntas). Vem do GET /api/script/ficha. */
+  /** Entra na ficha essencial (as 16 perguntas). Vem do GET /api/script/ficha. */
   essencial?: boolean;
   minutos: number;
   opcoes: string[] | null;
@@ -160,7 +160,7 @@ export const SCRIPT_BLOCKS: ScriptBlockDef[] = raw.blocos as ScriptBlockDef[];
 export const SCRIPT_DAYS: ScriptDayDef[] = raw.dias as ScriptDayDef[];
 export const SCRIPT_FIELD_KEYS: string[] = SCRIPT_FIELDS.map((f) => f.key);
 export const SCRIPT_REQUIRED_KEYS: string[] = SCRIPT_FIELDS.filter((f) => f.obrigatorio).map((f) => f.key);
-/** As 12 perguntas da ficha essencial, na ordem da ficha (algumas viram duas chaves). */
+/** As perguntas da ficha essencial, na ordem da ficha (algumas viram duas chaves). */
 export const SCRIPT_ESSENCIAL_KEYS: string[] = SCRIPT_FIELDS.filter((f) => f.essencial).map((f) => f.key);
 export const SCRIPT_FIELD_BY_KEY: Record<string, ScriptFieldDef> = Object.fromEntries(SCRIPT_FIELDS.map((f) => [f.key, f]));
 

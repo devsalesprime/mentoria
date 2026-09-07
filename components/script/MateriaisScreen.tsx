@@ -4,7 +4,7 @@ import type { UseScriptFicha, ClubFile, MaterialLink } from '../../hooks/useScri
 import { emitirToast } from './contexto/toast';
 import type { UploadedFile } from '../../types/audio';
 import { MATERIAL_CATEGORIAS, LINKS_DICA } from './materiais/categorias';
-import { ComoFunciona } from './materiais/ComoFunciona';
+import { PrazoMateriais } from './materiais/PrazoMateriais';
 import { AcessosPlataforma } from './materiais/AcessosPlataforma';
 import { PromptIA } from './materiais/PromptIA';
 import { ConfirmarEnvioModal } from './materiais/ConfirmarEnvioModal';
@@ -196,8 +196,8 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
         )}
       </div>
 
-      {/* Como funciona */}
-      <ComoFunciona prazo={data.config?.prazo_materiais} />
+      {/* Prazo dos materiais (o "Como funciona" saiu daqui: virou a tela inicial do módulo, decisão D6) */}
+      <PrazoMateriais prazo={data.config?.prazo_materiais} />
 
       {/* Peca para a sua IA preencher */}
       <PromptIA

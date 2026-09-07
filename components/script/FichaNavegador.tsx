@@ -94,7 +94,7 @@ export function useBlocosAbertos(blocoAtual: number | null): [number[], (n: numb
 
 /** Título do grupo recolhido com o que os materiais já responderam (modo "completar o que falta"). */
 export const COPY_GRUPO_MATERIAIS = 'Preenchido pelos seus materiais';
-/** Título do grupo recolhido com as perguntas fora das 12 (modo essencial). */
+/** Título do grupo recolhido com as perguntas fora das essenciais (modo essencial). */
 export const COPY_GRUPO_APROFUNDAR = 'Aprofundar (opcional)';
 
 interface NavegadorFichaProps {

@@ -11,6 +11,8 @@ import { BLOCK_INTRO, COPY_GRUPO_APROFUNDAR } from './FichaNavegador';
 import { ToastStack } from './contexto/ToastStack';
 import { emitirToast } from './contexto/toast';
 import { ProgressoPreenchimento } from './ProgressoPreenchimento';
+import { EsperaLeitura } from './EsperaLeitura';
+import { EtaEspera } from './EtaEspera';
 import { ComplementoCampo } from './ComplementoCampo';
 import { AccordionSection } from '../shared/AccordionSection';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -19,6 +21,14 @@ import { Button } from '../ui/Button';
 interface FichaScreenProps {
   ficha: UseScriptFicha;
   onNavigate?: (id: string) => void;
+  /** Token do membro: a previsão da espera (fila e tempo médio) lê as rotas do script com ele. */
+  token?: string;
+  /**
+   * Espera explícita antes da ficha (onda I, item I5): materiais enviados, leitura rodando e nenhuma
+   * sugestão ainda. A tela inteira vira o painel de progresso com a previsão; a ficha abre por escolha
+   * ("Responder enquanto a IA lê") e volta a ser o destino assim que a primeira sugestão chega.
+   */
+  espera?: boolean;
 }
 
 // Modo de preenchimento lembrado no navegador: 'passo' (uma pergunta por tela, padrao) ou 'tudo' (acordeoes)
@@ -62,7 +72,7 @@ export const COPY_INSUFICIENTE = 'Precisamos de mais material ou das suas respos
 export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já está sendo escrito. Se editar algum campo, a ficha reabre e você pode pedir uma nova versão.';
 export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo escrito.';
 
-export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) => {
+export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, token = '', espera = false }) => {
   const {
     data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia,
     complemento, pedirRevisao, definirModo, conflitos, manterDoSocio, usarAMinha, meuEmail,
@@ -179,6 +189,31 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
     return () => clearTimeout(t);
   }, [job?.status, job?.id, painelDispensado]);
   const dispensarSePronto = useCallback(() => { if (job?.status === 'done') setPainelDispensado(job.id); }, [job?.status, job?.id]);
+  // Espera antes da ficha (item I5): assim que a primeira sugestão chega (ou a leitura termina), a ficha
+  // volta a ser o destino sozinha. O poll de 20 s acima é quem traz a novidade.
+  const temSugestao = useMemo(
+    () => (data?.blocos || []).some((b) => b.campos.some((c) => c.status === 'sugerido' && !!(c.sugerido || '').trim())),
+    [data],
+  );
+  useEffect(() => {
+    if (!espera || !data) return;
+    if (temSugestao || !jobAtivo) onNavigate?.('script_ficha');
+  }, [espera, data, temSugestao, jobAtivo, onNavigate]);
+  /** A previsão da espera (fila, tempo médio e WhatsApp) é a mesma nos dois lugares. */
+  const etaLeitura = token ? (
+    <EtaEspera
+      token={token}
+      tipo="prefill"
+      ativo={jobAtivo}
+      temWhatsapp={!!data?.materials?.notify_phone}
+      sugerido={data?.materials?.notify_phone_sugerido}
+      onConfirmarWhats={ficha.salvarNotifyPhone}
+      lembreteDispensado={!!data?.visto_whatsapp_lembrete}
+      onDispensarLembrete={ficha.marcarLembreteWhatsapp}
+      id="ficha-espera-whatsapp"
+      testId="eta-prefill"
+    />
+  ) : null;
   const mostrarPainel = !!job && !(job.status === 'done' && painelDispensado === job.id);
   const camposTodos = useMemo(() => (data?.blocos || []).flatMap((b) => b.campos), [data]);
   const sugestoesTotal = useMemo(() => camposTodos.filter((c) => c.sugerido && c.sugerido.trim()).length, [camposTodos]);
@@ -299,6 +334,11 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
   }
 
   if (!data) return null;
+
+  // Item I5: a espera ocupa a tela inteira; a ficha continua a um clique ("Responder enquanto a IA lê")
+  if (espera && jobAtivo && !temSugestao) {
+    return <EsperaLeitura ficha={ficha} token={token} onNavigate={onNavigate} />;
+  }
 
   const { progresso, blocos } = data;
   const allRequiredDone = progresso.obrigatorios_decididos >= progresso.obrigatorios;
@@ -500,6 +540,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate }) =
           novas={novas}
           atualizadoEm={ultimaSincronia ?? null}
           onDispensar={dispensarSePronto}
+          eta={etaLeitura}
         />
       )}
 

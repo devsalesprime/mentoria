@@ -749,7 +749,7 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
 
   /** Fim da ficha: quantos campos faltam para o script e um único link "Ver o que falta"; o mapa fica no navegador. */
   const renderFim = () => {
-    // Ficha essencial: fecha com as 12 respondidas; o resto continua editável em "Aprofundar (opcional)"
+    // Ficha essencial: fecha com as 16 respondidas; o resto continua editável em "Aprofundar (opcional)"
     if (focoEssencial) {
       const pronta = pendentesNoFoco === 0;
       const titulo = isConfirmed ? COPY_ESSENCIAL_CONFIRMADA : pronta ? 'Tudo pronto para o seu cartão de bolso' : textoFaltamEssenciais(pendentesNoFoco);

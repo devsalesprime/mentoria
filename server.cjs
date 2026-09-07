@@ -399,6 +399,15 @@ function initializeDatabase() {
       )
     `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_cohort_members_club ON cohort_members(club_slug)`);
+    // Marcos por pessoa da onda I (registro: migrations/027_cohort_members_marcos.sql):
+    // como_funciona_visto_em = clicou em "Começar o meu script" na tela inicial (a tela so abre na 1a entrada);
+    // whatsapp_lembrete_em   = dispensou o lembrete unico do WhatsApp numa tela de espera.
+    db.run(`ALTER TABLE cohort_members ADD COLUMN como_funciona_visto_em DATETIME`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_members.como_funciona_visto_em migration error:', err.message);
+    });
+    db.run(`ALTER TABLE cohort_members ADD COLUMN whatsapp_lembrete_em DATETIME`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_members.whatsapp_lembrete_em migration error:', err.message);
+    });
     db.run(`ALTER TABLE users ADD COLUMN cohort TEXT DEFAULT NULL`, (err) => {
       if (err && !err.message.includes('duplicate column')) console.error('⚠️ users.cohort migration error:', err.message);
     });

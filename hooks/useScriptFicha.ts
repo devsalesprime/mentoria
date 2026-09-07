@@ -69,6 +69,8 @@ export type ScriptMaterialsPatch = Partial<Pick<ScriptMaterials, 'links' | 'obse
 
 export interface ScriptConfig {
   prazo_materiais: string;
+  /** O admin configurou uma amostra de script (clube + versão): a tela inicial oferece o exemplo. */
+  amostra_disponivel?: boolean;
 }
 
 export type ScriptJobStatus = 'queued' | 'running' | 'done' | 'error' | 'needs_human';
@@ -195,22 +197,46 @@ export interface Suficiencia {
 /** Origem do fechamento da ficha: os materiais bastaram ('automatica'), o mentor fechou ('mentor'), o admin forcou ('admin:<quem>'). */
 export const ORIGEM_AUTOMATICA = 'automatica';
 
-export type RotaScript = 'script_escolha' | 'script_materiais' | 'script_ficha' | 'script_script';
+export type RotaScript = 'script_como_funciona' | 'script_escolha' | 'script_materiais' | 'script_espera' | 'script_ficha' | 'script_script';
+
+/** O que `rotaInicialDoClube` precisa saber; tudo além de `ficha_status` e `suficiencia` é opcional. */
+export type DadosDaRota =
+  Pick<ScriptFichaData, 'ficha_status' | 'suficiencia'>
+  & Partial<Pick<ScriptFichaData, 'modo' | 'materials_status' | 'job' | 'blocos' | 'visto_como_funciona'>>;
+
+/**
+ * A leitura dos materiais está rodando e nenhuma sugestão chegou ainda (onda I, item I5): a pessoa
+ * espera numa tela que explica o que está acontecendo, em vez de cair numa ficha crua.
+ */
+export function esperandoPrimeiraSugestao(d: DadosDaRota | null | undefined): boolean {
+  if (!d) return false;
+  if (d.materials_status !== 'submitted') return false;
+  const job = d.job;
+  if (!job || job.tipo !== 'prefill') return false;
+  if (job.status !== 'queued' && job.status !== 'running') return false;
+  const campos = (d.blocos || []).flatMap((b) => b.campos);
+  return !campos.some((c) => c.status === 'sugerido' && !!(c.sugerido || '').trim());
+}
 
 /**
  * Onde o membro do Exclusive cai ao abrir o app:
- * sem `modo` -> a tela de escolha (essencial ou completo), antes de tudo;
+ * nunca viu a tela inicial -> "Como funciona" (decisão D1: só na primeira entrada; depois ela vive no menu);
+ * sem `modo` -> a tela de escolha (essencial ou completo);
+ * materiais enviados com a leitura rodando e nenhuma sugestão ainda -> a espera (item I5);
  * com modo e a ficha vazia -> Materiais, a nao ser que a pessoa ja tenha enviado ou pulado os materiais;
  * "Seu script" quando a ficha esta fechada ou os materiais bastaram (suficiente);
  * a Ficha nos outros casos (parcial abre so o que falta).
+ *
+ * `visto_como_funciona` vem sempre do servidor (data ISO ou `null`). `undefined` = quem chamou não
+ * carregou esse dado, e aí a tela inicial não entra na frente de nada.
  */
-export function rotaInicialDoClube(
-  d: Pick<ScriptFichaData, 'ficha_status' | 'suficiencia'> & Partial<Pick<ScriptFichaData, 'modo' | 'materials_status'>> | null | undefined,
-): RotaScript {
+export function rotaInicialDoClube(d: DadosDaRota | null | undefined): RotaScript {
   if (!d) return 'script_materiais';
+  if (d.visto_como_funciona === null) return 'script_como_funciona';
   if (!d.modo) return 'script_escolha';
   if (d.ficha_status === 'confirmada') return 'script_script';
   if (d.suficiencia?.resultado === 'suficiente' && d.ficha_status !== 'em_revisao') return 'script_script';
+  if (esperandoPrimeiraSugestao(d)) return 'script_espera';
   if (d.ficha_status === 'vazia') {
     return d.materials_status === 'submitted' || d.materials_status === 'skipped' ? 'script_ficha' : 'script_materiais';
   }
@@ -225,7 +251,7 @@ export function fichaEhSecundaria(d: Pick<ScriptFichaData, 'ficha_status' | 'suf
 export interface ScriptFichaData {
   club: { slug: string; nome: string };
   ficha_status: FichaStatus;
-  /** Caminho escolhido na entrada: 'essencial' (12 perguntas) | 'completo' (34) | null antes da escolha. */
+  /** Caminho escolhido na entrada: 'essencial' (16 perguntas) | 'completo' (34) | null antes da escolha. */
   modo?: ScriptModo | null;
   /** 'automatico' = o app escolheu o completo sozinho (o material bastou antes da tela de escolha). */
   modo_origem?: 'automatico' | null;
@@ -240,6 +266,9 @@ export interface ScriptFichaData {
   job?: ScriptJobInfo | null;
   script?: ScriptSummary;
   config: ScriptConfig;
+  /** Marcos desta PESSOA (onda I): data ISO quando aconteceu, `null` quando ainda não. */
+  visto_como_funciona?: string | null;
+  visto_whatsapp_lembrete?: string | null;
   prefilled_at: string | null;
   reviewed_at: string | null;
   last_user_activity_at: string | null;
@@ -922,6 +951,33 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [flush, token]);
 
+  /**
+   * Marcos por pessoa da onda I (PUT /api/script/visto). Idempotente no servidor: regravar mantém a
+   * primeira data. O estado local muda na hora, para a tela não voltar ao lugar de onde saiu.
+   */
+  const marcarVisto = useCallback(async (marco: 'como_funciona' | 'whatsapp_lembrete'): Promise<boolean> => {
+    const campo = marco === 'como_funciona' ? 'visto_como_funciona' : 'visto_whatsapp_lembrete';
+    const agora = new Date().toISOString();
+    setData((prev) => (prev && !prev[campo] ? { ...prev, [campo]: agora } : prev));
+    if (!token) return false;
+    try {
+      const res = await axios.put('/api/script/visto', { marco }, authHeaders(token));
+      return !!res.data?.success;
+    } catch {
+      return false; // a marca local segura a sessão; a próxima carga corrige
+    }
+  }, [token]);
+
+  const marcarComoFuncionaVisto = useCallback(() => marcarVisto('como_funciona'), [marcarVisto]);
+  const marcarLembreteWhatsapp = useCallback(() => { void marcarVisto('whatsapp_lembrete'); }, [marcarVisto]);
+
+  /** Para onde o botão "Começar o meu script" leva: a rota normal, já com a tela inicial dada por vista. */
+  const rotaDepoisDaEntrada = useCallback((): RotaScript => {
+    const atual = dataRef.current;
+    if (!atual) return 'script_escolha';
+    return rotaInicialDoClube({ ...atual, visto_como_funciona: atual.visto_como_funciona || new Date().toISOString() });
+  }, []);
+
   const setFiles = useCallback((files: ClubFile[]) => {
     setData((prev) => (prev ? { ...prev, files } : prev));
   }, []);
@@ -955,6 +1011,9 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     refinar,
     setContextoCount,
     definirModo,
+    marcarComoFuncionaVisto,
+    marcarLembreteWhatsapp,
+    rotaDepoisDaEntrada,
     pularMateriais,
     salvarNotifyPhone,
     saveMaterials,

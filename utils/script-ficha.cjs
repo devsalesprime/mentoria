@@ -15,7 +15,7 @@ const FIELD_KEYS = FIELDS.map((f) => f.key);
 const FIELD_BY_KEY = Object.fromEntries(FIELDS.map((f) => [f.key, f]));
 const REQUIRED_KEYS = FIELDS.filter((f) => f.obrigatorio).map((f) => f.key);
 /**
- * Ficha essencial (SPEC-workflow-v2-decisoes-06-09 §2): as 12 perguntas que fecham o cartao de bolso,
+ * Ficha essencial (SPEC-workflow-v2-decisoes-06-09 §2): as 16 perguntas que fecham o cartao de bolso,
  * marcadas com `essencial: true` no JSON. Subconjunto da ficha completa: mesmas chaves, mesmo estado,
  * por isso o que a pessoa respondeu no essencial ja esta la quando ela aprofunda para o completo.
  */
@@ -549,7 +549,7 @@ function missingEssencial(fields) {
   return ESSENCIAL_KEYS.filter((k) => !isDecided(f[k]));
 }
 
-/** O que segura a ficha no modo pedido: essencial = as 12 perguntas; completo = os obrigatorios. */
+/** O que segura a ficha no modo pedido: essencial = as perguntas essenciais; completo = os obrigatorios. */
 function missingPorModo(fields, modo) {
   return normalizeModo(modo) === 'essencial' ? missingEssencial(fields) : missingRequired(fields);
 }
@@ -604,7 +604,7 @@ function buildFichaView(fieldsRaw, { includeInternal = false, nomes = null } = {
         tipo: def.tipo,
         tipoRaw: def.tipoRaw,
         obrigatorio: def.obrigatorio,
-        // Entra na ficha essencial (as 12 perguntas); o front filtra por aqui no modo essencial
+        // Entra na ficha essencial (as 16 perguntas); o front filtra por aqui no modo essencial
         essencial: !!def.essencial,
         minutos: def.minutos,
         opcoes: def.opcoes || null,

@@ -225,7 +225,8 @@ describe('forma antiga do JSON (por clube)', () => {
 describe('cohort_config.prazo_materiais', () => {
   it('membro le vazio por padrao; admin grava; membro passa a ler', async () => {
     const before = await api('GET', '/api/script/ficha', 'userA');
-    expect(before.data.data.config).toEqual({ prazo_materiais: '' });
+    // Onda I: `config` do membro leva o prazo e a marca de que existe amostra (o clube/versão ficam no servidor)
+    expect(before.data.data.config).toEqual({ prazo_materiais: '', amostra_disponivel: false });
     const put = await api('PUT', '/api/admin/cohort/config', 'admin', { prazo_materiais: '  até sexta, 12/09 ' });
     expect(put.status).toBe(200);
     expect(put.data.data.prazo_materiais).toBe('até sexta, 12/09');

@@ -30,6 +30,8 @@ import { FichaScreen } from './script/FichaScreen';
 import { MateriaisScreen } from './script/MateriaisScreen';
 import { ScriptScreen } from './script/ScriptScreen';
 import { EscolhaCaminho } from './script/EscolhaCaminho';
+import { ComoFuncionaScreen } from './script/ComoFuncionaScreen';
+import { TrilhoEtapas } from './script/TrilhoEtapas';
 import { useScriptFicha, rotaInicialDoClube, fichaEhSecundaria } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
 import type { FichaStatus, MaterialsStatus, ScriptModo } from '../data/script-ficha-fields';
@@ -48,8 +50,11 @@ const SLUG_TO_ID: Record<string, string> = {
   'suggestions': 'suggestions',
   'insights': 'insights',
   // Script 7 Passos (cohort Exclusive)
+  'como-funciona': 'script_como_funciona',
   'escolha': 'script_escolha',
   'materiais': 'script_materiais',
+  // Espera antes da ficha (onda I, item I5): a leitura dos materiais ainda não trouxe nenhuma sugestão
+  'espera': 'script_espera',
   'ficha': 'script_ficha',
   'script': 'script_script',
 };
@@ -149,16 +154,21 @@ const getSidebarMenu = (
       script.materialsStatus === 'submitted' || script.materialsStatus === 'skipped' ? 'green' : 'yellow';
     // No caminho essencial a etapa se chama "Ficha essencial" (são as perguntas essenciais, não a ficha inteira)
     const fichaLabel = script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha do Script';
+    // Onda I (item I1): "Como funciona" é o primeiro item do grupo e fica sempre disponível, para quem
+    // fechou a aba reencontrar a explicação (e a Escolha, que só o trilho mostrava).
+    const comoFunciona: MenuItem = { id: 'script_como_funciona', label: 'Como funciona', secondary: true };
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
       items: script.fichaSecundaria
         ? [
+          comoFunciona,
           { id: 'script_materiais', label: 'Materiais', statusDot: materiaisDot },
           { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
           { id: 'script_ficha', label: script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha', secondary: true },
         ]
         : [
+          comoFunciona,
           { id: 'script_materiais', label: 'Materiais', statusDot: materiaisDot },
           { id: 'script_ficha', label: fichaLabel, statusDot: fichaDot },
           { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
@@ -530,6 +540,11 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     );
   };
 
+  // Trilho das etapas (onda I, item I2): fica no topo de toda tela do módulo. No celular ele substitui
+  // as bolinhas do menu; no desktop os dois convivem.
+  const ETAPAS_DO_SCRIPT = new Set(['script_como_funciona', 'script_escolha', 'script_materiais', 'script_espera', 'script_ficha', 'script_script']);
+  const trilhoVisivel = !!cohortEfetivo && scriptFicha.enabled && !!scriptFicha.data && ETAPAS_DO_SCRIPT.has(activeItem);
+
   const getActiveLabel = () => {
     for (const section of menuStructure) {
       const item = section.items.find(i => i.id === activeItem);
@@ -712,10 +727,18 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
 
     // ─── Script 7 Passos (cohort Exclusive) ─────────────────────────────────
 
+    if (activeItem === 'script_como_funciona') {
+      return (
+        <ModuleErrorBoundary moduleName="Como funciona">
+          <ComoFuncionaScreen ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
+        </ModuleErrorBoundary>
+      );
+    }
+
     if (activeItem === 'script_escolha') {
       return (
         <ModuleErrorBoundary moduleName="Escolha do caminho">
-          <EscolhaCaminho ficha={scriptFicha} onNavigate={(id) => navigateTo(id)} />
+          <EscolhaCaminho ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
         </ModuleErrorBoundary>
       );
     }
@@ -728,10 +751,19 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       );
     }
 
+    // Espera antes da ficha (item I5): a mesma tela da Ficha, em estado de painel cheio
+    if (activeItem === 'script_espera') {
+      return (
+        <ModuleErrorBoundary moduleName="Leitura dos materiais">
+          <FichaScreen ficha={scriptFicha} token={token} espera onNavigate={(id) => navigateTo(id)} />
+        </ModuleErrorBoundary>
+      );
+    }
+
     if (activeItem === 'script_ficha') {
       return (
         <ModuleErrorBoundary moduleName="Ficha do Script">
-          <FichaScreen ficha={scriptFicha} onNavigate={(id) => navigateTo(id)} />
+          <FichaScreen ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
         </ModuleErrorBoundary>
       );
     }
@@ -888,7 +920,11 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                         ) : (
                           <span className="truncate flex-1">{item.label}</span>
                         )}
-                        {!isCurrent && !item.secondary && <DotIndicator dot={item.statusDot} />}
+                        {!isCurrent && !item.secondary && (
+                          trilhoVisivel && ETAPAS_DO_SCRIPT.has(item.id)
+                            ? <span className="hidden lg:inline-flex"><DotIndicator dot={item.statusDot} /></span>
+                            : <DotIndicator dot={item.statusDot} />
+                        )}
                       </button>
                     );
                   })}
@@ -975,6 +1011,9 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
+              {trilhoVisivel && (
+                <TrilhoEtapas data={scriptFicha.data} atual={activeItem} onNavigate={(id) => navigateTo(id)} />
+              )}
               {renderContent()}
             </motion.div>
           </AnimatePresence>

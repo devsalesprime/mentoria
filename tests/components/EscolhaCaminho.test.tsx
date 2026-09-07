@@ -39,7 +39,8 @@ function fichaDe(extra: Partial<UseScriptFicha> = {}, data: ScriptFichaData | nu
   } as unknown as UseScriptFicha;
 }
 
-const TEXTO_ESSENCIAL = 'O cartão de bolso em minutos: as falas-chave dos 7 passos, o investimento total e a pergunta de recomendação, para levar para a reunião de amanhã.';
+// Onda I, item I3: o "em minutos" saiu da copy fixa; o tempo agora vem do histórico real (linha própria)
+const TEXTO_ESSENCIAL = 'O cartão de bolso: as falas-chave dos 7 passos, o investimento total e a pergunta de recomendação, para levar para a reunião de amanhã.';
 const TEXTO_COMPLETO = 'O script inteiro: treinamento com a anatomia de cada fala, roteiro de campo, apresentação comercial e as aulas da Dani em cada passo.';
 
 describe('EscolhaCaminho: a pergunta da entrada', () => {

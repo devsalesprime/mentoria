@@ -2,13 +2,16 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 
 /**
+ * O acordeao "Como funciona" saiu de Materiais na onda I (decisao D6) e virou a tela inicial do modulo;
+ * a linha do prazo ficou, sozinha, em components/script/materiais/PrazoMateriais.tsx.
+ *
  * `cohort_config.prazo_materiais` e texto livre do admin, entao ele envelhece sozinho: em 06/09 a tela
  * ainda mostrava "Prazo: amanhã, sexta 04/09, até as 10h", escrito na quarta. Duas regras agora:
  *   1. tem data e a data ja passou -> a linha some;
  *   2. "hoje"/"amanhã"/"ontem" nunca vao para a tela (foram escritos em outro dia e ninguem recalcula).
  */
 
-import { ComoFunciona, prazoParaExibir } from '../../components/script/materiais/ComoFunciona';
+import { PrazoMateriais, prazoParaExibir } from '../../components/script/materiais/PrazoMateriais';
 
 const HOJE = new Date(2026, 8, 6); // 06/09/2026, o dia do QA
 
@@ -51,21 +54,21 @@ describe('prazoParaExibir', () => {
   });
 });
 
-describe('ComoFunciona: linha do prazo', () => {
+describe('PrazoMateriais: a linha do prazo', () => {
   it('mostra o prazo futuro', () => {
-    render(<ComoFunciona prazo="até sexta, 12/09" />);
+    render(<PrazoMateriais prazo="até sexta, 12/09" />);
     expect(screen.getByTestId('prazo-materiais')).toHaveTextContent('até sexta, 12/09');
   });
 
   it('nao mostra nada quando o admin deixou vazio', () => {
-    render(<ComoFunciona prazo="" />);
+    render(<PrazoMateriais prazo="" />);
     expect(screen.queryByTestId('prazo-materiais')).toBeNull();
   });
 
   it('nao mostra nada quando a data configurada ja passou', () => {
     const ontem = new Date(Date.now() - 48 * 3600 * 1000);
     const texto = `amanhã, ${String(ontem.getDate()).padStart(2, '0')}/${String(ontem.getMonth() + 1).padStart(2, '0')}, até as 10h`;
-    render(<ComoFunciona prazo={texto} />);
+    render(<PrazoMateriais prazo={texto} />);
     expect(screen.queryByTestId('prazo-materiais')).toBeNull();
     expect(screen.queryByText(/amanhã/)).toBeNull();
   });

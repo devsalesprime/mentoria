@@ -4,6 +4,7 @@ import { toPng } from 'html-to-image';
 import { Button } from '../ui/Button';
 import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo, ScriptSummary } from '../../hooks/useScriptFicha';
 import { AvisoModoAutomatico } from './AvisoModoAutomatico';
+import { EtaEspera } from './EtaEspera';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
 import { ScriptPaper, destacarValores } from './script/ScriptPaper';
 import { ScriptReader, COPY_AJUSTES_USADOS, type AjustesInfo, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
@@ -808,7 +809,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           {fichaConfirmada || job ? (
             <>
               <h2 className="font-serif text-2xl sm:text-3xl text-white leading-tight">Seu script está sendo escrito.</h2>
-              <p className="text-sm text-white/70 leading-relaxed">Você recebe um aviso no WhatsApp quando ficar pronto. Ele aparece aqui, com os 7 passos, para ler, grifar, comentar, baixar ou imprimir.</p>
+              <p className="text-sm text-white/70 leading-relaxed">Ele aparece aqui, com os 7 passos, para ler, grifar, comentar, baixar ou imprimir. Você não precisa ficar nesta tela.</p>
               {ficha.data?.confirmada_por === 'automatica' && (
                 <p className="text-xs text-prosperus-gold-light/90" data-testid="nota-automatica">
                   Os seus materiais bastaram: a ficha foi preenchida por eles e o script já está a caminho. Se quiser conferir ou ajustar algo, a ficha continua aberta.
@@ -820,6 +821,19 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                   {status}
                 </p>
               )}
+              {/* Onda I, item I4: a fila com o nome dos clubes na frente, o tempo médio e o WhatsApp */}
+              <EtaEspera
+                token={token}
+                tipo="script"
+                ativo={job?.status === 'queued' || job?.status === 'running'}
+                temWhatsapp={!!ficha.data?.materials?.notify_phone}
+                sugerido={ficha.data?.materials?.notify_phone_sugerido}
+                onConfirmarWhats={ficha.salvarNotifyPhone}
+                lembreteDispensado={!!ficha.data?.visto_whatsapp_lembrete}
+                onDispensarLembrete={ficha.marcarLembreteWhatsapp}
+                id="script-espera-whatsapp"
+                testId="eta-script"
+              />
               {job?.status === 'error' && (
                 <Button variant="outline" size="md" onClick={gerarDoZero} loading={pedindo} disabled={pedindo}>Pedir nova versão</Button>
               )}

@@ -104,8 +104,9 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     await screen.findByText('FichaScreen');
     expect(screen.getByText('FichaScreen')).toBeInTheDocument();
     expect(screen.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
-    expect(screen.getByText('Materiais')).toBeInTheDocument();
-    expect(screen.getByText('Seu script')).toBeInTheDocument();
+    // Onda I: o trilho de etapas repete os nomes no topo do conteúdo, então a busca é dentro do menu
+    expect(itensDoMenu()).toContain('Materiais');
+    expect(itensDoMenu()).toContain('Seu script');
     expect(screen.queryByText('Visão Geral')).toBeNull();
     expect(screen.queryByText('DIAGNÓSTICO')).toBeNull();
     expect(screen.queryByText('O Mentor')).toBeNull();
