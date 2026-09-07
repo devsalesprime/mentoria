@@ -36,11 +36,47 @@ const scriptMaterialsPessoaSchema = z.object({
     resposta_ia: z.string().max(200000).optional(),
 });
 
-/** POST /api/script/ficha/materials/submit: telefone opcional para o aviso no WhatsApp. */
+/**
+ * POST /api/script/ficha/materials/submit: telefone opcional para o aviso no WhatsApp.
+ * O numero SO e guardado com `consentimento: true` (a marcacao de permissao da tela).
+ */
 const scriptMaterialsSubmitSchema = z.object({
     notify_phone: z.string().max(40).optional(),
     notify: z.boolean().optional().default(true),
+    consentimento: z.boolean().optional(),
+    consent_texto: z.string().max(1000).optional(),
 });
+
+/** PUT /api/script/ficha/notify-phone: `consentimento` e obrigatorio (sem ele a rota devolve 400). */
+const notifyPhoneSchema = z.object({
+    notify_phone: z.string().max(40).optional(),
+    consentimento: z.boolean().optional(),
+    consent_texto: z.string().max(1000).optional(),
+});
+
+/**
+ * Frase da permissao mostrada na tela (components/script/materiais/ConsentimentoWhatsApp.tsx).
+ * Vale de padrao quando o cliente nao manda `consent_texto`; o que fica guardado e sempre o que a pessoa viu.
+ */
+const CONSENT_TEXTO = 'Quero receber no meu WhatsApp, pelo número do Danilo (Prosperus), as atualizações do meu script: quando a ficha ficar pronta, quando o script sair e se faltar alguma informação.';
+
+/** Recusa padrao de quem tenta guardar numero sem a permissao marcada. */
+const CONSENT_FALTANDO = 'Marque a permissão para receber as atualizações no seu WhatsApp.';
+
+/**
+ * Aplica o WhatsApp na entrada da pessoa SO com a permissao marcada: grava numero, quando a permissao foi
+ * dada e a frase que ela viu. Sem permissao (ou sem numero novo) devolve a entrada intacta.
+ * `sugerido` (notify_phone_sugerido) nunca entra aqui: ele so pre-preenche o campo da tela.
+ */
+function applyNotifyConsent(pessoa, { phone, consentimento, texto, agora }) {
+    if (consentimento !== true || !phone) return pessoa;
+    return {
+        ...pessoa,
+        notify_phone: phone,
+        notify_consent_at: agora || new Date().toISOString(),
+        notify_consent_texto: typeof texto === 'string' && texto.trim() ? texto.trim().slice(0, 1000) : CONSENT_TEXTO,
+    };
+}
 
 // ─── Telefone (aviso no WhatsApp) ────────────────────────────────────────────
 
@@ -188,6 +224,11 @@ function sanitizePessoa(p) {
     if (typeof o.skipped_at === 'string' && o.skipped_at) out.skipped_at = o.skipped_at;
     if (typeof o.nome === 'string' && o.nome) out.nome = o.nome;
     if (typeof o.notify_phone === 'string' && o.notify_phone) out.notify_phone = o.notify_phone;
+    // Permissao do WhatsApp: quando foi dada e a frase que a pessoa viu (o numero so existe com as duas)
+    if (typeof o.notify_consent_at === 'string' && o.notify_consent_at) out.notify_consent_at = o.notify_consent_at;
+    if (typeof o.notify_consent_texto === 'string' && o.notify_consent_texto) out.notify_consent_texto = o.notify_consent_texto;
+    // Numero que veio do cadastro (admin): SO pre-preenche o campo; nunca e usado para mandar mensagem
+    if (typeof o.notify_phone_sugerido === 'string' && o.notify_phone_sugerido) out.notify_phone_sugerido = o.notify_phone_sugerido;
     if (o.resposta_ia && typeof o.resposta_ia === 'object' && typeof o.resposta_ia.texto === 'string') {
         out.resposta_ia = {
             texto: o.resposta_ia.texto,
@@ -238,6 +279,9 @@ function memberMaterialsView(materials, email) {
     if (p.skipped_at) out.skipped_at = p.skipped_at;
     if (p.resposta_ia) out.resposta_ia = p.resposta_ia;
     if (p.notify_phone) out.notify_phone = p.notify_phone;
+    if (p.notify_consent_at) out.notify_consent_at = p.notify_consent_at;
+    // A tela usa a sugestao so para pre-preencher o campo do WhatsApp
+    if (p.notify_phone_sugerido) out.notify_phone_sugerido = p.notify_phone_sugerido;
     return out;
 }
 
@@ -264,6 +308,10 @@ module.exports = {
     scriptAcessoSchema,
     scriptMaterialsPessoaSchema,
     scriptMaterialsSubmitSchema,
+    notifyPhoneSchema,
+    CONSENT_TEXTO,
+    CONSENT_FALTANDO,
+    applyNotifyConsent,
     normalizePhone,
     cohortConfigSchema,
     COHORT_CONFIG_KEYS,

@@ -12,50 +12,91 @@ vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
 }));
 
-import { ConfirmarEnvioModal, phoneError } from '../../components/script/materiais/ConfirmarEnvioModal';
+import { ConfirmarEnvioModal } from '../../components/script/materiais/ConfirmarEnvioModal';
+import {
+  COPY_CONSENTIMENTO, COPY_WHATS_BOTAO, COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_SALVO, COPY_WHATS_SEM_PERMISSAO,
+} from '../../components/script/materiais/ConsentimentoWhatsApp';
+
+const props = () => ({
+  isOpen: true as const,
+  onClose: vi.fn(),
+  onConfirm: vi.fn().mockResolvedValue({ ok: true, existing: false, job: { id: 'j1', status: 'queued' } }),
+  onGoToFicha: vi.fn(),
+  onConfirmarWhats: vi.fn().mockResolvedValue({ ok: true }),
+});
 
 describe('ConfirmarEnvioModal', () => {
   it('confirmou: chama o submit e vai direto para a ficha (existing = false)', async () => {
-    const onConfirm = vi.fn().mockResolvedValue({ ok: true, existing: false, job: { id: 'j1', status: 'queued' } });
-    const onGoToFicha = vi.fn();
-    render(<ConfirmarEnvioModal isOpen onClose={vi.fn()} onConfirm={onConfirm} onGoToFicha={onGoToFicha} initialPhone="11987654321" />);
+    const p = props();
+    render(<ConfirmarEnvioModal {...p} />);
     expect(screen.getByText('Vamos começar a montar a sua ficha')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar e ir para a ficha' }));
     await act(async () => {});
-    expect(onConfirm).toHaveBeenCalledWith({ notify_phone: '11987654321', notify: true });
-    expect(onGoToFicha).toHaveBeenCalledWith(false);
+    expect(p.onConfirm).toHaveBeenCalledTimes(1);
+    expect(p.onGoToFicha).toHaveBeenCalledWith(false);
   });
 
   it('já havia pré-preenchimento em andamento: também vai para a ficha (existing = true), sem tela intermediária', async () => {
-    const onConfirm = vi.fn().mockResolvedValue({ ok: true, existing: true });
-    const onGoToFicha = vi.fn();
-    render(<ConfirmarEnvioModal isOpen onClose={vi.fn()} onConfirm={onConfirm} onGoToFicha={onGoToFicha} />);
-    fireEvent.click(screen.getByLabelText('Quero receber o aviso no WhatsApp'));
+    const p = { ...props(), onConfirm: vi.fn().mockResolvedValue({ ok: true, existing: true }) };
+    render(<ConfirmarEnvioModal {...p} />);
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar e ir para a ficha' }));
     await act(async () => {});
-    expect(onConfirm).toHaveBeenCalledWith({ notify_phone: '', notify: false });
-    expect(onGoToFicha).toHaveBeenCalledWith(true);
+    expect(p.onGoToFicha).toHaveBeenCalledWith(true);
     expect(screen.queryByText('Ir para a ficha')).not.toBeInTheDocument();
   });
 
-  it('telefone inválido não envia; erro do servidor aparece e não navega', async () => {
-    const onConfirm = vi.fn().mockResolvedValue({ ok: false, message: 'Não deu.' });
-    const onGoToFicha = vi.fn();
-    render(<ConfirmarEnvioModal isOpen onClose={vi.fn()} onConfirm={onConfirm} onGoToFicha={onGoToFicha} initialPhone="123" />);
+  it('erro do servidor no envio aparece e não navega', async () => {
+    const p = { ...props(), onConfirm: vi.fn().mockResolvedValue({ ok: false, message: 'Não deu.' }) };
+    render(<ConfirmarEnvioModal {...p} />);
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar e ir para a ficha' }));
     await act(async () => {});
-    expect(onConfirm).not.toHaveBeenCalled();
-    expect(screen.getByText(phoneError('123') as string)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Seu WhatsApp para o aviso (com DDD)'), { target: { value: '(11) 98765-4321' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar e ir para a ficha' }));
-    await act(async () => {});
-    expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Não deu.')).toBeInTheDocument();
-    expect(onGoToFicha).not.toHaveBeenCalled();
+    expect(p.onGoToFicha).not.toHaveBeenCalled();
+  });
+
+  it('o WhatsApp é independente do envio: sem a permissão marcada nada é guardado', async () => {
+    const p = props();
+    render(<ConfirmarEnvioModal {...p} />);
+    fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '(11) 98765-4321' } });
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
+    await act(async () => {});
+    expect(p.onConfirmarWhats).not.toHaveBeenCalled();
+    expect(screen.getByText(COPY_WHATS_SEM_PERMISSAO)).toBeInTheDocument();
+  });
+
+  it('com a permissão marcada, guarda o número com a frase que a pessoa viu', async () => {
+    const p = props();
+    render(<ConfirmarEnvioModal {...p} sugerido="5511911112222" />);
+    // o campo já vem com o número do cadastro
+    expect((screen.getByLabelText(COPY_WHATS_LABEL) as HTMLInputElement).value).toBe('(11) 91111-2222');
+    fireEvent.click(screen.getByLabelText(COPY_CONSENTIMENTO));
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
+    await act(async () => {});
+    expect(p.onConfirmarWhats).toHaveBeenCalledWith({
+      notify_phone: '(11) 91111-2222', consentimento: true, consent_texto: COPY_CONSENTIMENTO,
+    });
+    expect(screen.getByText(COPY_WHATS_SALVO)).toBeInTheDocument();
+  });
+
+  it('número incompleto com permissão marcada: erro na tela, sem chamar o servidor', async () => {
+    const p = props();
+    render(<ConfirmarEnvioModal {...p} />);
+    fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '123' } });
+    fireEvent.click(screen.getByLabelText(COPY_CONSENTIMENTO));
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
+    await act(async () => {});
+    expect(p.onConfirmarWhats).not.toHaveBeenCalled();
+    expect(screen.getByText(COPY_WHATS_ERRO)).toBeInTheDocument();
+  });
+
+  it('quem já confirmou o número não é perguntado de novo', () => {
+    render(<ConfirmarEnvioModal {...props()} pedirWhats={false} />);
+    expect(screen.queryByLabelText(COPY_WHATS_LABEL)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Confirmar e ir para a ficha' })).toBeInTheDocument();
   });
 
   it('texto sem travessão, sem emoji, sem diagnóstico', () => {
-    render(<ConfirmarEnvioModal isOpen onClose={vi.fn()} onConfirm={vi.fn()} onGoToFicha={vi.fn()} />);
+    render(<ConfirmarEnvioModal {...props()} />);
     const t = document.body.textContent || '';
     expect(t).not.toContain('—');
     expect(t.toLowerCase()).not.toContain('diagnóstico');

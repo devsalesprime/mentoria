@@ -24,8 +24,12 @@ interface Pessoa {
   acessos: MaterialAcesso[];
   /** Resposta colada da IA do mentor ("Peca para a sua IA preencher"). */
   resposta_ia: { texto: string; salvo_em: string | null; resumo: string } | null;
-  /** WhatsApp informado em "Confirmar e ir para a ficha" (aviso do pre-preenchimento). */
+  /** WhatsApp confirmado pelo mentor COM a permissao marcada (e o unico que o runner usa). */
   notify_phone: string | null;
+  /** Quando ele marcou a permissao. */
+  notify_consent_at: string | null;
+  /** Numero que veio do cadastro: so pre-preenche o campo na tela dele, nunca e usado para enviar. */
+  notify_phone_sugerido: string | null;
   submitted_at: string | null;
 }
 
@@ -498,8 +502,17 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                     {p.submitted_at ? `Enviou em ${formatDateTime(p.submitted_at)}` : 'Não clicou em "Enviei o que tinha"'}
                   </span>
                 </div>
-                {p.notify_phone && (
-                  <p className="text-[11px] text-white/50">WhatsApp para o aviso: <span className="font-mono text-white/80">{p.notify_phone}</span></p>
+                {/* Estado do WhatsApp: sem numero, so sugerido (cadastro) ou confirmado com a permissao do mentor */}
+                {p.notify_phone ? (
+                  <p className="text-[11px] text-white/50">
+                    WhatsApp confirmado em {formatDateTime(p.notify_consent_at)}: <span className="font-mono text-white/80">{p.notify_phone}</span>
+                  </p>
+                ) : p.notify_phone_sugerido ? (
+                  <p className="text-[11px] text-white/50">
+                    WhatsApp sugerido pelo cadastro (sem permissão ainda): <span className="font-mono text-white/70">{p.notify_phone_sugerido}</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-white/40">Sem número de WhatsApp.</p>
                 )}
                 {total === 0 && !p.observacoes && !p.resposta_ia && <p className="text-xs text-white/40">Nada enviado por esta pessoa.</p>}
 

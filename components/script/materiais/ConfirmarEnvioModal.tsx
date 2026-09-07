@@ -1,56 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
-import {
-  COPY_WHATS_HINT, COPY_WHATS_LABEL, COPY_WHATS_PLACEHOLDER, COPY_WHATS_TOGGLE, WHATS_INPUT_CLASS, phoneError,
-} from './PromptWhatsApp';
-import type { SubmitMaterialsOptions, SubmitMaterialsResult } from '../../../hooks/useScriptFicha';
+import { ConsentimentoWhatsApp } from './ConsentimentoWhatsApp';
+import type { ConsentimentoDados } from './ConsentimentoWhatsApp';
+import type { SubmitMaterialsResult } from '../../../hooks/useScriptFicha';
 
 interface ConfirmarEnvioModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** POST /api/script/ficha/materials/submit com o telefone (opcional). */
-  onConfirm: (opts: SubmitMaterialsOptions) => Promise<SubmitMaterialsResult>;
+  /** POST /api/script/ficha/materials/submit. */
+  onConfirm: () => Promise<SubmitMaterialsResult>;
   /** Navega para /dashboard/ficha. `existing` = já havia pré-preenchimento em andamento (o servidor não duplicou). */
   onGoToFicha: (existing?: boolean) => void;
-  /** Telefone ja salvo desta pessoa (preenche o campo). */
-  initialPhone?: string | null;
+  /** Guarda o WhatsApp com a permissão (PUT /api/script/ficha/notify-phone). */
+  onConfirmarWhats: (dados: ConsentimentoDados) => Promise<{ ok: boolean; message?: string }>;
+  /** false quando a pessoa já confirmou um número (o bloco some). */
+  pedirWhats?: boolean;
+  /** Número que veio do cadastro; só pré-preenche o campo. */
+  sugerido?: string | null;
 }
 
-// Copy, validação e classe do campo vivem em PromptWhatsApp (o mesmo campo aparece no pulo e no fim da ficha).
+// A copy, a validação e a frase da permissão vivem em ConsentimentoWhatsApp (o mesmo bloco aparece no pulo e no fim da ficha).
 export {
-  COPY_WHATS_ERRO, COPY_WHATS_HINT, COPY_WHATS_LABEL, COPY_WHATS_PLACEHOLDER, COPY_WHATS_TOGGLE,
-  WHATS_INPUT_CLASS, phoneDigits, phoneError,
-} from './PromptWhatsApp';
-
-const inputClass = WHATS_INPUT_CLASS;
+  COPY_CONSENTIMENTO, COPY_WHATS_BOTAO, COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PLACEHOLDER,
+  ConsentimentoWhatsApp, WHATS_INPUT_CLASS, formatPhoneBR, phoneDigits, phoneError,
+} from './ConsentimentoWhatsApp';
 
 /**
- * Segunda confirmacao de "Enviei o que tinha": explica o pre-preenchimento e pede o WhatsApp para o aviso.
+ * Segunda confirmacao de "Enviei o que tinha": explica o pre-preenchimento e pede o WhatsApp com permissao.
  * Confirmou -> vai direto para a Ficha (tambem quando ja havia um pre-preenchimento em andamento): la o painel
- * mostra os marcos e as sugestoes chegam bloco a bloco.
+ * mostra os marcos e as sugestoes chegam bloco a bloco. O WhatsApp e independente: sem a permissao marcada
+ * nada e guardado, e a pergunta volta no fim da ficha.
  */
-export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen, onClose, onConfirm, onGoToFicha, initialPhone }) => {
-  const [phone, setPhone] = useState(initialPhone || '');
-  const [notify, setNotify] = useState(true);
+export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({
+  isOpen, onClose, onConfirm, onGoToFicha, onConfirmarWhats, pedirWhats = true, sugerido,
+}) => {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      setPhone(initialPhone || '');
-      setNotify(true);
-      setError(null);
-      setSubmitting(false);
-    }
-  }, [isOpen, initialPhone]);
-
   const handleConfirm = async () => {
-    const err = notify ? phoneError(phone) : null;
-    if (err) { setError(err); return; }
     setError(null);
     setSubmitting(true);
-    const r = await onConfirm({ notify_phone: notify ? phone : '', notify });
+    const r = await onConfirm();
     setSubmitting(false);
     if (!r.ok) {
       setError(r.message || 'Não deu para confirmar agora. Tente de novo.');
@@ -68,31 +59,15 @@ export const ConfirmarEnvioModal: React.FC<ConfirmarEnvioModalProps> = ({ isOpen
           Elas chegam bloco a bloco, e você já pode ir preenchendo enquanto isso. Quando tudo estiver pronto, a gente avisa.
         </p>
 
-        <div className="space-y-2">
-          <label htmlFor="notify-phone" className="block text-sm text-white/80 font-sans">{COPY_WHATS_LABEL}</label>
-          <input
+        {pedirWhats && (
+          <ConsentimentoWhatsApp
             id="notify-phone"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            value={phone}
-            onChange={(e) => { setPhone(e.target.value); setError(null); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); } }}
-            placeholder={COPY_WHATS_PLACEHOLDER}
-            disabled={!notify || submitting}
-            className={`${inputClass} ${!notify ? 'opacity-50' : ''}`}
+            sugerido={sugerido}
+            onConfirmar={onConfirmarWhats}
+            disabled={submitting}
+            testId="whatsapp-envio"
           />
-          <label className="flex items-center gap-2 min-h-[44px] text-sm text-white/80 font-sans cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={notify}
-              onChange={(e) => { setNotify(e.target.checked); setError(null); }}
-              className="w-5 h-5 accent-prosperus-gold-dark"
-            />
-            {COPY_WHATS_TOGGLE}
-          </label>
-          <p className="text-xs text-white/40 font-sans">{COPY_WHATS_HINT}</p>
-        </div>
+        )}
         {error && <p className="text-xs text-red-400 font-sans">{error}</p>}
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
           <Button variant="ghost" size="lg" className="min-h-[44px]" onClick={onClose} disabled={submitting}>Continuar enviando</Button>

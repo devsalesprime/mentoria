@@ -54,6 +54,20 @@ async function irParaPasso(n: number) {
   return nav;
 }
 
+/** O bloco "Ações" (aprovar, pedir nova versão, escrever do zero) fica no fim do leitor, na Preparação. */
+async function irParaAcoes() {
+  const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
+  fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+  return within(await screen.findByTestId('acoes-fim'));
+}
+
+/** jsdom não abre o <details> no clique do summary: abrir na mão. */
+function abrirMenuBaixar(container: HTMLElement) {
+  const menu = container.querySelector('details.script-mais') as HTMLDetailsElement;
+  menu.open = true;
+  return menu;
+}
+
 describe('splitScript', () => {
   it('divide por "## Passo N" (numero do passo) e trata outros "## " como geral (0)', () => {
     const s = splitScript(MD_V1);
@@ -180,10 +194,9 @@ describe('ScriptScreen', () => {
     expect(await screen.findByText('Script v1')).toBeInTheDocument();
     const reader = await screen.findByTestId('script-reader');
 
-    // primeira tela: cartao de bolso, com copiar
+    // primeira tela: cartao de bolso, com um botao so ("Baixar cartão")
     expect(within(reader).getByText('Cartão de bolso')).toBeInTheDocument();
-    fireEvent.click(within(reader).getByRole('button', { name: 'Copiar cartão de bolso' }));
-    await waitFor(() => expect((navigator.clipboard.writeText as any)).toHaveBeenLastCalledWith(expect.stringContaining('Os 7 passos em 7 linhas')));
+    expect(within(reader).getByTestId('baixar-cartao-tela')).toHaveTextContent('Baixar cartão');
 
     // mapa: cartao, sumario, 7 passos, preparacao
     const nav = screen.getByRole('navigation', { name: 'Índice do script' });
@@ -218,9 +231,9 @@ describe('ScriptScreen', () => {
     expect(reader.querySelectorAll('.script-nota-erro').length).toBe(1);
     expect(within(reader).getByText('O que observar')).toBeInTheDocument();
 
-    // aba Campo do mesmo passo
-    fireEvent.click(screen.getByRole('tab', { name: 'Campo' }));
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Campo' })).toHaveAttribute('aria-selected', 'true'));
+    // vista Campo do mesmo passo, pela chave global da barra de cima
+    fireEvent.click(screen.getByTestId('modo-campo'));
+    await waitFor(() => expect(screen.getByTestId('modo-campo')).toHaveAttribute('aria-pressed', 'true'));
     expect(within(reader).getByText(/Deixa eu entender o seu cenário/)).toBeInTheDocument();
     await irParaPasso(5);
     expect(within(reader).getByText(/totalizando R\$140 mil no primeiro ano/)).toBeInTheDocument();
@@ -251,10 +264,11 @@ describe('ScriptScreen', () => {
     expect(texto).not.toContain('Gerado só');
     expect(texto).not.toContain('\u2014');
 
-    // acoes; o PDF abre a pagina de impressao (fora do Dashboard) com o documento escolhido
-    fireEvent.click(screen.getByText('Mais'));
-    expect(screen.getByText('Baixar o texto')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Imprimir ou salvar em PDF' })).toBeInTheDocument();
+    // menu "Baixar"; o PDF abre a pagina de impressao (fora do Dashboard) com o documento escolhido
+    abrirMenuBaixar(container);
+    expect(screen.getByRole('group', { name: 'Baixar' })).toBeInTheDocument();
+    expect(screen.getByTestId('baixar-md')).toHaveTextContent('Texto (.md)');
+    expect(screen.getByTestId('baixar-cartao')).toHaveTextContent('Cartão de bolso (imagem)');
     const open = vi.fn().mockReturnValue({});
     Object.defineProperty(window, 'open', { value: open, configurable: true, writable: true });
     fireEvent.click(screen.getByTestId('pdf-campo'));
@@ -263,9 +277,13 @@ describe('ScriptScreen', () => {
     expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=treinamento&versao=1$/), '_blank', 'noopener');
     fireEvent.click(screen.getByTestId('pdf-ambos'));
     expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/doc=ambos&versao=1$/), '_blank', 'noopener');
-    expect(screen.getByText('Aprovar o script')).toBeInTheDocument();
-    expect(screen.getByText('Pedir nova versão')).toBeInTheDocument();
-    expect(screen.queryByTestId('pedir-com-grifos')).toBeNull();
+
+    // as decisões saíram do topo e vivem no "Ações", no fim do leitor
+    expect(screen.queryByText('Aprovar o script')).toBeNull();
+    const acoes = await irParaAcoes();
+    expect(acoes.getByText('Aprovar o script')).toBeInTheDocument();
+    expect(acoes.getByText('Pedir nova versão')).toBeInTheDocument();
+    expect(acoes.queryByTestId('pedir-com-grifos')).toBeNull();
   }, 30000);
 
   it('comentarios recolhidos por passo (na tela do passo) e geral (no sumario), aprovar e pedir nova versao', async () => {
@@ -287,12 +305,13 @@ describe('ScriptScreen', () => {
     expect(screen.getByPlaceholderText('O que achou do script como um todo?')).toBeInTheDocument();
 
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(screen.getByText('Aprovar o script'));
+    const acoes = await irParaAcoes();
+    fireEvent.click(acoes.getByText('Aprovar o script'));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/aprovar', {}, expect.anything()));
     expect(await screen.findByText('aprovado')).toBeInTheDocument();
     expect(ficha.refresh).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('Pedir nova versão'));
+    fireEvent.click(within(screen.getByTestId('acoes-fim')).getByText('Pedir nova versão'));
     await waitFor(() => expect(ficha.pedirRevisao).toHaveBeenCalledWith(1));
     expect(ficha.gerarScript).not.toHaveBeenCalled();
     expect(await screen.findByText(/Pedido feito: a próxima versão parte desta e dos seus comentários/)).toBeInTheDocument();
@@ -307,12 +326,13 @@ describe('ScriptScreen', () => {
     await screen.findByTestId('script-reader');
     expect(screen.getByText(/Marque um trecho para grifar/)).toBeInTheDocument();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(screen.getByText('Escrever do zero'));
+    const acoes = await irParaAcoes();
+    fireEvent.click(acoes.getByTestId('escrever-do-zero'));
     await waitFor(() => expect(ficha.gerarScript).toHaveBeenCalled());
     expect(ficha.pedirRevisao).not.toHaveBeenCalled();
     expect(await screen.findByText(/^Pedido feito\. Você recebe/)).toBeInTheDocument();
-    expect(screen.getByText('Nova versão a caminho')).toBeInTheDocument();
-    expect(screen.getByText('Escrever do zero').closest('button')).toBeDisabled();
+    expect(screen.getAllByText('Nova versão a caminho').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('escrever-do-zero')).toBeDisabled();
   });
 
   it('com job revisar na fila: estado do job aparece e os botoes ficam travados', async () => {
@@ -326,8 +346,9 @@ describe('ScriptScreen', () => {
     render(<ScriptScreen ficha={fichaMock()} token="t" />);
     await screen.findByTestId('script-reader');
     expect(await screen.findByText(/Uma nova versão está sendo escrita a partir dos seus comentários e grifos\./)).toBeInTheDocument();
-    expect(screen.getByText('Nova versão a caminho').closest('button')).toBeDisabled();
-    expect(screen.getByText('Escrever do zero').closest('button')).toBeDisabled();
+    const acoes = await irParaAcoes();
+    expect(acoes.getByText('Nova versão a caminho').closest('button')).toBeDisabled();
+    expect(acoes.getByTestId('escrever-do-zero')).toBeDisabled();
   });
 
   it('versao v1 antiga (um documento, com marcas) tambem renderiza limpa, sem abas de documento', async () => {

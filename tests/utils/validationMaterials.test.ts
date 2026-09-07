@@ -9,6 +9,9 @@ import {
   countSubmitted,
   countItems,
   emptyPessoa,
+  applyNotifyConsent,
+  normalizeMaterials as _norm,
+  CONSENT_TEXTO,
 } from '../../utils/validation-materials.cjs';
 
 describe('scriptAcessoSchema (acesso a plataforma de conteudo)', () => {
@@ -105,5 +108,41 @@ describe('normalizeMaterials (JSON de script_fichas.materials)', () => {
     expect(memberMaterialsStatus(m, B)).toBe('pending');
     expect(countSubmitted(m)).toBe(1);
     expect(countItems(m)).toBe(2); // 1 link + 1 acesso
+  });
+});
+
+/**
+ * WhatsApp dos avisos: so entra com a permissao marcada, e sempre junto de quando ela foi dada e da frase
+ * que a pessoa viu. O numero sugerido pelo cadastro nunca vira o numero dos avisos.
+ */
+describe('applyNotifyConsent (permissao do WhatsApp)', () => {
+  it('sem permissao nao guarda nada', () => {
+    const p = { ...emptyPessoa(), notify_phone_sugerido: '5511911112222' };
+    expect(applyNotifyConsent(p, { phone: '5511987654321', consentimento: false })).toBe(p);
+    expect(applyNotifyConsent(p, { phone: '5511987654321', consentimento: undefined })).toBe(p);
+    expect(applyNotifyConsent(p, { phone: null, consentimento: true })).toBe(p);
+  });
+
+  it('com permissao guarda numero, data e a frase que a pessoa viu', () => {
+    const out = applyNotifyConsent(emptyPessoa(), {
+      phone: '5511987654321', consentimento: true, texto: 'Quero receber...', agora: '2026-09-07T10:00:00.000Z',
+    });
+    expect(out.notify_phone).toBe('5511987654321');
+    expect(out.notify_consent_at).toBe('2026-09-07T10:00:00.000Z');
+    expect(out.notify_consent_texto).toBe('Quero receber...');
+  });
+
+  it('sem `consent_texto` do cliente, guarda a frase padrao da tela', () => {
+    const out = applyNotifyConsent(emptyPessoa(), { phone: '5511987654321', consentimento: true });
+    expect(out.notify_consent_texto).toBe(CONSENT_TEXTO);
+    expect(CONSENT_TEXTO).not.toMatch(/—/);
+    expect(CONSENT_TEXTO.toLowerCase()).not.toContain('diagnóstico');
+  });
+
+  it('o sugerido sobrevive ao normalize e nao vira o numero dos avisos', () => {
+    const m = _norm({ por_pessoa: { 'a@x.com': { notify_phone_sugerido: '5511911112222' } } });
+    const view = memberMaterialsView(m, 'a@x.com');
+    expect(view.notify_phone_sugerido).toBe('5511911112222');
+    expect(view).not.toHaveProperty('notify_phone');
   });
 });

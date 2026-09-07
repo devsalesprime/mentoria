@@ -23,8 +23,9 @@ vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { su
 
 import { MateriaisScreen, COPY_PULAR_MATERIAIS } from '../../components/script/MateriaisScreen';
 import {
-  COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PERGUNTA, COPY_WHATS_TOGGLE,
-} from '../../components/script/materiais/PromptWhatsApp';
+  COPY_CONSENTIMENTO, COPY_WHATS_BOTAO, COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PERGUNTA,
+  COPY_WHATS_SALVO, COPY_WHATS_SEM_PERMISSAO,
+} from '../../components/script/materiais/ConsentimentoWhatsApp';
 import type { ScriptFichaData, UseScriptFicha } from '../../hooks/useScriptFicha';
 
 function dados(over: Partial<ScriptFichaData> = {}): ScriptFichaData {
@@ -49,6 +50,7 @@ function fichaDe(extra: Partial<UseScriptFicha> = {}, data: ScriptFichaData = da
     saveMaterials: vi.fn().mockResolvedValue(true),
     submitMaterials: vi.fn().mockResolvedValue({ ok: true }),
     pularMateriais: vi.fn().mockResolvedValue({ ok: true }),
+    salvarNotifyPhone: vi.fn().mockResolvedValue({ ok: true }),
     setFiles: vi.fn(), refreshFiles: vi.fn(),
     ...extra,
   } as unknown as UseScriptFicha;
@@ -100,40 +102,65 @@ describe('Materiais: pular para a ficha', () => {
 });
 
 /**
- * Quem pula os materiais tambem precisa deixar o WhatsApp: sem ele o runner nao tem por onde avisar
- * pendencia, script pronto nem janela de ajuste. Mesmo campo e mesma copy do "Enviei o que tinha".
+ * Quem pula os materiais tambem e convidado a deixar o WhatsApp: sem ele o runner nao tem por onde avisar
+ * pendencia, script pronto nem janela de ajuste. E o MESMO bloco de permissao do "Enviei o que tinha" e do
+ * fim da ficha, e o numero so e guardado com a marcacao de permissao marcada (decisao do Danilo, 07/09).
  */
 describe('Materiais: WhatsApp de quem pula', () => {
-  it('o campo aparece junto do pulo e o número digitado vai no mesmo pedido', async () => {
-    const pularMateriais = vi.fn().mockResolvedValue({ ok: true });
-    const onNavigate = montar(fichaDe({ pularMateriais }));
-    expect(screen.getByTestId('whatsapp-materiais')).toHaveTextContent(COPY_WHATS_PERGUNTA);
+  it('o bloco de permissão aparece junto do pulo, com a frase e o botão do envio', () => {
+    montar(fichaDe());
+    const bloco = screen.getByTestId('whatsapp-materiais');
+    expect(bloco).toHaveTextContent(COPY_WHATS_PERGUNTA);
+    expect(bloco).toHaveTextContent(COPY_CONSENTIMENTO);
+    expect(screen.getByRole('button', { name: COPY_WHATS_BOTAO })).toBeInTheDocument();
+  });
+
+  it('o campo já vem preenchido com o número que veio do cadastro', () => {
+    const materials = { links: [], observacoes: '', acessos: [], submitted_at: null, notify_phone_sugerido: '5511911112222' };
+    montar(fichaDe({}, dados({ materials } as Partial<ScriptFichaData>)));
+    expect((screen.getByLabelText(COPY_WHATS_LABEL) as HTMLInputElement).value).toBe('(11) 91111-2222');
+  });
+
+  it('sem a permissão marcada nada é guardado', async () => {
+    const salvarNotifyPhone = vi.fn();
+    montar(fichaDe({ salvarNotifyPhone }));
     fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '(11) 98765-4321' } });
-    fireEvent.click(screen.getByTestId('pular-materiais'));
-    await waitFor(() => expect(pularMateriais).toHaveBeenCalledWith({ notify_phone: '(11) 98765-4321', notify: true }));
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_ficha'));
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
+    expect(await screen.findByText(COPY_WHATS_SEM_PERMISSAO)).toBeInTheDocument();
+    expect(salvarNotifyPhone).not.toHaveBeenCalled();
   });
 
-  it('número incompleto não segue: erro com a copy do envio, sem chamar o servidor', async () => {
-    const pularMateriais = vi.fn();
-    const onNavigate = montar(fichaDe({ pularMateriais }));
+  it('com a permissão marcada, guarda o número com a frase que ela viu', async () => {
+    const salvarNotifyPhone = vi.fn().mockResolvedValue({ ok: true });
+    montar(fichaDe({ salvarNotifyPhone }));
+    fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '(11) 98765-4321' } });
+    fireEvent.click(screen.getByLabelText(COPY_CONSENTIMENTO));
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
+    await waitFor(() => expect(salvarNotifyPhone).toHaveBeenCalledWith({
+      notify_phone: '(11) 98765-4321', consentimento: true, consent_texto: COPY_CONSENTIMENTO,
+    }));
+    expect(await screen.findByText(COPY_WHATS_SALVO)).toBeInTheDocument();
+  });
+
+  it('número incompleto não é guardado: erro na tela, sem chamar o servidor', async () => {
+    const salvarNotifyPhone = vi.fn();
+    montar(fichaDe({ salvarNotifyPhone }));
     fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '123' } });
-    fireEvent.click(screen.getByTestId('pular-materiais'));
+    fireEvent.click(screen.getByLabelText(COPY_CONSENTIMENTO));
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
     expect(await screen.findByText(COPY_WHATS_ERRO)).toBeInTheDocument();
-    expect(pularMateriais).not.toHaveBeenCalled();
-    expect(onNavigate).not.toHaveBeenCalled();
+    expect(salvarNotifyPhone).not.toHaveBeenCalled();
   });
 
-  it('sem número o pulo continua de um clique só, e quem desmarca o aviso segue igual', async () => {
+  it('o pulo não depende do WhatsApp: continua de um clique só', async () => {
     const pularMateriais = vi.fn().mockResolvedValue({ ok: true });
     const onNavigate = montar(fichaDe({ pularMateriais }));
-    fireEvent.click(screen.getByLabelText(COPY_WHATS_TOGGLE));
     fireEvent.click(screen.getByTestId('pular-materiais'));
-    await waitFor(() => expect(pularMateriais).toHaveBeenCalledWith({ notify_phone: '', notify: false }));
+    await waitFor(() => expect(pularMateriais).toHaveBeenCalledWith());
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_ficha'));
   });
 
-  it('quem já deixou o número não é perguntado de novo', () => {
+  it('quem já confirmou o número não é perguntado de novo', () => {
     const materials = { links: [], observacoes: '', acessos: [], submitted_at: null, notify_phone: '5511987654321' };
     montar(fichaDe({}, dados({ materials } as Partial<ScriptFichaData>)));
     expect(screen.queryByTestId('whatsapp-materiais')).toBeNull();

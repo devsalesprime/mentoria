@@ -6,8 +6,8 @@
  * - GET /api/script/ficha devolve `modo` (null antes da escolha) e marca `essencial` em cada campo
  * - PUT /api/script/ficha/modo grava 'essencial' | 'completo' (coluna criada pelo ALTER idempotente da 023)
  * - POST /api/script/ficha/materials/skip ("Nao tenho materiais, ir para a ficha") marca skipped
- *   POR PESSOA, sem enfileirar leitura de material nenhuma, e guarda o WhatsApp opcional dos avisos
- * - PUT /api/script/ficha/notify-phone grava o mesmo WhatsApp fora do envio (fim da ficha)
+ *   POR PESSOA, sem enfileirar leitura de material nenhuma, e guarda o WhatsApp SO com a permissao marcada
+ * - PUT /api/script/ficha/notify-phone grava o mesmo WhatsApp fora do envio (fim da ficha), tambem so com permissao
  * - POST /api/script/ficha/complete no modo essencial fecha com as perguntas essenciais; no completo, 400 com `faltam`
  */
 import fs from 'fs';
@@ -160,21 +160,30 @@ describe('POST /api/script/ficha/materials/skip', () => {
     expect(dois.data.materials_skipped_at).toBe(um.data.materials_skipped_at);
   });
 
-  it('o WhatsApp opcional vai para o mesmo campo do envio (por_pessoa.notify_phone)', async () => {
+  it('sem a permissao marcada o numero nao e guardado', async () => {
     const r = await api('POST', '/api/script/ficha/materials/skip', 'userS', { notify_phone: '(11) 98765-4321' });
+    expect(r.status).toBe(200);
+    expect(r.data.notify_phone).toBeNull();
+    const semConsent = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-s'`);
+    expect(safeJsonParse(semConsent.materials).por_pessoa['s@x.com']).not.toHaveProperty('notify_phone');
+  });
+
+  it('com a permissao marcada o WhatsApp vai para o mesmo campo do envio (por_pessoa.notify_phone)', async () => {
+    const r = await api('POST', '/api/script/ficha/materials/skip', 'userS', { notify_phone: '(11) 98765-4321', consentimento: true });
     expect(r.status).toBe(200);
     expect(r.data.notify_phone).toBe('5511987654321');
     const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-s'`);
     expect(safeJsonParse(row.materials).por_pessoa['s@x.com'].notify_phone).toBe('5511987654321');
     const ficha = await api('GET', '/api/script/ficha', 'userS');
     expect(ficha.data.data.materials.notify_phone).toBe('5511987654321');
+    expect(ficha.data.data.materials.notify_consent_at).toBeTruthy();
     // continua sem leitura de material: pular nao enfileira pre-preenchimento
     const jobs = await dbAll(`SELECT id FROM cohort_jobs WHERE club_slug = 'clube-s'`);
     expect(jobs.length).toBe(0);
   });
 
   it('numero incompleto: 400 em portugues e o que estava guardado fica', async () => {
-    const r = await api('POST', '/api/script/ficha/materials/skip', 'userS', { notify_phone: '123' });
+    const r = await api('POST', '/api/script/ficha/materials/skip', 'userS', { notify_phone: '123', consentimento: true });
     expect(r.status).toBe(400);
     expect(r.data.message).toMatch(/WhatsApp inválido/);
     expect(r.data.message).not.toMatch(/—/);
@@ -184,26 +193,46 @@ describe('POST /api/script/ficha/materials/skip', () => {
 });
 
 describe('PUT /api/script/ficha/notify-phone', () => {
-  it('grava o WhatsApp fora do envio e o GET passa a devolver', async () => {
+  it('sem consentimento: 400 e nada e guardado', async () => {
     const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '11 98765-4321' });
+    expect(r.status).toBe(400);
+    expect(r.data.message).toMatch(/permissão/);
+    expect(r.data.message).not.toMatch(/—/);
+    expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials).not.toHaveProperty('notify_phone');
+  });
+
+  it('consentimento false tambem e 400 (nada de guardar sem a marcacao)', async () => {
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '11 98765-4321', consentimento: false });
+    expect(r.status).toBe(400);
+    expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials).not.toHaveProperty('notify_phone');
+  });
+
+  it('com consentimento: grava numero, data e a frase que a pessoa viu; o GET passa a devolver', async () => {
+    const texto = 'Quero receber no meu WhatsApp, pelo número do Danilo (Prosperus), as atualizações do meu script: quando a ficha ficar pronta, quando o script sair e se faltar alguma informação.';
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '11 98765-4321', consentimento: true, consent_texto: texto });
     expect(r.status).toBe(200);
     expect(r.data.notify_phone).toBe('5511987654321');
+    expect(r.data.notify_consent_at).toBeTruthy();
+    const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-e'`);
+    const p = safeJsonParse(row.materials).por_pessoa['e@x.com'];
+    expect(p.notify_consent_texto).toBe(texto);
+    expect(p.notify_consent_at).toBe(r.data.notify_consent_at);
     const ficha = await api('GET', '/api/script/ficha', 'userE');
     expect(ficha.data.data.materials.notify_phone).toBe('5511987654321');
+    expect(ficha.data.data.materials.notify_consent_at).toBe(r.data.notify_consent_at);
   });
 
   it('numero invalido: 400 e o que estava salvo continua la', async () => {
-    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '99' });
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '99', consentimento: true });
     expect(r.status).toBe(400);
     expect(r.data.message).toMatch(/WhatsApp inválido/);
     expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials.notify_phone).toBe('5511987654321');
   });
 
-  it('vazio apaga o numero guardado (200)', async () => {
-    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '' });
-    expect(r.status).toBe(200);
-    expect(r.data.notify_phone).toBeNull();
-    expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials).not.toHaveProperty('notify_phone');
+  it('vazio com consentimento tambem e 400: nao existe permissao sem numero', async () => {
+    const r = await api('PUT', '/api/script/ficha/notify-phone', 'userE', { notify_phone: '', consentimento: true });
+    expect(r.status).toBe(400);
+    expect((await api('GET', '/api/script/ficha', 'userE')).data.data.materials.notify_phone).toBe('5511987654321');
   });
 
   it('o numero de quem pulou vale para o pre-preenchimento: o submit sem numero reaproveita', async () => {
@@ -212,6 +241,24 @@ describe('PUT /api/script/ficha/notify-phone', () => {
     expect(sub.data.notify_phone).toBe('5511987654321');
     const job = await dbGet(`SELECT tipo, notify_phone FROM cohort_jobs WHERE club_slug = 'clube-s' ORDER BY created_at DESC, rowid DESC LIMIT 1`);
     expect(job).toMatchObject({ tipo: 'prefill', notify_phone: '5511987654321' });
+  });
+
+  it('o numero sugerido do cadastro nunca vira o numero dos avisos', async () => {
+    const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-e'`);
+    const m = safeJsonParse(row.materials);
+    const pessoa = { ...(m.por_pessoa['e@x.com'] || {}), notify_phone_sugerido: '5511911112222' };
+    delete pessoa.notify_phone;
+    delete pessoa.notify_consent_at;
+    delete pessoa.notify_consent_texto;
+    m.por_pessoa['e@x.com'] = pessoa;
+    await dbRun(`UPDATE script_fichas SET materials = ? WHERE club_slug = 'clube-e'`, [JSON.stringify(m)]);
+    const ficha = await api('GET', '/api/script/ficha', 'userE');
+    expect(ficha.data.data.materials.notify_phone_sugerido).toBe('5511911112222');
+    expect(ficha.data.data.materials).not.toHaveProperty('notify_phone');
+    // o envio sem numero nao promove o sugerido a numero dos avisos
+    const sub = await api('POST', '/api/script/ficha/materials/submit', 'userE');
+    expect(sub.status).toBe(200);
+    expect(sub.data.notify_phone).toBeNull();
   });
 });
 

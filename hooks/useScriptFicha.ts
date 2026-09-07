@@ -48,7 +48,20 @@ export interface ScriptMaterials {
   acessos: MaterialAcesso[];
   submitted_at: string | null;
   resposta_ia?: MaterialRespostaIA | null;
+  /** WhatsApp dos avisos, guardado SÓ com a permissão marcada. */
   notify_phone?: string | null;
+  /** Quando a permissão foi dada (ISO). */
+  notify_consent_at?: string | null;
+  /** Número que veio do cadastro; só pré-preenche o campo, nunca é usado para mandar mensagem. */
+  notify_phone_sugerido?: string | null;
+}
+
+/** Corpo de PUT /api/script/ficha/notify-phone: sem `consentimento: true` o servidor recusa com 400. */
+export interface NotifyPhoneConsent {
+  notify_phone: string;
+  consentimento: true;
+  /** Frase da permissão que a pessoa viu na tela (fica guardada com o número). */
+  consent_texto: string;
 }
 
 /** PUT parcial: resposta_ia vai como texto; o servidor devolve { texto, salvo_em, resumo }. */
@@ -826,15 +839,19 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
     }
   }, [token]);
 
-  /** WhatsApp dos avisos, salvo fora do envio (fim da ficha de quem pulou os materiais). Vazio apaga o que estava lá. */
-  const salvarNotifyPhone = useCallback(async (notify_phone: string): Promise<{ ok: boolean; message?: string }> => {
+  /**
+   * WhatsApp dos avisos com a permissão da pessoa (bloco ConsentimentoWhatsApp: envio, pulo e fim da ficha).
+   * O servidor só guarda com `consentimento: true`; a frase que ela viu vai junto.
+   */
+  const salvarNotifyPhone = useCallback(async (dados: NotifyPhoneConsent): Promise<{ ok: boolean; message?: string }> => {
     try {
-      const res = await axios.put('/api/script/ficha/notify-phone', { notify_phone }, authHeaders(token));
+      const res = await axios.put('/api/script/ficha/notify-phone', dados, authHeaders(token));
       if (res.data?.success) {
         const salvo: string | null = res.data.notify_phone || null;
+        const consentEm: string | null = res.data.notify_consent_at || null;
         setData((prev) => (prev ? {
           ...prev,
-          materials: { ...prev.materials, notify_phone: salvo },
+          materials: { ...prev.materials, notify_phone: salvo, notify_consent_at: consentEm },
         } : prev));
         return { ok: true };
       }

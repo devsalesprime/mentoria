@@ -1,7 +1,7 @@
 import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScriptReader } from '../../components/script/script/ScriptReader';
 import { ScriptPaper } from '../../components/script/script/ScriptPaper';
 import { parseScript } from '../../components/script/script/parseScript';
@@ -9,17 +9,18 @@ import { TOTAL_TELAS, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO } from '../../c
 import { AULA_7_PASSOS } from '../../data/aula-7-passos';
 
 /**
- * A aula da Dani dentro do leitor "Seu script" (components/script/script/ScriptReader.tsx):
- * - Sumario: o cartao vem logo depois da lista dos 7 passos e antes da premissa
- * - a barra tem o item "Aula" em toda tela; abre a folha (dialog) com o player; numa tela de passo, ja no passo
- * - cada uma das 7 telas de passo tem "Ver na aula da Dani" sob o titulo, que abre a mesma folha no passo
+ * A aula da Dani dentro do leitor "Seu script" (components/script/script/ScriptReader.tsx), depois da onda E1:
+ * - Sumario: o cartao vem logo depois da lista dos 7 passos e antes da premissa. E o UNICO lugar dela no leitor
+ * - o cartao nasce com a thumbnail e o botao de tocar: nenhum player carrega sozinho (nada de autoplay)
+ * - a barra do mapa perdeu os itens "Aula" e "Grifos"; a lista de grifos abre no botao flutuante
+ * - as telas de passo nao tem mais "Ver na aula da Dani"
  * - a folha de impressao (ScriptPaper) traz so a linha "Aula de referência" com o link, sem player
  */
 
 const FIXTURE = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/script-exemplo.md'), 'utf8');
 const DOC = parseScript(FIXTURE);
 
-function abrir(tela: number) {
+function abrir(tela: number, onAbrirGrifos = vi.fn()) {
   const rootRef = React.createRef<HTMLDivElement>();
   const utils = render(
     <ScriptReader
@@ -28,21 +29,16 @@ function abrir(tela: number) {
       tela={tela}
       onTela={vi.fn()}
       documento="treinamento"
-      onDocumento={vi.fn()}
       marcadas={new Set()}
       comentariosDo={() => null}
       totalGrifos={2}
-      onAbrirGrifos={vi.fn()}
+      onAbrirGrifos={onAbrirGrifos}
       rootRef={rootRef}
     />
   );
   const reader = screen.getByTestId('script-reader');
   const nav = screen.getByRole('navigation', { name: 'Índice do script' });
   return { ...utils, reader, nav };
-}
-
-async function folhaAberta() {
-  return screen.findByRole('dialog', { name: 'Aula de referência' });
 }
 
 describe('ScriptReader · aula da Dani', () => {
@@ -61,56 +57,48 @@ describe('ScriptReader · aula da Dani', () => {
     expect(cartao.compareDocumentPosition(comoUsar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('Cartao e Preparacao: sem cartao na folha, mas o item "Aula" da barra abre a folha de qualquer tela e fecha', async () => {
+  it('Cartao e Preparacao: nenhuma aula fora do Sumario, e nenhum player em lugar nenhum', () => {
     for (const tela of [TELA_CARTAO, TELA_PREPARACAO]) {
       const { reader, nav, unmount } = abrir(tela);
       expect(within(reader).queryByTestId('aula-dani')).toBeNull();
-      const item = within(nav).getByRole('button', { name: 'Aula da Dani sobre os 7 passos' });
-      expect(item).toHaveAttribute('aria-expanded', 'false');
-      fireEvent.click(item);
-      const folha = await folhaAberta();
-      // (com a folha modal aberta, o Radix esconde o resto da pagina dos leitores de tela: hidden: true)
-      expect(within(nav).getByRole('button', { name: 'Aula da Dani sobre os 7 passos', hidden: true })).toHaveAttribute('aria-expanded', 'true');
-      const iframe = folha.querySelector('iframe')!;
-      expect(iframe).not.toBeNull();
-      expect(iframe.getAttribute('src')).toContain('iframe.mediadelivery.net/embed/716048/');
-      expect(iframe.getAttribute('allow')).toContain('autoplay');
-      expect(within(folha).queryByTestId('aula-capitulo')).toBeNull();
-      fireEvent.click(within(folha).getByRole('button', { name: 'Fechar a aula' }));
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(within(nav).queryByRole('button', { name: 'Aula da Dani sobre os 7 passos' })).toBeNull();
+      expect(reader.querySelector('iframe')).toBeNull();
       unmount();
     }
   });
 
-  it('a barra sempre tem Anterior, Aula, Grifos e Proximo, alem do mapa de 10 telas', () => {
-    const { nav } = abrir(TELA_SUMARIO);
+  it('a barra tem Anterior, Proximo e o mapa de 10 telas; sem "Aula" e sem "Grifos"', () => {
+    const abrirGrifos = vi.fn();
+    const { nav } = abrir(TELA_SUMARIO, abrirGrifos);
     expect(within(nav).getByRole('button', { name: 'Tela anterior' })).toBeInTheDocument();
-    expect(within(nav).getByRole('button', { name: 'Aula da Dani sobre os 7 passos' })).toHaveTextContent('Aula');
-    expect(within(nav).getByRole('button', { name: 'Abrir a lista de grifos' })).toHaveTextContent('Grifos · 2');
     expect(within(nav).getByRole('button', { name: 'Próxima tela' })).toBeInTheDocument();
+    expect(within(nav).queryByRole('button', { name: 'Aula da Dani sobre os 7 passos' })).toBeNull();
+    expect(within(nav).queryByRole('button', { name: 'Abrir a lista de grifos' })).toBeNull();
     expect(nav.querySelectorAll('.script-mapa-item')).toHaveLength(TOTAL_TELAS);
+    // a lista de grifos abre num botão flutuante, fora da barra
+    const flutuante = screen.getByTestId('grifos-flutuante');
+    expect(flutuante).toHaveTextContent('Grifos · 2');
+    fireEvent.click(flutuante);
+    expect(abrirGrifos).toHaveBeenCalled();
   });
 
-  it('as 7 telas de passo tem "Ver na aula da Dani" sob o titulo; abre a folha ja no passo', async () => {
+  it('as telas de passo não têm mais "Ver na aula da Dani" nem o cartão da aula', () => {
     for (let tela = 2; tela <= 8; tela++) {
       const { reader, unmount } = abrir(tela);
-      const header = reader.querySelector('.script-passo-tela header')!;
-      expect(within(header as HTMLElement).getByRole('button', { name: 'Ver na aula da Dani' })).toBeInTheDocument();
+      expect(within(reader).queryByRole('button', { name: 'Ver na aula da Dani' })).toBeNull();
       expect(within(reader).queryByTestId('aula-dani')).toBeNull();
+      expect(reader.querySelector('iframe')).toBeNull();
       unmount();
     }
-    const { reader } = abrir(3);
-    fireEvent.click(within(reader).getByRole('button', { name: 'Ver na aula da Dani' }));
-    const folha = await folhaAberta();
-    expect(within(folha).getByTestId('aula-capitulo')).toHaveTextContent('Passo 2 · Investigação');
-    expect(folha.querySelector('iframe')!.getAttribute('src')).toBe(`${AULA_7_PASSOS.embedUrl}?autoplay=true`);
   });
 
-  it('numa tela de passo, o item "Aula" da barra abre a folha no passo da tela', async () => {
-    const { nav } = abrir(6);
-    fireEvent.click(within(nav).getByRole('button', { name: 'Aula da Dani sobre os 7 passos' }));
-    const folha = await folhaAberta();
-    expect(within(folha).getByTestId('aula-capitulo')).toHaveTextContent('Passo 5 · Negociação e fechamento');
+  it('o cartão da aula no Sumário só carrega o player depois do toque', () => {
+    const { reader } = abrir(TELA_SUMARIO);
+    const cartao = within(reader).getByTestId('aula-dani');
+    expect(cartao.querySelector('iframe')).toBeNull();
+    expect(within(cartao).getByTestId('aula-thumb').getAttribute('src')).toContain('preview.webp');
+    fireEvent.click(within(cartao).getByRole('button', { name: `Assistir: ${AULA_7_PASSOS.titulo}` }));
+    expect(cartao.querySelector('iframe')!.getAttribute('src')).toBe(`${AULA_7_PASSOS.embedUrl}?autoplay=true`);
   });
 
   it('folha de impressao: so a linha "Aula de referência" com o link; nenhum player', () => {
@@ -127,7 +115,8 @@ describe('ScriptReader · aula da Dani', () => {
   it('copy do leitor: sem travessao e sem a palavra proibida nas partes novas', () => {
     const { reader, nav } = abrir(2);
     const texto = `${reader.textContent}${nav.textContent}`;
-    expect(texto).toContain('Ver na aula da Dani');
+    expect(texto).not.toContain('Ver na aula da Dani');
+    expect(texto).not.toContain('Abrir em tela cheia');
     expect(nav.textContent).not.toContain('—');
     expect(nav.textContent).not.toMatch(/diagn/i);
   });

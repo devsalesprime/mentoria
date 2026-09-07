@@ -1,14 +1,16 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { AulaDani, AulaFolha, AULA_ALLOW, FRASE_AULA } from '../../components/script/script/AulaDani';
+import { AulaDani, AulaFolha, AULA_ALLOW, FRASE_AULA, thumbDaAula } from '../../components/script/script/AulaDani';
 import { AULA_7_PASSOS, capituloDoPasso, urlDaAula, type AulaReferencia } from '../../data/aula-7-passos';
 
 /**
- * O cartao da aula da Dani (components/script/script/AulaDani.tsx):
- * - poster primeiro (sem iframe); "Assistir" carrega o player com autoplay e as permissoes que a Bunny pede
- * - aparece na tela (IntersectionObserver) -> carrega sem toque, sem autoplay
+ * O cartao da aula da Dani (components/script/script/AulaDani.tsx), depois da onda E1:
+ * - thumbnail da Bunny primeiro (sem iframe); só o toque em "Assistir" carrega o player, com autoplay e as
+ *   permissoes que a Bunny pede. Nada carrega sozinho: o IntersectionObserver saiu (o cartao do Sumario
+ *   comecava a tocar por conta propria)
+ * - sem "Abrir em tela cheia"
  * - passo com marcacao: legenda "Passo N · nome" e `t=` na URL; sem marcacao: URL base
- * - a folha (AulaFolha) abre com o player ja carregado e fecha pelo botao
+ * - a folha (AulaFolha) abre com o player ja carregado (foi um toque que a abriu) e fecha pelo botao
  * - copy: sem travessao, sem a palavra proibida, com acento
  */
 
@@ -22,16 +24,18 @@ describe('AulaDani · cartao da aula', () => {
     delete (window as any).IntersectionObserver;
   });
 
-  it('poster primeiro; "Assistir" carrega o player com autoplay, allow e allowfullscreen', () => {
+  it('thumbnail primeiro; "Assistir" carrega o player com autoplay, allow e allowfullscreen', () => {
     const { container } = render(<AulaDani />);
     expect(screen.getByText('Aprenda a lógica por trás do script')).toBeInTheDocument();
     expect(screen.getByText('Os 7 passos da venda, com Dani Martins')).toBeInTheDocument();
     expect(screen.getByText(FRASE_AULA)).toBeInTheDocument();
     expect(container.querySelector('iframe')).toBeNull();
-    const link = screen.getByRole('link', { name: /Abrir em tela cheia/ });
-    expect(link).toHaveAttribute('href', AULA_7_PASSOS.embedUrl);
-    expect(link).toHaveAttribute('target', '_blank');
-    expect(link.getAttribute('rel')).toContain('noopener');
+    // a thumbnail é o pôster público da Bunny, tirado do GUID do embed
+    const thumb = screen.getByTestId('aula-thumb');
+    expect(thumb.getAttribute('src')).toBe(thumbDaAula(AULA_7_PASSOS));
+    expect(thumb.getAttribute('src')).toContain('preview.webp');
+    // "Abrir em tela cheia" saiu (onda E1)
+    expect(screen.queryByRole('link', { name: /tela cheia/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: `Assistir: ${AULA_7_PASSOS.titulo}` }));
     const iframe = container.querySelector('iframe')!;
@@ -45,21 +49,24 @@ describe('AulaDani · cartao da aula', () => {
     expect(screen.queryByRole('button', { name: /^Assistir:/ })).toBeNull();
   });
 
-  it('carrega sozinho quando entra na tela (IntersectionObserver), sem autoplay', async () => {
+  it('não carrega sozinho quando entra na tela: sem IntersectionObserver, sem player', async () => {
     const observados: Element[] = [];
-    let callback: IntersectionObserverCallback = () => undefined;
     (window as any).IntersectionObserver = class {
-      constructor(cb: IntersectionObserverCallback) { callback = cb; }
       observe(el: Element) { observados.push(el); }
       disconnect() { /* nada */ }
       unobserve() { /* nada */ }
     };
     const { container } = render(<AulaDani />);
     expect(container.querySelector('iframe')).toBeNull();
-    expect(observados).toHaveLength(1);
-    callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
-    await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
-    expect(container.querySelector('iframe')!.getAttribute('src')).toBe(AULA_7_PASSOS.embedUrl);
+    expect(observados).toHaveLength(0);
+    await waitFor(() => expect(container.querySelector('iframe')).toBeNull());
+  });
+
+  it('a thumbnail que não carrega some e o botão de tocar continua', () => {
+    render(<AulaDani />);
+    fireEvent.error(screen.getByTestId('aula-thumb'));
+    expect(screen.queryByTestId('aula-thumb')).toBeNull();
+    expect(screen.getByRole('button', { name: `Assistir: ${AULA_7_PASSOS.titulo}` })).toBeInTheDocument();
   });
 
   it('urlDaAula: base sem marcacao; t= com marcacao; autoplay; base com query usa &', () => {
@@ -79,7 +86,6 @@ describe('AulaDani · cartao da aula', () => {
     const { container, unmount } = render(<AulaDani aula={COM_MARCACAO} passo={2} autoCarregar />);
     expect(screen.getByTestId('aula-capitulo')).toHaveTextContent('Passo 2 · Investigação · a aula abre neste passo');
     expect(container.querySelector('iframe')!.getAttribute('src')).toBe(`${AULA_7_PASSOS.embedUrl}?t=754&autoplay=true`);
-    expect(screen.getByRole('link', { name: /Abrir em tela cheia/ })).toHaveAttribute('href', `${AULA_7_PASSOS.embedUrl}?t=754`);
     // os capitulos marcados viram atalhos
     expect(screen.getByRole('group', { name: 'Ir para o passo na aula' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '2 · Investigação' })).toHaveAttribute('aria-pressed', 'true');

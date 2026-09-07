@@ -75,6 +75,9 @@ function buildPessoas(membros, files, materials, fileUrl) {
       acessos: p.acessos,
       resposta_ia: p.resposta_ia || null,
       notify_phone: p.notify_phone || null,
+      // Permissao do WhatsApp (quando ela marcou) e o numero que veio do cadastro (so sugestao, nunca envio)
+      notify_consent_at: p.notify_consent_at || null,
+      notify_phone_sugerido: p.notify_phone_sugerido || null,
       submitted_at: p.submitted_at,
     };
   });

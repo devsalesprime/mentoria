@@ -343,9 +343,10 @@ describe('ScriptScreen · leitor em telas', () => {
     const reader = await screen.findByTestId('script-reader');
     expect(within(reader as HTMLElement).getByText('Cartão de bolso')).toBeInTheDocument();
     expect(within(reader as HTMLElement).getByText(/Conexão: a pessoa antes da empresa/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Imprimir cartão de bolso' })).toBeInTheDocument();
-    fireEvent.click(within(reader as HTMLElement).getByRole('button', { name: 'Copiar cartão de bolso' }));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('Os 7 passos em 7 linhas')));
+    // um botão só no cartão: "Baixar cartão" (a imagem); "Copiar" e "Imprimir" saíram na onda E1
+    expect(within(reader as HTMLElement).getByTestId('baixar-cartao-tela')).toHaveTextContent('Baixar cartão');
+    expect(within(reader as HTMLElement).queryByRole('button', { name: 'Copiar cartão de bolso' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Imprimir cartão de bolso' })).toBeNull();
     const nav = screen.getByRole('navigation', { name: 'Índice do script' });
     expect(within(nav).getByRole('button', { name: 'Cartão de bolso' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav).getAllByRole('button', { name: /^Passo \d:/ })).toHaveLength(7);
@@ -368,7 +369,9 @@ describe('ScriptScreen · leitor em telas', () => {
 
     fireEvent.click(within(nav).getByRole('button', { name: 'Próxima tela' }));
     expect(await screen.findByText('Passo 1 de 7')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Treinamento' })).toHaveAttribute('aria-selected', 'true');
+    // a vista Treinamento | Campo é global (barra de cima) e não existe mais dentro do passo
+    expect(screen.getByTestId('modo-treinamento')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('tablist')).toBeNull();
     expect(screen.getByText('Comentar este passo')).toBeInTheDocument();
     // campos de personalizacao e marca proibida
     const slots = within(reader).getAllByTestId('slot');
@@ -394,8 +397,8 @@ describe('ScriptScreen · leitor em telas', () => {
     expect(within(anatomias[1]).getByText(/trecho que não existe na fala/)).toBeInTheDocument();
     expect(anatomias[1].querySelector('ul')).not.toBeNull();
 
-    // aba Campo
-    fireEvent.click(screen.getByRole('tab', { name: 'Campo' }));
+    // vista Campo, pela barra de cima
+    fireEvent.click(screen.getByTestId('modo-campo'));
     expect(await within(reader).findByText(/Fala de campo do passo 1/)).toBeInTheDocument();
     expect(within(reader).getByText('Pausa.')).toBeInTheDocument();
     expect(lerTelaLembrada('elos', 1)).toBe(2);
@@ -416,7 +419,7 @@ describe('ScriptScreen · leitor em telas', () => {
     const paper = container.querySelector('#script-print-root')!;
     expect(paper.querySelectorAll('section[data-doc="d1"] section.script-passo')).toHaveLength(7);
     expect(paper.querySelectorAll('section[data-doc="d2"] section.script-passo')).toHaveLength(7);
-    expect(container.querySelector('#script-cartao-print')).not.toBeNull();
+    expect(container.querySelector('#script-cartao-export')).not.toBeNull();
 
     const texto = container.textContent || '';
     expect(texto).not.toContain('\u2014');
@@ -465,7 +468,12 @@ describe('ScriptScreen · leitor em telas', () => {
     // reancorado no texto da tela (o painel so marca "nao encontrado" quando a ancora falha)
     await waitFor(() => expect(within(screen.getAllByTestId('grifos-painel')[0]).queryByText('trecho não encontrado nesta versão')).toBeNull());
     expect(within(nav).getByRole('button', { name: /^Passo 1:/ })).toHaveAttribute('data-marcada', 'sim');
-    expect(screen.getByTestId('pedir-com-grifos').textContent).toContain('(1)');
+    // "Pedir nova versão com os grifos" mora no bloco "Ações", no fim do leitor (onda E1)
+    expect(screen.queryByTestId('pedir-com-grifos')).toBeNull();
+    fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+    expect((await screen.findByTestId('pedir-com-grifos')).textContent).toContain('(1)');
+    fireEvent.click(within(nav).getByRole('button', { name: /^Passo 1:/ }));
+    await screen.findByText('Passo 1 de 7');
 
     // editar nota (autor)
     fireEvent.click(within(item).getByRole('button', { name: 'Editar nota' }));
@@ -478,6 +486,9 @@ describe('ScriptScreen · leitor em telas', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Apagar' }));
     await waitFor(() => expect(axios.delete).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/script\/grifos\/g-/), expect.anything()));
     await waitFor(() => expect(within(painel).queryByTestId('grifo-item')).toBeNull());
+    // sem grifo pendente, o "Ações" do fim também perde o botão
+    fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+    expect(await screen.findByTestId('acoes-fim')).toBeInTheDocument();
     expect(screen.queryByTestId('pedir-com-grifos')).toBeNull();
   }, 30000);
 
@@ -515,6 +526,9 @@ describe('ScriptScreen · leitor em telas', () => {
     const ficha = fichaMock();
     render(<ScriptScreen ficha={ficha} token={TOKEN} />);
     await screen.findByText('Script v1');
+    // o pedido vive no bloco "Ações", na última tela do leitor
+    const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
+    fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
     const botao = await screen.findByTestId('pedir-com-grifos');
     expect(botao.textContent).toContain('(3)');
     fireEvent.click(botao);

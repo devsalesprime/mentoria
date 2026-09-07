@@ -26,7 +26,7 @@ import {
 } from './FichaField';
 import { BadgeRefinando, ContextoCampo } from './contexto/ContextoCampo';
 import { IconeCheck } from './contexto/icones';
-import { COPY_WHATS_ERRO, COPY_WHATS_PERGUNTA, PromptWhatsApp, phoneError } from './materiais/PromptWhatsApp';
+import { ConsentimentoWhatsApp } from './materiais/ConsentimentoWhatsApp';
 import {
   BLOCK_INTRO, COPY_GRUPO_APROFUNDAR, COPY_GRUPO_MATERIAIS, NavegadorLateral, NavegadorSheet, PREVIA_SCRIPT,
   pendenteNav, useBlocosAbertos, type PassoNav,
@@ -433,11 +433,6 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   const [dir, setDir] = useState(1);
   const [tela, setTela] = useState<Tela>(() => (passos.length && primeiroPendente() < 0 ? { tipo: 'fim' } : { tipo: 'passo' }));
   const [sheet, setSheet] = useState(false);
-  // WhatsApp dos avisos no fim da ficha (só para quem ainda não deixou número, ex.: quem pulou os materiais)
-  const [whatsPhone, setWhatsPhone] = useState('');
-  const [whatsErro, setWhatsErro] = useState<string | null>(null);
-  const [whatsSalvando, setWhatsSalvando] = useState(false);
-  const [whatsSalvo, setWhatsSalvo] = useState(false);
   const [feito, setFeito] = useState<Feito | null>(null);
   const feitoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editingRef = useRef(false);
@@ -478,31 +473,17 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
   const allRequiredDone = faltam === 0;
 
   /**
-   * Fim da ficha: quem não deixou WhatsApp em lugar nenhum (quem pulou os materiais, por exemplo) recebe a
-   * pergunta de uma linha. É opcional e não trava nada: dá para fechar a ficha sem responder.
+   * Fim da ficha: quem não deixou WhatsApp em lugar nenhum (quem pulou os materiais, por exemplo) recebe o
+   * mesmo bloco de permissão do envio. É opcional e não trava nada: dá para fechar a ficha sem responder.
    */
   const telefoneGuardado = data.materials?.notify_phone || '';
-  const salvarWhats = async () => {
-    const erro = phoneError(whatsPhone) || (whatsPhone.trim() ? null : COPY_WHATS_ERRO);
-    if (erro) { setWhatsErro(erro); return; }
-    setWhatsErro(null);
-    setWhatsSalvando(true);
-    const r = await ficha.salvarNotifyPhone?.(whatsPhone);
-    setWhatsSalvando(false);
-    if (r && !r.ok) { setWhatsErro(r.message || 'Não deu para salvar o WhatsApp agora. Tente de novo.'); return; }
-    setWhatsSalvo(true);
-  };
-  const promptWhats = whatsSalvo ? (
-    <p className="text-xs text-green-400 font-sans" data-testid="whatsapp-fim-salvo">Pronto. Os avisos vão para o seu WhatsApp.</p>
-  ) : telefoneGuardado ? null : (
-    <PromptWhatsApp
+  const promptWhats = telefoneGuardado ? null : (
+    <ConsentimentoWhatsApp
       id="ficha-notify-phone"
-      titulo={COPY_WHATS_PERGUNTA}
-      phone={whatsPhone}
-      onPhone={(v) => { setWhatsPhone(v); setWhatsErro(null); }}
-      erro={whatsErro}
-      onSalvar={salvarWhats}
-      salvando={whatsSalvando}
+      sugerido={data.materials?.notify_phone_sugerido}
+      onConfirmar={(dados) => (ficha.salvarNotifyPhone
+        ? ficha.salvarNotifyPhone(dados)
+        : Promise.resolve({ ok: false, message: 'Não deu para salvar o WhatsApp agora. Tente de novo.' }))}
       testId="whatsapp-fim"
     />
   );

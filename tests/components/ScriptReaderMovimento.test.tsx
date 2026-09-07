@@ -12,13 +12,15 @@ import { extrairPerfis } from '../../components/script/script/PerfisTabela';
 import { duracaoLegivel, treinamentosDoPasso } from '../../data/treinamentos-por-passo';
 
 /**
- * O movimento de cada Passo no leitor "Seu script" (onda C):
- * objetivo -> "Treinamentos deste passo" -> o script (abas) -> a tabela "Quem está do outro lado" -> "Tarefas".
- * - o bloco de treinamentos aparece nos 7 passos, com título, palestrante, tipo, duração e o "por que ver agora";
- *   o player só é montado quando a pessoa toca em "Assistir" (nada de iframe carregado sozinho)
+ * O movimento de cada Passo no leitor "Seu script", já na ordem da onda E1:
+ * objetivo -> o script -> a tabela "Quem está do outro lado" -> "Tarefas" -> "Treinamentos deste passo".
+ * - o bloco de treinamentos aparece nos 7 passos, com título, a linha de palestrante/tipo/duração, o
+ *   "Por que ver agora" logo abaixo do título e a thumbnail; o player só é montado quando a pessoa toca
+ *   (nada de iframe carregado sozinho, em nenhuma tela)
  * - a tabela de perfis vira `<table>` de verdade e sai do corpo do passo, sem repetir
  * - os checkboxes marcam na hora e gravam no servidor (PUT), com o estado vindo do GET
  * - o Sumário mostra a contagem de cada passo num chip
+ * As contagens saem do catálogo (`treinamentosDoPasso`, `tarefasDoPasso`): quando ele muda, o teste acompanha.
  */
 
 vi.mock('axios');
@@ -70,7 +72,6 @@ function abrirReader(tela: number, over: Partial<React.ComponentProps<typeof Scr
       tela={tela}
       onTela={vi.fn()}
       documento="treinamento"
-      onDocumento={vi.fn()}
       marcadas={new Set()}
       comentariosDo={() => null}
       totalGrifos={0}
@@ -80,6 +81,15 @@ function abrirReader(tela: number, over: Partial<React.ComponentProps<typeof Scr
     />
   );
   return { ...utils, reader: screen.getByTestId('script-reader') };
+}
+
+/** "x/y" de cada um dos 7 passos, direto do catálogo, com o que já foi marcado. */
+function chipsEsperados(feitas: ReadonlySet<string>): string[] {
+  return [1, 2, 3, 4, 5, 6, 7].map((p) => {
+    const total = tarefasDoPasso(p).length;
+    const marcadas = tarefasDoPasso(p).filter((t) => feitas.has(chaveTarefa(p, t.id))).length;
+    return `${marcadas}/${total}`;
+  });
 }
 
 describe('ScriptReader · treinamentos do passo', () => {
@@ -98,7 +108,14 @@ describe('ScriptReader · treinamentos do passo', () => {
         expect(within(cartoes[i]).getByTestId('treinamento-meta')).toHaveTextContent(t.palestrante);
         expect(within(cartoes[i]).getByTestId('treinamento-meta')).toHaveTextContent(t.tipo);
         expect(within(cartoes[i]).getByTestId('treinamento-meta')).toHaveTextContent(duracaoLegivel(t.duracaoMin));
-        expect(within(cartoes[i]).getByText(t.porQueAgora)).toBeInTheDocument();
+        // "Por que ver agora" é a descrição, logo abaixo do título e antes do vídeo
+        const porque = within(cartoes[i]).getByText(t.porQueAgora);
+        const meta = within(cartoes[i]).getByTestId('treinamento-meta');
+        const player = cartoes[i].querySelector('.script-treino-player')!;
+        expect(meta.compareDocumentPosition(porque) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(porque.compareDocumentPosition(player) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // thumbnail com o botão de tocar, sem player carregado
+        expect(within(cartoes[i]).getByTestId('treinamento-thumb').getAttribute('src')).toContain(t.bunnyGuid);
         expect(within(cartoes[i]).getByRole('button', { name: `Assistir: ${t.titulo}` })).toBeInTheDocument();
       });
       expect(reader.querySelector('iframe')).toBeNull();
@@ -106,13 +123,21 @@ describe('ScriptReader · treinamentos do passo', () => {
     }
   });
 
-  it('o Passo 1 abre com o perfil de quem vende e só depois o perfil do cliente', () => {
+  it('o Passo 1 abre com o perfil de quem vende e só depois o perfil do cliente, na ordem do catálogo', () => {
     const { reader } = abrirReader(2);
     const cartoes = within(reader).getAllByTestId('treinamento-card');
-    expect(cartoes.map((c) => c.getAttribute('data-treinamento'))).toEqual([
-      'imersao.2026-06.dani-martins-mentalidade-ceo',
-      'corporate.perfil-comportamental-do-cliente-com-pamela-ferrari',
-    ]);
+    expect(cartoes.map((c) => c.getAttribute('data-treinamento'))).toEqual(treinamentosDoPasso(1).map((t) => t.id));
+    expect(treinamentosDoPasso(1)[0].id).toContain('dani-martins');
+  });
+
+  it('a thumbnail que não carrega vira uma placa com o título', () => {
+    const { reader } = abrirReader(2);
+    const cartao = within(reader).getAllByTestId('treinamento-card')[0];
+    const t1 = treinamentosDoPasso(1)[0];
+    fireEvent.error(within(cartao).getByTestId('treinamento-thumb'));
+    expect(within(cartao).queryByTestId('treinamento-thumb')).toBeNull();
+    expect(within(cartao).getByTestId('treinamento-placa')).toHaveTextContent(t1.titulo);
+    expect(within(cartao).getByRole('button', { name: `Assistir: ${t1.titulo}` })).toBeInTheDocument();
   });
 
   it('o player só entra no toque; abrir o segundo desmonta o primeiro', () => {
@@ -125,19 +150,25 @@ describe('ScriptReader · treinamentos do passo', () => {
     expect(iframes[0].getAttribute('src')).toContain('iframe.mediadelivery.net/embed/716048/');
     expect(iframes[0].getAttribute('allow')).toContain('autoplay');
 
+    if (!t2) return;
     fireEvent.click(within(reader).getByRole('button', { name: `Assistir: ${t2.titulo}` }));
     const depois = reader.querySelectorAll('iframe');
     expect(depois).toHaveLength(1);
     expect(depois[0].getAttribute('src')).toBe(`${t2.embedUrl}?autoplay=true`);
   });
 
-  it('a ordem do movimento: treinamentos antes das abas, tarefas depois do corpo', () => {
+  it('a ordem do movimento: os treinamentos vão para o fim, depois das tarefas', () => {
     const { reader } = abrirReader(2);
     const treinos = within(reader).getByTestId('treinamentos-passo');
-    const abas = reader.querySelector('[role="tablist"]')!;
     const tarefas = within(reader).getByTestId('tarefas-passo');
-    expect(treinos.compareDocumentPosition(abas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(abas.compareDocumentPosition(tarefas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tarefas.compareDocumentPosition(treinos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(reader.querySelector('[role="tablist"]')).toBeNull();
+  });
+
+  it('na vista Campo o bloco de treinamentos some e as tarefas ficam', () => {
+    const { reader } = abrirReader(2, { documento: 'campo' });
+    expect(within(reader).queryByTestId('treinamentos-passo')).toBeNull();
+    expect(within(reader).getByTestId('tarefas-passo')).toBeInTheDocument();
   });
 
   it('as telas de cartão, sumário e preparação não têm bloco de treinamento nem tarefas', () => {
@@ -216,7 +247,7 @@ describe('ScriptReader · tarefas e contagem', () => {
     const bloco = within(reader).getByTestId('tarefas-passo');
     const itens = within(bloco).getAllByTestId('tarefa-item');
     expect(itens.map((i) => i.getAttribute('data-tarefa'))).toEqual(tarefasDoPasso(1).map((t) => t.id));
-    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent('0 de 5 tarefas');
+    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent(`0 de ${tarefasDoPasso(1).length} tarefas`);
     expect(within(bloco).getByText('Treinar as falas deste passo em voz alta')).toBeInTheDocument();
     expect(within(bloco).getByText('Aplicar na próxima reunião e anotar o que aconteceu')).toBeInTheDocument();
     expect(within(bloco).getByText('Marcar o que funcionou e o que ajustar')).toBeInTheDocument();
@@ -229,7 +260,7 @@ describe('ScriptReader · tarefas e contagem', () => {
     const feitas = new Set([chaveTarefa(1, 'treinar-falas'), chaveTarefa(1, 'aplicar-reuniao')]);
     const { reader } = abrirReader(2, { tarefasConcluidas: feitas });
     const bloco = within(reader).getByTestId('tarefas-passo');
-    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent('2 de 5 tarefas');
+    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent(`2 de ${tarefasDoPasso(1).length} tarefas`);
     expect(within(bloco).getByRole('checkbox', { name: /Treinar as falas/ })).toHaveAttribute('aria-checked', 'true');
     expect(within(bloco).getByRole('checkbox', { name: /Aplicar na próxima reunião/ })).toHaveAttribute('aria-checked', 'true');
     expect(within(bloco).getByRole('checkbox', { name: /Marcar o que funcionou/ })).toHaveAttribute('aria-checked', 'false');
@@ -255,9 +286,9 @@ describe('ScriptReader · tarefas e contagem', () => {
     const { reader } = abrirReader(TELA_SUMARIO, { tarefasConcluidas: feitas });
     const chips = within(reader).getAllByTestId('chip-tarefas');
     expect(chips).toHaveLength(7);
-    // Passos 2, 6 e 7 têm um treinamento só, então são 4 tarefas em vez de 5
-    expect(chips.map((c) => c.textContent)).toEqual(['2/5', '0/4', '0/5', '0/5', '0/5', '4/4', '0/4']);
-    expect(chips[0]).toHaveAttribute('aria-label', 'Passo 1: 2 de 5 tarefas');
+    // o total de cada passo sai do catálogo (um passo com um treinamento só tem uma tarefa a menos)
+    expect(chips.map((c) => c.textContent)).toEqual(chipsEsperados(feitas));
+    expect(chips[0]).toHaveAttribute('aria-label', `Passo 1: 2 de ${tarefasDoPasso(1).length} tarefas`);
     expect(chips[5].className).toContain('script-chip-tarefas-cheio');
     expect(chips[0].className).not.toContain('script-chip-tarefas-cheio');
   });
@@ -308,7 +339,7 @@ describe('ScriptScreen · tarefas gravadas no servidor', () => {
     await screen.findByTestId('script-reader');
     await irParaPasso(1);
     const bloco = screen.getByTestId('tarefas-passo');
-    await waitFor(() => expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent('1 de 5 tarefas'));
+    await waitFor(() => expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent(`1 de ${tarefasDoPasso(1).length} tarefas`));
     expect(within(bloco).getByRole('checkbox', { name: /Treinar as falas/ })).toHaveAttribute('aria-checked', 'true');
     expect(axios.get).toHaveBeenCalledWith('/api/script/versoes/1/tarefas', expect.anything());
   });
@@ -321,16 +352,17 @@ describe('ScriptScreen · tarefas gravadas no servidor', () => {
     const bloco = screen.getByTestId('tarefas-passo');
     const caixa = within(bloco).getByRole('checkbox', { name: /Aplicar na próxima reunião/ });
 
+    const totalP2 = tarefasDoPasso(2).length;
     fireEvent.click(caixa);
     await waitFor(() => expect(caixa).toHaveAttribute('aria-checked', 'true'));
-    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent('1 de 4 tarefas');
+    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent(`1 de ${totalP2} tarefas`);
     expect(puts).toHaveLength(1);
     expect(puts[0]).toEqual({ url: '/api/script/versoes/1/tarefas/2/aplicar-reuniao', body: { concluida: true } });
 
     fireEvent.click(caixa);
     await waitFor(() => expect(caixa).toHaveAttribute('aria-checked', 'false'));
     expect(puts[1].body).toEqual({ concluida: false });
-    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent('0 de 4 tarefas');
+    expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent(`0 de ${totalP2} tarefas`);
   });
 
   it('o Sumário conta o que foi marcado na tela do passo', async () => {
@@ -344,7 +376,7 @@ describe('ScriptScreen · tarefas gravadas no servidor', () => {
     const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
     fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
     const chips = await screen.findAllByTestId('chip-tarefas');
-    expect(chips.map((c) => c.textContent)).toEqual(['0/5', '0/4', '0/5', '1/5', '0/5', '0/4', '0/4']);
+    expect(chips.map((c) => c.textContent)).toEqual(chipsEsperados(new Set([chaveTarefa(4, 'treinar-falas')])));
   });
 
   it('quando o servidor recusa, o checkbox volta como estava e a pessoa é avisada', async () => {

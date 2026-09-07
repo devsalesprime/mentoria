@@ -509,7 +509,36 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     }
   });
 
-  // PUT /api/admin/clubs/:slug/members  { nome?, ativo?, add: [{email, nome}], remove: [email] }
+  /**
+   * Grava `notify_phone_sugerido` (numero que veio do cadastro) na entrada da pessoa em script_fichas.materials.
+   * E SO sugestao: pre-preenche o campo do WhatsApp na tela do mentor e nunca vira `notify_phone` sozinho
+   * (o numero dos avisos so nasce da permissao marcada, em PUT /api/script/ficha/notify-phone).
+   * Devolve { email, telefone } por pessoa gravada, ou o erro de validacao do numero.
+   */
+  async function gravarTelefonesSugeridos(slug, entradas) {
+    if (!entradas.length) return { gravados: [], erros: [] };
+    await ensureFicha(slug);
+    const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = ?`, [slug]);
+    const materials = VM.normalizeMaterials(row ? row.materials : null);
+    const gravados = [];
+    const erros = [];
+    for (const { email, telefone_sugerido: bruto } of entradas) {
+      const phone = VM.normalizePhone(bruto);
+      if (!phone.ok) { erros.push(`${email}: ${phone.message}`); continue; }
+      const cur = materials.por_pessoa[email] || VM.emptyPessoa();
+      const next = { ...cur };
+      if (phone.phone) next.notify_phone_sugerido = phone.phone;
+      else delete next.notify_phone_sugerido;
+      materials.por_pessoa[email] = next;
+      gravados.push({ email, telefone_sugerido: phone.phone });
+    }
+    if (gravados.length) {
+      await dbRun(`UPDATE script_fichas SET materials = ?, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`, [JSON.stringify(materials), slug]);
+    }
+    return { gravados, erros };
+  }
+
+  // PUT /api/admin/clubs/:slug/members  { nome?, ativo?, add: [{email, nome, telefone_sugerido?}], remove: [email] }
   router.put('/api/admin/clubs/:slug/members', authMiddleware, adminMiddleware, validateBody(cohortMembersSchema), async (req, res) => {
     try {
       const slug = req.params.slug;
@@ -531,9 +560,11 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       }
 
       const added = [];
+      const comTelefone = [];
       for (const m of add) {
         const email = normEmail(m.email);
         if (!email) continue;
+        if (typeof m.telefone_sugerido === 'string') comTelefone.push({ email, telefone_sugerido: m.telefone_sugerido });
         await dbRun(
           `INSERT INTO cohort_members (email, club_slug, nome) VALUES (?, ?, ?)
            ON CONFLICT(email) DO UPDATE SET club_slug = excluded.club_slug,
@@ -543,6 +574,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
         added.push(email);
       }
       await markUsers(added, slug);
+      // Telefone do cadastro: so sugestao (o mentor confirma com a permissao na tela dele)
+      const telefones = await gravarTelefonesSugeridos(slug, comTelefone);
 
       const removed = [];
       for (const e of remove) {
@@ -561,6 +594,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
         club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 },
         added,
         removed,
+        telefones_sugeridos: telefones.gravados,
+        ...(telefones.erros.length ? { telefones_erros: telefones.erros } : {}),
         membros: await listMembers(slug),
       });
     } catch (error) {

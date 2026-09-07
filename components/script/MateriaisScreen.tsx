@@ -7,8 +7,8 @@ import { MATERIAL_CATEGORIAS, LINKS_DICA } from './materiais/categorias';
 import { ComoFunciona } from './materiais/ComoFunciona';
 import { AcessosPlataforma } from './materiais/AcessosPlataforma';
 import { PromptIA } from './materiais/PromptIA';
-import { ConfirmarEnvioModal, phoneError } from './materiais/ConfirmarEnvioModal';
-import { COPY_WHATS_PERGUNTA, PromptWhatsApp } from './materiais/PromptWhatsApp';
+import { ConfirmarEnvioModal } from './materiais/ConfirmarEnvioModal';
+import { ConsentimentoWhatsApp } from './materiais/ConsentimentoWhatsApp';
 import { AccordionSection } from '../shared/AccordionSection';
 import { FileUpload } from '../shared/FileUpload';
 import { SectionWarning } from '../shared/SectionWarning';
@@ -63,7 +63,7 @@ function plural(n: number, um: string, varios: string) {
 export const COPY_PULAR_MATERIAIS = 'Não tenho materiais, ir para a ficha';
 
 export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, onNavigate }) => {
-  const { data, loading, loaded, error, saveMaterials, submitMaterials, setFiles, pularMateriais } = ficha;
+  const { data, loading, loaded, error, saveMaterials, submitMaterials, setFiles, pularMateriais, salvarNotifyPhone } = ficha;
   // TODO HOOK: todo hook fica AQUI EM CIMA, antes de qualquer `return`. Num acesso direto (ou F5) em
   // /dashboard/materiais o primeiro render cai no `if (loading && !data)` e sai antes; se um hook morar
   // depois desse return, o render seguinte (ja com a ficha) chama um hook a mais e o React quebra com o
@@ -78,9 +78,6 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pulando, setPulando] = useState(false);
   const [erroPular, setErroPular] = useState<string | null>(null);
-  // WhatsApp dos avisos de quem vai pular os materiais (o mesmo campo do "Enviei o que tinha")
-  const [phone, setPhone] = useState('');
-  const [notify, setNotify] = useState(true);
 
   if (loading && !data) {
     return (
@@ -159,13 +156,11 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
   // O aviso fica guardado ate a pilha de toasts da Ficha montar (contexto/toast.ts).
 
   // "Não tenho materiais, ir para a ficha": marca o pulo desta pessoa, não manda ler nada e abre a ficha.
-  // O WhatsApp é opcional; sem ele a pessoa segue igual, só não recebe os avisos.
+  // O WhatsApp anda por fora (bloco de permissão logo abaixo); sem ele a pessoa segue igual, só não recebe os avisos.
   const pularParaFicha = async () => {
-    const erroTelefone = notify ? phoneError(phone) : null;
-    if (erroTelefone) { setErroPular(erroTelefone); return; }
     setPulando(true);
     setErroPular(null);
-    const r = await pularMateriais({ notify_phone: notify ? phone : '', notify });
+    const r = await pularMateriais();
     setPulando(false);
     if (!r.ok) {
       setErroPular(r.message || 'Não deu para seguir agora. Tente de novo.');
@@ -362,13 +357,10 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
           </div>
         </div>
         {!isSubmitted && !isSkipped && !data.materials?.notify_phone && (
-          <PromptWhatsApp
+          <ConsentimentoWhatsApp
             id="materiais-notify-phone"
-            titulo={COPY_WHATS_PERGUNTA}
-            phone={phone}
-            onPhone={(v) => { setPhone(v); setErroPular(null); }}
-            notify={notify}
-            onNotify={(v) => { setNotify(v); setErroPular(null); }}
+            sugerido={data.materials?.notify_phone_sugerido}
+            onConfirmar={(dados) => salvarNotifyPhone(dados)}
             disabled={pulando}
             testId="whatsapp-materiais"
           />
@@ -390,9 +382,11 @@ export const MateriaisScreen: React.FC<MateriaisScreenProps> = ({ ficha, token, 
       <ConfirmarEnvioModal
         isOpen={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        onConfirm={(opts) => submitMaterials(opts)}
+        onConfirm={() => submitMaterials()}
         onGoToFicha={goToFicha}
-        initialPhone={data.materials?.notify_phone || phone || ''}
+        onConfirmarWhats={(dados) => salvarNotifyPhone(dados)}
+        pedirWhats={!data.materials?.notify_phone}
+        sugerido={data.materials?.notify_phone_sugerido}
       />
     </div>
   );

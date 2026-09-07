@@ -19,7 +19,7 @@ import createAdminCohortRoutes from '../../routes/admin-cohort.cjs';
 
 const SENHA_A = 'SEGREDO-DE-A-123';
 let server; let base; let tmpDir; let fileAId = 'file-a-1';
-let dbRun;
+let dbRun; let dbGet;
 
 function safeJsonParse(str, fallback = {}) {
   try { return str ? JSON.parse(str) : fallback; } catch { return fallback; }
@@ -53,6 +53,7 @@ beforeAll(async () => {
   const db = new sqlite3.Database(':memory:');
   const helpers = createDbHelpers(db);
   dbRun = helpers.dbRun;
+  dbGet = helpers.dbGet;
   const ddl = [
     `CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, role TEXT DEFAULT 'member', cohort TEXT, club_slug TEXT,
        last_login_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
@@ -234,5 +235,64 @@ describe('cohort_config.prazo_materiais', () => {
     expect(get.data.data.prazo_materiais).toBe('até sexta, 12/09');
     const member = await api('PUT', '/api/admin/cohort/config', 'userA', { prazo_materiais: 'x' });
     expect(member.status).toBe(403);
+  });
+});
+
+/**
+ * PUT /api/admin/clubs/:slug/members com `telefone_sugerido`: o telefone que veio do cadastro (HubSpot)
+ * vira `notify_phone_sugerido` na entrada da pessoa. E SO sugestao: pre-preenche o campo do WhatsApp na
+ * tela do mentor e NUNCA vira `notify_phone` (o numero dos avisos so nasce da permissao marcada).
+ */
+describe('admin: telefone sugerido do cadastro', () => {
+  it('grava normalizado com 55 e o membro recebe so como sugestao', async () => {
+    const r = await api('PUT', '/api/admin/clubs/clube-x/members', 'admin', {
+      add: [{ email: 'A@x.com', nome: 'Ana', telefone_sugerido: '(11) 91111-2222' }],
+    });
+    expect(r.status).toBe(200);
+    expect(r.data.telefones_sugeridos).toEqual([{ email: 'a@x.com', telefone_sugerido: '5511911112222' }]);
+
+    const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-x'`);
+    const pessoa = JSON.parse(row.materials).por_pessoa['a@x.com'];
+    expect(pessoa.notify_phone_sugerido).toBe('5511911112222');
+    expect(pessoa).not.toHaveProperty('notify_phone');
+
+    const ficha = await api('GET', '/api/script/ficha', 'userA');
+    expect(ficha.data.data.materials.notify_phone_sugerido).toBe('5511911112222');
+    expect(ficha.data.data.materials).not.toHaveProperty('notify_phone');
+  });
+
+  it('o sugerido nao vira o numero dos avisos: o envio sem permissao segue sem telefone', async () => {
+    const sub = await api('POST', '/api/script/ficha/materials/submit', 'userA', {});
+    expect(sub.status).toBe(200);
+    expect(sub.data.notify_phone).toBeNull();
+    const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
+    const ana = det.data.data.pessoas.find((p) => p.email === 'a@x.com');
+    expect(ana.notify_phone).toBeNull();
+    expect(ana.notify_phone_sugerido).toBe('5511911112222');
+    expect(ana.notify_consent_at).toBeNull();
+  });
+
+  it('depois da permissao, o admin ve numero confirmado e a data', async () => {
+    const put = await api('PUT', '/api/script/ficha/notify-phone', 'userA', {
+      notify_phone: '(11) 98765-4321', consentimento: true, consent_texto: 'Quero receber no meu WhatsApp...',
+    });
+    expect(put.status).toBe(200);
+    const det = await api('GET', '/api/admin/clubs/clube-x/script-ficha', 'admin');
+    const ana = det.data.data.pessoas.find((p) => p.email === 'a@x.com');
+    expect(ana.notify_phone).toBe('5511987654321');
+    expect(ana.notify_consent_at).toBe(put.data.notify_consent_at);
+    // a sugestao continua guardada e separada do numero confirmado
+    expect(ana.notify_phone_sugerido).toBe('5511911112222');
+  });
+
+  it('telefone invalido nao derruba o cadastro do membro: volta no relatorio de erros', async () => {
+    const r = await api('PUT', '/api/admin/clubs/clube-x/members', 'admin', {
+      add: [{ email: 'b@x.com', nome: 'Beto', telefone_sugerido: '123' }],
+    });
+    expect(r.status).toBe(200);
+    expect(r.data.added).toContain('b@x.com');
+    expect(r.data.telefones_erros[0]).toMatch(/WhatsApp inválido/);
+    const row = await dbGet(`SELECT materials FROM script_fichas WHERE club_slug = 'clube-x'`);
+    expect(JSON.parse(row.materials).por_pessoa['b@x.com'] || {}).not.toHaveProperty('notify_phone_sugerido');
   });
 });

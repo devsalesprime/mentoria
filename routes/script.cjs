@@ -831,12 +831,19 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
    * sem eles, o servidor converte os grifos pendentes ate a versao no mesmo formato. Cada um vira um comentario da versao
    * (autor = quem pediu; no banco o passo 9 vira 0) e entra no payload com o passo da tela (0..7 ou 9).
    * Dedupe pelo texto: pedir de novo com os mesmos grifos nao duplica.
+   *
+   * Onda E3: o servidor e a fonte da verdade do sufixo " · anexos: ..." — o que vem do front e casado pelo texto
+   * sem o sufixo e trocado pela versao com os anexos de agora. Grifo sem anexo passa intacto.
    */
   async function comentariosDosGrifos(slug, n, vindos, autorEmail) {
     const existentes = await SV.listComments({ dbAll }, slug, n);
-    const lista = Array.isArray(vindos) && vindos.length
-      ? vindos
-      : (await SG.listGrifosPendentes({ dbAll }, slug, n)).map(SG.grifoParaComentario);
+    const pendentes = await SG.comContexto({ dbAll }, slug, await SG.listGrifosPendentes({ dbAll }, slug, n), { fileUrl: contextFileUrl });
+    const doServidor = pendentes.map(SG.grifoParaComentario);
+    let lista = doServidor;
+    if (Array.isArray(vindos) && vindos.length) {
+      const porBase = new Map(doServidor.map((c) => [SG.comentarioSemAnexos(c.texto), c.texto]));
+      lista = vindos.map((c) => ({ ...c, texto: porBase.get(SG.comentarioSemAnexos(c.texto)) || c.texto }));
+    }
     const textos = new Set(existentes.map((c) => c.texto));
     const novos = [];
     for (const c of lista) {
@@ -900,13 +907,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
 
   // ─── Grifos (do clube; so o autor edita e apaga) ─────────────────────────
 
-  // GET /api/script/versoes/:versao/grifos  -> { grifos } (os da versao + os pendentes de versoes anteriores)
+  // GET /api/script/versoes/:versao/grifos  -> { grifos } (os da versao + os pendentes de versoes anteriores),
+  // cada um com `contexto: [...]` (os anexos: áudio, imagem, vídeo, link, nota)
   router.get('/api/script/versoes/:versao/grifos', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
       const versao = await SV.getVersion({ dbGet }, req.cohort.club_slug, n, { withContent: false });
       if (!versao) return res.status(404).json({ success: false, message: 'Versão não encontrada.' });
-      res.json({ success: true, grifos: await SG.listGrifosDaVersao({ dbAll }, req.cohort.club_slug, n) });
+      const lista = await SG.listGrifosDaVersao({ dbAll }, req.cohort.club_slug, n);
+      res.json({ success: true, grifos: await SG.comContexto({ dbAll }, req.cohort.club_slug, lista, { fileUrl: contextFileUrl }) });
     } catch (error) {
       console.error('Error in GET /api/script/versoes/:versao/grifos:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
@@ -954,15 +963,96 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // DELETE /api/script/grifos/:id  (so o autor)
+  // DELETE /api/script/grifos/:id  (so o autor; leva junto os anexos e os arquivos deles)
   router.delete('/api/script/grifos/:id', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const grifo = await grifoDoAutor(req, res); if (!grifo) return;
-      await SG.deleteGrifo({ dbRun }, req.cohort.club_slug, grifo.id);
+      await SG.deleteGrifo({ dbGet, dbAll, dbRun }, req.cohort.club_slug, grifo.id, { fs });
       await touchActivity(req.cohort.club_slug);
       res.json({ success: true, id: grifo.id });
     } catch (error) {
       console.error('Error in DELETE /api/script/grifos/:id:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // ─── Anexos do grifo (mesma mecanica do contexto por pergunta da ficha) ──
+  // Qualquer sócio do clube anexa material a um grifo do clube (como no contexto da ficha); só o autor do
+  // item apaga. Áudio é transcrito na hora pela Groq, igual ao da ficha. Arquivos: uploaded_files com
+  // category 'script_contexto' (o worker baixa pela rota que já existe).
+
+  // POST /api/script/grifos/:id/contexto  multipart (arquivo) ou JSON (link, nota): { tipo, file?, url?, texto?, legenda? }
+  router.post('/api/script/grifos/:id/contexto', authMiddleware, cohortGuard, (req, res, next) => {
+    uploadContext.single('file')(req, res, (err) => {
+      if (!err) return next();
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      res.status(400).json({ success: false, message: tooBig ? 'Arquivo grande demais (máximo 50 MB).' : `Upload inválido: ${err.message}` });
+    });
+  }, async (req, res) => {
+    const dropFile = () => { if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* ignore */ } } };
+    try {
+      const grifo = await SG.getGrifo({ dbGet }, req.cohort.club_slug, req.params.id);
+      if (!grifo) { dropFile(); return res.status(404).json({ success: false, message: 'Grifo não encontrado.' }); }
+      const parsed = CTX.grifoContextBodySchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        dropFile();
+        return res.status(400).json({ success: false, message: 'Dados inválidos', errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+      }
+      const v = CTX.validateContextItem(parsed.data, req.file);
+      if (!v.ok) { dropFile(); return res.status(400).json({ success: false, message: v.message }); }
+      const { item } = v;
+
+      let fileId = null;
+      if (req.file) {
+        fileId = uuidv4();
+        await dbRun(
+          `INSERT INTO uploaded_files (id, user_id, category, module, file_name, file_path, file_type, file_size)
+           VALUES (?, ?, ?, 'script', ?, ?, ?, ?)`,
+          [fileId, req.user.userId, CTX.CONTEXT_CATEGORY, req.file.originalname, req.file.path, req.file.mimetype, req.file.size]
+        );
+      }
+
+      let transcricao = null;
+      let erro = null;
+      if (item.tipo === 'audio') {
+        const t = await CTX.transcribeAudio(req.file.path, { mimetype: req.file.mimetype, fileName: req.file.originalname, fs });
+        if (t.ok) transcricao = t.texto; else erro = t.erro;
+      }
+
+      const id = `ctx-${uuidv4()}`;
+      await CTX.insertContext({ dbRun }, {
+        id, club_slug: req.cohort.club_slug, user_id: req.user.userId, field_key: '', grifo_id: grifo.id,
+        tipo: item.tipo, file_id: fileId, url: item.url, texto: item.texto, legenda: item.legenda,
+        transcricao, erro_transcricao: erro,
+      });
+      await touchActivity(req.cohort.club_slug);
+      const saved = await CTX.getGrifoContextItem({ dbGet }, req.cohort.club_slug, grifo.id, id, contextFileUrl);
+      res.json({
+        success: true,
+        grifo_id: grifo.id,
+        item: saved,
+        ...(erro ? { warning: `Áudio guardado, mas a transcrição falhou (${erro}). Você pode escrever o essencial numa nota.` } : {}),
+      });
+    } catch (error) {
+      dropFile();
+      console.error('Error in POST /api/script/grifos/:id/contexto:', error.message);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
+  // DELETE /api/script/grifos/:id/contexto/:itemId  (só quem anexou)
+  router.delete('/api/script/grifos/:id/contexto/:itemId', authMiddleware, cohortGuard, async (req, res) => {
+    try {
+      const grifo = await SG.getGrifo({ dbGet }, req.cohort.club_slug, req.params.id);
+      if (!grifo) return res.status(404).json({ success: false, message: 'Grifo não encontrado.' });
+      const item = await CTX.getGrifoContextItem({ dbGet }, req.cohort.club_slug, grifo.id, req.params.itemId);
+      if (!item) return res.status(404).json({ success: false, message: 'Item não encontrado.' });
+      if (item.autor_user_id !== req.user.userId) return res.status(403).json({ success: false, message: 'Só quem anexou pode apagar.' });
+      await CTX.deleteContext({ dbGet, dbRun }, req.cohort.club_slug, item.id, { fs });
+      await touchActivity(req.cohort.club_slug);
+      res.json({ success: true, grifo_id: grifo.id, id: item.id });
+    } catch (error) {
+      console.error('Error in DELETE /api/script/grifos/:id/contexto/:itemId:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
     }
   });
@@ -1014,7 +1104,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   const adminOnly = (req, res, next) => (req.user && req.user.role === 'admin' ? next() : res.status(403).json({ success: false, message: 'Acesso negado. Apenas admin.' }));
   router.get('/api/admin/clubs/:slug/script-grifos', authMiddleware, adminOnly, async (req, res) => {
     try {
-      res.json({ success: true, grifos: await SG.listGrifos({ dbAll }, req.params.slug) });
+      const lista = await SG.listGrifos({ dbAll }, req.params.slug);
+      res.json({ success: true, grifos: await SG.comContexto({ dbAll }, req.params.slug, lista, { fileUrl: contextFileUrl }) });
     } catch (error) {
       console.error('Error in GET /api/admin/clubs/:slug/script-grifos:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
@@ -1076,11 +1167,13 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       const key = VM.normEmail(req.cohort.email);
       const materials = await freshMaterials(req.cohort.club_slug);
       const cur = materials.por_pessoa[key] || VM.emptyPessoa();
-      // Sem numero digitado, vale o que a pessoa ja tinha deixado (inclusive no "Não tenho materiais").
-      const notifyPhone = req.body.notify === false ? null : (phone.phone || cur.notify_phone || null);
+      // Numero novo so entra com a permissao marcada (`consentimento: true`); sem ela vale o que ja estava guardado.
+      const comConsent = VM.applyNotifyConsent(cur, {
+        phone: phone.phone, consentimento: req.body.consentimento === true, texto: req.body.consent_texto,
+      });
+      const notifyPhone = req.body.notify === false ? null : (comConsent.notify_phone || null);
       const submittedAt = new Date().toISOString();
-      const next = { ...cur, submitted_at: submittedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
-      if (notifyPhone) next.notify_phone = notifyPhone;
+      const next = { ...comConsent, submitted_at: submittedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
       materials.por_pessoa[key] = next;
       await dbRun(
         `UPDATE script_fichas
@@ -1126,10 +1219,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       const key = VM.normEmail(req.cohort.email);
       const materials = await freshMaterials(req.cohort.club_slug);
       const cur = materials.por_pessoa[key] || VM.emptyPessoa();
-      const notifyPhone = body.notify === false ? null : (phone.phone || cur.notify_phone || null);
+      const comConsent = VM.applyNotifyConsent(cur, {
+        phone: phone.phone, consentimento: body.consentimento === true, texto: body.consent_texto,
+      });
+      const notifyPhone = body.notify === false ? null : (comConsent.notify_phone || null);
       const skippedAt = new Date().toISOString();
-      const next = { ...cur, skipped_at: cur.skipped_at || skippedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
-      if (notifyPhone) next.notify_phone = notifyPhone;
+      const next = { ...comConsent, skipped_at: cur.skipped_at || skippedAt, ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
       materials.por_pessoa[key] = next;
       await dbRun(
         `UPDATE script_fichas SET materials = ?, last_user_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`,
@@ -1147,21 +1242,29 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // PUT /api/script/ficha/notify-phone  { notify_phone }
-  // WhatsApp dos avisos pedido fora do envio (fim da ficha de quem pulou os materiais): mesma validacao e o
-  // mesmo lugar do "Enviei o que tinha" (`por_pessoa[e-mail].notify_phone`). Numero vazio apaga o guardado.
-  router.put('/api/script/ficha/notify-phone', authMiddleware, cohortGuard, async (req, res) => {
+  // PUT /api/script/ficha/notify-phone  { notify_phone, consentimento: true, consent_texto? }
+  // WhatsApp dos avisos com a permissao da pessoa (bloco ConsentimentoWhatsApp: envio, pulo e fim da ficha).
+  // Sem `consentimento: true` a rota devolve 400 e NADA e guardado: o runner so tem numero de quem autorizou.
+  // Guarda `notify_phone`, `notify_consent_at` (ISO) e `notify_consent_texto` (a frase que a pessoa viu).
+  // `notify_phone_sugerido` (o numero que veio do cadastro) nunca vira `notify_phone` sozinho.
+  router.put('/api/script/ficha/notify-phone', authMiddleware, cohortGuard, validateBody(VM.notifyPhoneSchema), async (req, res) => {
     try {
-      const phone = VM.normalizePhone((req.body || {}).notify_phone);
+      if (req.body.consentimento !== true) {
+        return res.status(400).json({ success: false, message: VM.CONSENT_FALTANDO, errors: [VM.CONSENT_FALTANDO] });
+      }
+      const phone = VM.normalizePhone(req.body.notify_phone);
       if (!phone.ok) return res.status(400).json({ success: false, message: phone.message, errors: [phone.message] });
+      if (!phone.phone) {
+        const semNumero = 'WhatsApp inválido: use DDD + número (10 a 11 dígitos), com ou sem o 55.';
+        return res.status(400).json({ success: false, message: semNumero, errors: [semNumero] });
+      }
       const key = VM.normEmail(req.cohort.email);
       const materials = await freshMaterials(req.cohort.club_slug);
-      const next = { ...(materials.por_pessoa[key] || VM.emptyPessoa()), ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
-      if (phone.phone) next.notify_phone = phone.phone;
-      else delete next.notify_phone;
+      const base = { ...(materials.por_pessoa[key] || VM.emptyPessoa()), ...(req.cohort.name ? { nome: req.cohort.name } : {}) };
+      const next = VM.applyNotifyConsent(base, { phone: phone.phone, consentimento: true, texto: req.body.consent_texto });
       materials.por_pessoa[key] = next;
       await touchActivity(req.cohort.club_slug, ', materials = ?', [JSON.stringify(materials)]);
-      res.json({ success: true, notify_phone: phone.phone });
+      res.json({ success: true, notify_phone: next.notify_phone, notify_consent_at: next.notify_consent_at });
     } catch (error) {
       console.error('Error in PUT /api/script/ficha/notify-phone:', error.message);
       res.status(500).json({ success: false, message: 'Erro interno.' });

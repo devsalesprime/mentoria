@@ -164,7 +164,7 @@ describe('submit: telefone + job por pessoa', () => {
       links: [{ url: 'https://drive.google.com/a', rotulo: 'Drive', tipo: 'drive' }],
       acessos: [{ plataforma_url: 'https://plataforma.com/login', login: 'ana', senha: SENHA_A, observacoes: '' }],
     });
-    const r = await api('POST', '/api/script/ficha/materials/submit', 'userA', { notify_phone: '(11) 98765-4321' });
+    const r = await api('POST', '/api/script/ficha/materials/submit', 'userA', { notify_phone: '(11) 98765-4321', consentimento: true });
     expect(r.status).toBe(200);
     expect(r.data.materials_status).toBe('submitted');
     expect(r.data.notify_phone).toBe('5511987654321');
@@ -570,7 +570,7 @@ describe('admin: lista da fila e requeue', () => {
   });
 
   it('depois de done, a pessoa confirma de novo e nasce um job novo', async () => {
-    const r = await api('POST', '/api/script/ficha/materials/submit', 'userA', { notify_phone: '5511987654321' });
+    const r = await api('POST', '/api/script/ficha/materials/submit', 'userA', { notify_phone: '5511987654321', consentimento: true });
     expect(r.data.job.existing).toBe(false);
     expect(r.data.job.id).not.toBe(jobA.id);
     expect(r.data.job.status).toBe('queued');

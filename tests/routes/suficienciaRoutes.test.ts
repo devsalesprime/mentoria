@@ -63,7 +63,7 @@ async function worker(method, url, body) {
 
 /** Submit da pessoa + claim do worker: devolve o job `prefill` em running. */
 async function abrirPrefill(user) {
-  const sub = await api('POST', '/api/script/ficha/materials/submit', user, { notify_phone: '11987654321' });
+  const sub = await api('POST', '/api/script/ficha/materials/submit', user, { notify_phone: '11987654321', consentimento: true });
   expect(sub.status).toBe(200);
   let next;
   // pega o job desta pessoa (a fila pode ter outros)

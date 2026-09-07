@@ -17,8 +17,8 @@ vi.mock('axios', () => ({ default: { get: vi.fn().mockResolvedValue({ data: { it
 import { FichaScreen } from '../../components/script/FichaScreen';
 import { COPY_APROFUNDAR, COPY_ESSENCIAL_CONFIRMADA, textoFaltamEssenciais } from '../../components/script/FichaWizard';
 import {
-  COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PERGUNTA, COPY_WHATS_SALVAR,
-} from '../../components/script/materiais/PromptWhatsApp';
+  COPY_CONSENTIMENTO, COPY_WHATS_BOTAO, COPY_WHATS_ERRO, COPY_WHATS_LABEL, COPY_WHATS_PERGUNTA, COPY_WHATS_SALVO,
+} from '../../components/script/materiais/ConsentimentoWhatsApp';
 import { COPY_GRUPO_APROFUNDAR } from '../../components/script/FichaNavegador';
 import { recomputeView, type ScriptFichaData, type UseScriptFicha } from '../../hooks/useScriptFicha';
 import { SCRIPT_BLOCKS, SCRIPT_ESSENCIAL_KEYS, SCRIPT_FIELD_BY_KEY, ehEssencial, type ScriptBlockView, type ScriptFieldView } from '../../data/script-ficha-fields';
@@ -191,28 +191,42 @@ describe('FichaScreen no modo essencial', () => {
     expect(within(lateral()).queryByTestId('lateral-nav-outros')).not.toBeInTheDocument();
   });
 
-  it('o fim da ficha pergunta o WhatsApp de quem não deixou número, sem travar o fechamento', async () => {
+  it('o fim da ficha pede o WhatsApp com permissão de quem não deixou número, sem travar o fechamento', async () => {
     const salvarNotifyPhone = vi.fn().mockResolvedValue({ ok: true });
     render(<FichaScreen ficha={fichaDe(dados({ blocos: DECIDIDOS() }), { salvarNotifyPhone })} onNavigate={vi.fn()} />);
     const campo = () => screen.getByLabelText(COPY_WHATS_LABEL);
-    const salvar = () => screen.getByRole('button', { name: COPY_WHATS_SALVAR });
-    expect(screen.getByTestId('whatsapp-fim')).toHaveTextContent(COPY_WHATS_PERGUNTA);
+    const salvar = () => screen.getByRole('button', { name: COPY_WHATS_BOTAO });
+    const bloco = screen.getByTestId('whatsapp-fim');
+    expect(bloco).toHaveTextContent(COPY_WHATS_PERGUNTA);
+    expect(bloco).toHaveTextContent(COPY_CONSENTIMENTO);
     // fechar a ficha essencial continua liberado sem responder nada
     screen.getAllByRole('button', { name: /Fechar ficha essencial/ }).forEach((b) => expect(b).toBeEnabled());
 
-    // número incompleto: erro com a copy do envio, sem chamar o servidor
+    // número incompleto: erro na tela, sem chamar o servidor
     fireEvent.change(campo(), { target: { value: '123' } });
+    fireEvent.click(screen.getByLabelText(COPY_CONSENTIMENTO));
     fireEvent.click(salvar());
     expect(await screen.findByText(COPY_WHATS_ERRO)).toBeInTheDocument();
     expect(salvarNotifyPhone).not.toHaveBeenCalled();
 
     fireEvent.change(campo(), { target: { value: '(11) 98765-4321' } });
     fireEvent.click(salvar());
-    await waitFor(() => expect(salvarNotifyPhone).toHaveBeenCalledWith('(11) 98765-4321'));
-    expect(await screen.findByTestId('whatsapp-fim-salvo')).toBeInTheDocument();
+    await waitFor(() => expect(salvarNotifyPhone).toHaveBeenCalledWith({
+      notify_phone: '(11) 98765-4321', consentimento: true, consent_texto: COPY_CONSENTIMENTO,
+    }));
+    expect(await screen.findByText(COPY_WHATS_SALVO)).toBeInTheDocument();
   });
 
-  it('quem já tem WhatsApp guardado não é perguntado no fim da ficha', () => {
+  it('no fim da ficha, sem a permissão marcada nada é guardado', async () => {
+    const salvarNotifyPhone = vi.fn();
+    render(<FichaScreen ficha={fichaDe(dados({ blocos: DECIDIDOS() }), { salvarNotifyPhone })} onNavigate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(COPY_WHATS_LABEL), { target: { value: '(11) 98765-4321' } });
+    fireEvent.click(screen.getByRole('button', { name: COPY_WHATS_BOTAO }));
+    await waitFor(() => expect(screen.getByTestId('whatsapp-fim')).toBeInTheDocument());
+    expect(salvarNotifyPhone).not.toHaveBeenCalled();
+  });
+
+  it('quem já confirmou o WhatsApp não é perguntado no fim da ficha', () => {
     const materials = { links: [], observacoes: '', acessos: [], submitted_at: null, notify_phone: '5511987654321' };
     render(<FichaScreen ficha={fichaDe(dados({ blocos: DECIDIDOS(), materials } as any))} onNavigate={vi.fn()} />);
     expect(screen.getByTestId('wizard-fim')).toBeInTheDocument();
