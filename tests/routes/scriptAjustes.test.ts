@@ -10,6 +10,13 @@
  * - o admin nao passa pela trava: "forçar script" continua enfileirando depois de a rodada acabar
  * - POST /api/admin/clubs/:slug/script-versoes/:versao/revisar: a equipe pede uma nova versao com
  *   `origem: 'admin'` (o mesmo payload do mentor), sem consumir a rodada do clube
+ *
+ * SPEC-workflow-v4 item 26 (a outra chance de ajuste): UMA atualizacao da ficha depois do primeiro script.
+ * - com versao escrita, o primeiro POST /api/script/ficha/complete passa e enfileira `script`
+ * - o segundo devolve 409 { motivo: 'limite_ficha' } com a copy da casa
+ * - job `script` forcado pelo admin (`origem: 'admin'`, `motivo: 'forcado'`) nao entra na conta
+ * - clube sem versao nenhuma fecha a ficha quantas vezes quiser
+ * - GET /api/script/ficha traz `ficha_atualizacoes_usadas` e `ficha_limite` dentro de `script`
  */
 import fs from 'fs';
 import os from 'os';
@@ -24,10 +31,20 @@ import VM from '../../utils/validation-materials.cjs';
 import SV from '../../utils/script-versions.cjs';
 import SG from '../../utils/script-grifos.cjs';
 import SUF from '../../utils/suficiencia.cjs';
+import SF from '../../utils/script-ficha.cjs';
 
 const TOKEN = 'token-da-fila-de-ajustes';
 const MD_V1 = '# Script v1\n\n## Passo 1: Conexão\n\n"Prazer, eu sou o Rafael, do time da Paloma."\n';
 const COPY_LIMITE = 'A sua rodada de ajustes já foi usada. Precisa de mais? Fale com a equipe.';
+const COPY_LIMITE_FICHA = 'Você já usou a sua atualização da ficha. Agora só dá para ajustar pelos grifos no script.';
+
+/** Ficha inteira decidida (os 27 obrigatorios), com 6.2 preenchido: e o que o `complete` exige. */
+function fichaCheia() {
+  const f: Record<string, any> = {};
+  for (const k of SF.FIELD_KEYS) f[k] = { status: 'aceito_vazio' };
+  f['6.2'] = { status: 'editado', valor: 'A Ana vende, o lead vem do Instagram' };
+  return JSON.stringify(f);
+}
 
 let server; let base; let tmpDir; let dbRun; let dbGet;
 
@@ -261,5 +278,94 @@ describe('o admin pede uma nova versão pelo clube', () => {
   it('o token do mentor não abre a rota do admin', async () => {
     expect((await api('POST', URL, 'userA', { pedido: PEDIDO })).status).toBe(403);
     expect((await api('POST', URL, null, { pedido: PEDIDO })).status).toBe(401);
+  });
+});
+
+/**
+ * Item 26: uma atualizacao da ficha por clube depois do primeiro script. Clubes proprios para nao
+ * misturar com a rodada de grifos: `clube-ficha` ja tem a v1 escrita (com data antiga, para os jobs
+ * novos caírem depois dela) e `clube-novo` ainda nao tem script nenhum.
+ */
+describe('uma atualização da ficha depois do primeiro script', () => {
+  /** `ficha_atualizacoes_usadas` / `ficha_limite` como a tela do mentor os recebe. */
+  async function conta(user: string) {
+    const r = await api('GET', '/api/script/ficha', user);
+    return { usadas: r.data.data.script.ficha_atualizacoes_usadas, limite: r.data.data.script.ficha_limite };
+  }
+  const esvaziarFila = () => dbRun(`UPDATE cohort_jobs SET status = 'done' WHERE status IN ('queued', 'running')`);
+
+  beforeAll(async () => {
+    await dbRun(`INSERT INTO cohort_clubs (slug, nome, ativo) VALUES ('clube-ficha', 'Clube da Ficha', 1), ('clube-novo', 'Clube Novo', 1)`);
+    await dbRun(`INSERT INTO cohort_members (email, club_slug, nome) VALUES ('f@x.com', 'clube-ficha', 'Fabi'), ('n@x.com', 'clube-novo', 'Nina')`);
+    await dbRun(`INSERT INTO users (id, email, name, role, cohort, club_slug) VALUES
+      ('userF', 'f@x.com', 'Fabi', 'member', 'exclusive', 'clube-ficha'),
+      ('userN', 'n@x.com', 'Nina', 'member', 'exclusive', 'clube-novo')`);
+    await dbRun(`INSERT INTO script_fichas (id, club_slug, fields, materials, ficha_status) VALUES
+      ('ficha-f', 'clube-ficha', ?, '{"por_pessoa":{}}', 'em_revisao'),
+      ('ficha-n', 'clube-novo', ?, '{"por_pessoa":{}}', 'em_revisao')`, [fichaCheia(), fichaCheia()]);
+    // v1 do clube-ficha com data antiga: so os jobs nascidos DEPOIS dela entram na conta
+    await dbRun(`INSERT INTO script_versions (id, club_slug, versao, content_md, resumo, status, created_at)
+      VALUES ('sv-f-1', 'clube-ficha', 1, ?, 'primeira', 'rascunho', '2026-01-01 00:00:00')`, [MD_V1]);
+  });
+
+  it('sem script escrito, fechar a ficha não gasta nada e não trava', async () => {
+    expect(await conta('userN')).toEqual({ usadas: 0, limite: 1 });
+    await esvaziarFila();
+    const primeiro = await api('POST', '/api/script/ficha/complete', 'userN');
+    expect(primeiro.status).toBe(200);
+    await esvaziarFila();
+    const segundo = await api('POST', '/api/script/ficha/complete', 'userN');
+    expect(segundo.status).toBe(200);
+    expect(await conta('userN')).toEqual({ usadas: 0, limite: 1 });
+  });
+
+  it('com a v1 escrita, a primeira atualização passa e enfileira o job `script`', async () => {
+    expect(await conta('userF')).toEqual({ usadas: 0, limite: 1 });
+    await esvaziarFila();
+    const r = await api('POST', '/api/script/ficha/complete', 'userF');
+    expect(r.status).toBe(200);
+    expect(r.data.ficha_status).toBe('confirmada');
+    expect(r.data.job.tipo).toBe('script');
+    const job = await dbGet(`SELECT payload FROM cohort_jobs WHERE id = ?`, [r.data.job.id]);
+    expect(safeJsonParse(job.payload).motivo).toBe('complete');
+    expect(await conta('userF')).toEqual({ usadas: 1, limite: 1 });
+  });
+
+  it('a segunda devolve 409 limite_ficha, com a copy da casa e sem job novo', async () => {
+    const antes = await dbGet(`SELECT COUNT(*) AS n FROM cohort_jobs WHERE tipo = 'script' AND club_slug = 'clube-ficha'`);
+    const r = await api('POST', '/api/script/ficha/complete', 'userF');
+    expect(r.status).toBe(409);
+    expect(r.data.motivo).toBe('limite_ficha');
+    expect(r.data.message).toBe(COPY_LIMITE_FICHA);
+    expect(r.data.ficha_atualizacoes_usadas).toBe(1);
+    expect(r.data.ficha_limite).toBe(1);
+    // a copy segue as regras da casa: sem travessão e sem a palavra vetada
+    expect(r.data.message).not.toContain('—');
+    expect(r.data.message).not.toMatch(/diagn[oó]stic/i);
+    const depois = await dbGet(`SELECT COUNT(*) AS n FROM cohort_jobs WHERE tipo = 'script' AND club_slug = 'clube-ficha'`);
+    expect(depois.n).toBe(antes.n);
+  });
+
+  it('job `script` forçado pelo admin não entra na conta', async () => {
+    await dbRun(`INSERT INTO cohort_jobs (id, tipo, club_slug, email, status, payload)
+      VALUES ('job-script-forcado', 'script', 'clube-ficha', 'f@x.com', 'done', ?)`,
+      [JSON.stringify({ motivo: 'forcado', origem: 'admin', forcado_por: 'admin' })]);
+    expect(await conta('userF')).toEqual({ usadas: 1, limite: 1 });
+  });
+
+  it('`cohort_config.ficha_limite` muda o teto: com 2, o mentor fecha de novo', async () => {
+    await dbRun(`INSERT OR REPLACE INTO cohort_config (key, value) VALUES ('ficha_limite', '2')`);
+    expect(await conta('userF')).toEqual({ usadas: 1, limite: 2 });
+    await esvaziarFila();
+    expect((await api('POST', '/api/script/ficha/complete', 'userF')).status).toBe(200);
+    expect(await conta('userF')).toEqual({ usadas: 2, limite: 2 });
+    expect((await api('POST', '/api/script/ficha/complete', 'userF')).status).toBe(409);
+    await dbRun(`DELETE FROM cohort_config WHERE key = 'ficha_limite'`);
+  });
+
+  it('a trava da ficha não mexe na rodada de grifos do outro clube', async () => {
+    const r = await api('GET', '/api/script/ficha', 'userA');
+    expect(r.data.data.script.ajustes_usados).toBeGreaterThanOrEqual(1);
+    expect(r.data.data.script.ficha_atualizacoes_usadas).toBe(0);
   });
 });

@@ -13,7 +13,8 @@ import { emitirToast } from './contexto/toast';
 import { ProgressoPreenchimento } from './ProgressoPreenchimento';
 import { EsperaLeitura } from './EsperaLeitura';
 import { EtaEspera } from './EtaEspera';
-import { ComplementoCampo } from './ComplementoCampo';
+import { ComplementoCampo, type ComplementoResultado } from './ComplementoCampo';
+import { incorporarComplementoEditado } from '../../hooks/complementoApi';
 import { AccordionSection } from '../shared/AccordionSection';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
@@ -72,6 +73,20 @@ export const COPY_INSUFICIENTE = 'Precisamos de mais material ou das suas respos
 export const COPY_AUTOMATICA = 'Preenchida pelos seus materiais. Seu script já está sendo escrito. Se editar algum campo, a ficha reabre e você pode pedir uma nova versão.';
 export const COPY_SCRIPT_GERANDO = 'Tudo respondido. Seu script está sendo escrito.';
 
+/**
+ * Item 26 da SPEC-workflow-v4: com o script escrito, a ficha ainda fecha UMA vez (gera versão nova).
+ * O aviso aparece antes de gastar a chance; a mensagem da trava repete o 409 `limite_ficha` do servidor.
+ */
+export const COPY_FICHA_UNICA = 'Esta é a sua única atualização da ficha. Depois, os ajustes são só pelos grifos no script.';
+export const COPY_FICHA_LIMITE = 'Você já usou a sua atualização da ficha. Agora só dá para ajustar pelos grifos no script.';
+
+/** O que a tela lê do resumo do script para a trava da ficha (o servidor manda dentro de `script`). */
+interface LimitesDaFicha {
+  versoes?: number;
+  ficha_atualizacoes_usadas?: number;
+  ficha_limite?: number;
+}
+
 export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, token = '', espera = false }) => {
   const {
     data, loading, loaded, error, saveState, decide, complete, flush, refresh, refreshMerge, ultimaSincronia,
@@ -86,6 +101,8 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, tok
   const [closingFicha, setClosingFicha] = useState(false);
   const [closedNow, setClosedNow] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  /** 409 `limite_ficha` respondido nesta sessão: a trava vale na hora, sem esperar o próximo GET. */
+  const [fichaTravadaAgora, setFichaTravadaAgora] = useState(false);
   const prevClosedRef = useRef<Record<number, boolean>>({});
   const prevRefinandoRef = useRef<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
@@ -220,7 +237,18 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, tok
   const novas = useMemo(() => camposTodos.filter((c) => c.nova_sugestao).map((c) => `${c.key} · ${c.nome}`), [camposTodos]);
   // Campos decididos com achado do worker por cima ("Encontramos mais nos seus materiais")
   const comComplemento = useMemo(() => camposTodos.filter((c) => !!c.complemento), [camposTodos]);
-  const incorporar = useCallback((key: string) => (complemento ? complemento(key, 'incorporar') : Promise.resolve(INDISPONIVEL)), [complemento]);
+  /**
+   * "Incorporar ao meu texto" (sem `texto`) passa pelo hook, que já devolve o campo atualizado.
+   * "Editar e incorporar" leva o texto lapidado pela rota de hooks/complementoApi e recarrega a ficha
+   * depois, porque o servidor é quem monta o acréscimo (o valor de antes continua no começo do campo).
+   */
+  const incorporar = useCallback(async (key: string, texto?: string): Promise<ComplementoResultado> => {
+    if (texto === undefined) return complemento ? complemento(key, 'incorporar') : INDISPONIVEL;
+    await flush();
+    const r = await incorporarComplementoEditado(token, key, texto);
+    if (r.ok) void refresh();
+    return r;
+  }, [complemento, flush, refresh, token]);
   const dispensar = useCallback((key: string) => (complemento ? complemento(key, 'dispensar') : Promise.resolve(INDISPONIVEL)), [complemento]);
   const salvarAjuste = useCallback((key: string, valor: string) => decide(key, { status: 'editado', valor }), [decide]);
 
@@ -231,10 +259,22 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, tok
     setClosingFicha(false);
     if (r.ok) {
       setClosedNow(true);
-    } else {
-      setCloseError(r.message || 'Não deu para fechar a ficha agora. Tente de novo.');
+      return;
     }
+    // 409 `limite_ficha`: a atualização já tinha sido usada (o sócio fechou antes, por exemplo)
+    if (r.message === COPY_FICHA_LIMITE) setFichaTravadaAgora(true);
+    setCloseError(r.message || 'Não deu para fechar a ficha agora. Tente de novo.');
   };
+
+  // ── Item 26: uma atualização da ficha depois do primeiro script ──
+  const limites = (data?.script || null) as LimitesDaFicha | null;
+  const temVersao = Number(limites?.versoes || 0) > 0;
+  const fichaUsadas = Number(limites?.ficha_atualizacoes_usadas) || 0;
+  const fichaLimite = Number.isFinite(Number(limites?.ficha_limite)) ? Number(limites?.ficha_limite) : 1;
+  /** Chance gasta: o botão de fechar desliga e a mensagem do 409 fica na tela. */
+  const fichaTravada = fichaTravadaAgora || (temVersao && fichaLimite > 0 && fichaUsadas >= fichaLimite);
+  /** Aviso antes de gastar: já existe script e a atualização ainda está inteira. */
+  const avisarFichaUnica = temVersao && !fichaTravada && fichaUsadas === 0;
 
   // ── Gates de suficiência (GATES-suficiencia.md): o que a tela mostra depois do pré-preenchimento ──
   const suf = data?.suficiencia ?? null;
@@ -602,7 +642,16 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, tok
 
       {/* Blocos: uma pergunta por tela (wizard) ou acordeoes */}
       {modo === 'passo' ? (
-        <FichaWizard ficha={fichaDoWizard} contexto={contexto} onFecharFicha={handleClose} fechandoFicha={closingFicha} onRecarregar={recarregar} foco={foco} />
+        <FichaWizard
+          ficha={fichaDoWizard}
+          contexto={contexto}
+          onFecharFicha={handleClose}
+          fechandoFicha={closingFicha}
+          onRecarregar={recarregar}
+          foco={foco}
+          avisoFicha={avisarFichaUnica ? COPY_FICHA_UNICA : null}
+          travaFicha={fichaTravada ? COPY_FICHA_LIMITE : null}
+        />
       ) : (
         <div className="space-y-3">
           {blocosDaTela.map(renderBlock)}
@@ -660,6 +709,12 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, tok
                 Para fechar, cada campo obrigatório precisa de uma decisão: confirmar, editar ou deixar em branco por enquanto.
               </p>
             )}
+            {avisarFichaUnica && (
+              <p className="text-xs text-prosperus-gold-dark font-sans mt-1" data-testid="aviso-ficha-unica">{COPY_FICHA_UNICA}</p>
+            )}
+            {fichaTravada && (
+              <p className="text-xs text-white/50 font-sans mt-1" data-testid="aviso-ficha-limite">{COPY_FICHA_LIMITE}</p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {onNavigate && (
@@ -670,7 +725,7 @@ export const FichaScreen: React.FC<FichaScreenProps> = ({ ficha, onNavigate, tok
                 variant="primary"
                 size="lg"
                 onClick={handleClose}
-                disabled={(modoEssencial ? pendentesEssenciais.length > 0 : !allRequiredDone) || isConfirmed}
+                disabled={(modoEssencial ? pendentesEssenciais.length > 0 : !allRequiredDone) || isConfirmed || fichaTravada}
                 loading={closingFicha}
               >
                 {modoEssencial

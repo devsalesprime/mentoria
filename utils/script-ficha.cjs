@@ -307,11 +307,13 @@ function applyPrefill(fields, campos, { parcial = false } = {}) {
 
 /**
  * Complemento de um campo decidido (achado do worker em cima do que o mentor ja escreveu).
- * incorporar: valor = valor atual + linha em branco + texto do complemento; status `editado`; complemento some.
+ * incorporar: valor = valor atual + linha em branco + acrescimo; status `editado`; complemento some.
+ *   O acrescimo e o `texto` (o mentor editou o achado do worker antes de incorporar) ou, na falta dele, o
+ *   `sugerido` do worker. Incorporar NUNCA substitui: o valor de antes e sempre prefixo do valor de depois.
  * dispensar : so apaga o complemento. Sem complemento -> { ok: false, motivo: 'sem complemento' }.
  * @returns {{ ok: boolean, motivo?: string, fields?: object, field?: object, decidiu?: boolean }}
  */
-function applyComplemento(fields, key, acao, email) {
+function applyComplemento(fields, key, acao, email, texto = null) {
   if (!FIELD_BY_KEY[key]) return { ok: false, motivo: 'campo desconhecido' };
   const next = normalizeFields(fields);
   const cur = next[key];
@@ -321,8 +323,9 @@ function applyComplemento(fields, key, acao, email) {
     return { ok: true, fields: next, field: next[key], decidiu: false };
   }
   if (acao !== 'incorporar') return { ok: false, motivo: 'acao invalida' };
+  const acrescimo = String(texto == null ? '' : texto).trim() || cur.complemento.sugerido;
   const atual = effectiveValue(cur).trim();
-  const valor = atual ? `${atual}\n\n${cur.complemento.sugerido}` : cur.complemento.sugerido;
+  const valor = atual ? `${atual}\n\n${acrescimo}` : acrescimo;
   next[key] = { ...cur, status: 'editado', valor, estrutura: null, complemento: null, autor: null, rev: proximaRev(cur), atualizado_por: email, atualizado_em: nowIso() };
   return { ok: true, fields: next, field: next[key], decidiu: true };
 }

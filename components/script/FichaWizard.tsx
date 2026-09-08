@@ -400,6 +400,10 @@ interface FichaWizardProps {
   onRecarregar?: () => Promise<void> | void;
   /** Modo "completar o que falta": só estes campos entram no fluxo; o resto fica recolhido e editável sob demanda. */
   foco?: FocoWizard | null;
+  /** Item 26: aviso de "esta é a sua única atualização da ficha", antes de o mentor gastar a chance. */
+  avisoFicha?: string | null;
+  /** Item 26: atualização já usada. O botão de fechar fica desligado e a mensagem do 409 aparece no lugar. */
+  travaFicha?: string | null;
 }
 
 function editavel(alvo: EventTarget | null): boolean {
@@ -410,7 +414,7 @@ function editavel(alvo: EventTarget | null): boolean {
 
 const CARTAO = 'bg-prosperus-navy-mid border border-white/5 rounded-lg px-5 sm:px-8 pt-6 shadow-2xl space-y-6 overflow-x-clip';
 
-export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFecharFicha, fechandoFicha = false, onRecarregar, foco = null }) => {
+export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFecharFicha, fechandoFicha = false, onRecarregar, foco = null, avisoFicha = null, travaFicha = null }) => {
   const { data, decide } = ficha;
   const blocos = data?.blocos || [];
   const focoKeys = useMemo(() => (foco ? new Set(foco.keys) : null), [foco]);
@@ -770,8 +774,10 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
             </p>
           </div>
           <div className="flex flex-col items-center gap-1">
+            {avisoFicha && <p className="text-xs text-prosperus-gold-dark font-sans" data-testid="wizard-aviso-ficha-unica">{avisoFicha}</p>}
+            {travaFicha && <p className="text-xs text-white/50 font-sans" data-testid="wizard-aviso-ficha-limite">{travaFicha}</p>}
             {pronta && onFecharFicha && (
-              <Button variant="primary" size="lg" className={PRIMARIO} onClick={onFecharFicha} disabled={isConfirmed} loading={fechandoFicha}>
+              <Button variant="primary" size="lg" className={PRIMARIO} onClick={onFecharFicha} disabled={isConfirmed || !!travaFicha} loading={fechandoFicha}>
                 <IconeCheck />{isConfirmed ? 'Ficha essencial confirmada' : 'Fechar ficha essencial'}
               </Button>
             )}
@@ -834,8 +840,10 @@ export const FichaWizard: React.FC<FichaWizardProps> = ({ ficha, contexto, onFec
           {isConfirmed && <p className="text-xs text-green-400 font-sans">Ficha fechada. Se editar algum campo, ela reabre e o script é refeito.</p>}
         </div>
         <div className="flex flex-col items-center gap-1">
+          {avisoFicha && <p className="text-xs text-prosperus-gold-dark font-sans" data-testid="wizard-aviso-ficha-unica">{avisoFicha}</p>}
+          {travaFicha && <p className="text-xs text-white/50 font-sans" data-testid="wizard-aviso-ficha-limite">{travaFicha}</p>}
           {allRequiredDone && onFecharFicha && (
-            <Button variant="primary" size="lg" className={PRIMARIO} onClick={onFecharFicha} disabled={isConfirmed} loading={fechandoFicha}>
+            <Button variant="primary" size="lg" className={PRIMARIO} onClick={onFecharFicha} disabled={isConfirmed || !!travaFicha} loading={fechandoFicha}>
               <IconeCheck />{isConfirmed ? 'Ficha fechada' : 'Fechar ficha'}
             </Button>
           )}

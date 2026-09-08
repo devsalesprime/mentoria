@@ -199,3 +199,58 @@ describe('FichaScreen', () => {
     expect(within(screen.getByTestId('ficha-field-1.1')).getByTestId('badge-nova-sugestao')).toBeInTheDocument();
   });
 });
+
+
+/**
+ * SPEC-workflow-v4 item 26: com script escrito, o mentor tem UMA atualizacao da ficha.
+ * A tela avisa antes de ele gastar e, depois de gasta, o botao de fechar sai do ar com a mensagem do 409.
+ */
+describe('FichaScreen: uma atualização da ficha depois do primeiro script', () => {
+  const COPY_UNICA = 'Esta é a sua única atualização da ficha. Depois, os ajustes são só pelos grifos no script.';
+  const COPY_LIMITE = 'Você já usou a sua atualização da ficha. Agora só dá para ajustar pelos grifos no script.';
+
+  /** Ficha com os dois campos do bloco 1 decididos (o botão "Fechar ficha" fica clicável). */
+  function fichaComScript(script: Record<string, any>): UseScriptFicha {
+    const decidido = { status: 'editado' as const, decidido: true, valor: 'Resposta da mentora', valor_efetivo: 'Resposta da mentora' };
+    const d = dados([blocoDe(1, [campoDe('1.1', 'Mentoria Sucessão', decidido), campoDe('1.2', 'Meta', decidido)])]);
+    return fichaDe({ ...d, script: script as any });
+  }
+
+  it('com versão escrita e a atualização inteira, avisa que ela é única', () => {
+    render(<FichaScreen ficha={fichaComScript({ versoes: 1, ultima: null, aprovada: null, job: null, ficha_atualizacoes_usadas: 0, ficha_limite: 1 })} />);
+    expect(screen.getByTestId('wizard-aviso-ficha-unica')).toHaveTextContent(COPY_UNICA);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tudo' }));
+    expect(screen.getByTestId('aviso-ficha-unica')).toHaveTextContent(COPY_UNICA);
+    expect(screen.queryByTestId('aviso-ficha-limite')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fechar ficha' })).not.toBeDisabled();
+  });
+
+  it('sem versão nenhuma, nada é avisado', () => {
+    render(<FichaScreen ficha={fichaComScript({ versoes: 0, ultima: null, aprovada: null, job: null, ficha_atualizacoes_usadas: 0, ficha_limite: 1 })} />);
+    expect(screen.queryByTestId('wizard-aviso-ficha-unica')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tudo' }));
+    expect(screen.queryByTestId('aviso-ficha-unica')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fechar ficha' })).not.toBeDisabled();
+  });
+
+  it('com a atualização gasta, o botão de fechar sai do ar com a mensagem do servidor', () => {
+    render(<FichaScreen ficha={fichaComScript({ versoes: 2, ultima: null, aprovada: null, job: null, ficha_atualizacoes_usadas: 1, ficha_limite: 1 })} />);
+    expect(screen.getByTestId('wizard-aviso-ficha-limite')).toHaveTextContent(COPY_LIMITE);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tudo' }));
+    expect(screen.getByTestId('aviso-ficha-limite')).toHaveTextContent(COPY_LIMITE);
+    expect(screen.queryByTestId('aviso-ficha-unica')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fechar ficha' })).toBeDisabled();
+  });
+
+  it('409 `limite_ficha` respondido no fechamento trava o botão na hora', async () => {
+    const ficha = fichaComScript({ versoes: 1, ultima: null, aprovada: null, job: null, ficha_atualizacoes_usadas: 0, ficha_limite: 1 });
+    (ficha as any).complete = vi.fn().mockResolvedValue({ ok: false, message: COPY_LIMITE });
+    render(<FichaScreen ficha={ficha} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tudo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar ficha' }));
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Fechar ficha' })).toBeDisabled();
+    expect(screen.getByTestId('aviso-ficha-limite')).toHaveTextContent(COPY_LIMITE);
+    expect(screen.queryByTestId('aviso-ficha-unica')).not.toBeInTheDocument();
+  });
+});

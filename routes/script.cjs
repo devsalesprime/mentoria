@@ -49,8 +49,11 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   const uploadContext = multerLib({ storage: contextStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 
   // POST /api/script/ficha/fields/:key/complemento
+  // `texto` = o achado do worker JA editado pelo mentor ("Editar e incorporar"); sem ele entra o `sugerido`
+  // como o worker escreveu. Nos dois casos o texto entra como acrescimo, nunca por cima do que ja estava.
   const complementoSchema = z.object({
     acao: z.enum(['incorporar', 'dispensar']),
+    texto: z.string().trim().min(1).max(4000).optional(),
   });
 
   const refinarSchema = z.object({
@@ -236,6 +239,9 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         // Rodada de ajustes do clube (onda E4): quantos pedidos de nova versao ja sairam e qual e o teto
         ajustes_usados: extra.ajustes ? extra.ajustes.usados : 0,
         ajustes_limite: extra.ajustes ? extra.ajustes.limite : 1,
+        // Atualizacao da ficha depois do primeiro script (item 26): a tela avisa antes e trava no teto
+        ficha_atualizacoes_usadas: extra.fichaAtualizacoes ? extra.fichaAtualizacoes.usados : 0,
+        ficha_limite: extra.fichaAtualizacoes ? extra.fichaAtualizacoes.limite : 1,
       },
       // So o que a tela do membro precisa: o prazo escrito pelo admin e se existe amostra configurada
       // (o clube e a versao da amostra ficam so no servidor; quem os le e GET /api/script/amostra)
@@ -272,7 +278,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
-      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos] = await Promise.all([
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos, fichaAtualizacoes] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
         JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
@@ -284,11 +290,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         nomesDoClube(slug),
         contarAjustes(slug),
         MARCOS.lerMarcos({ dbGet }, req.cohort.email),
+        contarAtualizacoesFicha(slug),
       ]);
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos, fichaAtualizacoes }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);
@@ -501,14 +508,16 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
-  // POST /api/script/ficha/fields/:key/complemento  { acao: 'incorporar' | 'dispensar' }
+  // POST /api/script/ficha/fields/:key/complemento  { acao: 'incorporar' | 'dispensar', texto? }
   // Achado do worker em cima de um campo JA decidido (campo.complemento). incorporar = anexa ao texto atual
-  // (linha em branco no meio), status `editado`, o mentor lapida depois; dispensar = so apaga. Sem complemento -> 400.
+  // (linha em branco no meio) o `texto` que veio ou o achado como estava, status `editado`, o mentor lapida
+  // depois; dispensar = so apaga. Sem complemento -> 400.
   router.post('/api/script/ficha/fields/:key/complemento', authMiddleware, cohortGuard, validateBody(complementoSchema), async (req, res) => {
     try {
       const key = String(req.params.key || '');
       if (!SF.FIELD_BY_KEY[key]) return res.status(400).json({ success: false, message: `Campo desconhecido: ${key}.` });
-      const r = SF.applyComplemento(safeJsonParse(req.ficha.fields, {}), key, req.body.acao, req.cohort.email);
+      const texto = req.body.acao === 'incorporar' ? (req.body.texto || null) : null;
+      const r = SF.applyComplemento(safeJsonParse(req.ficha.fields, {}), key, req.body.acao, req.cohort.email, texto);
       if (!r.ok) {
         return res.status(400).json({ success: false, message: r.motivo === 'sem complemento' ? 'Este campo não tem complemento.' : 'Ação inválida.' });
       }
@@ -565,11 +574,70 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return p && p.notify_phone ? p.notify_phone : null;
   }
 
+  // ─── Uma atualizacao da ficha depois do primeiro script (SPEC-workflow-v4 item 26) ─────────
+  // O clube tem DUAS chances de ajuste depois do primeiro script: uma atualizacao da ficha (que gera versao
+  // nova) e uma rodada de grifos (a trava `limite_ajustes`, mais abaixo). Enquanto nao existe versao, fechar
+  // a ficha e o fluxo normal e nao gasta nada. Job forcado pelo admin (`origem: 'admin'`, `motivo: 'forcado'`)
+  // fica de fora da conta; o historico antigo (sem `origem`) conta como do membro.
+  const FICHA_LIMITE_PADRAO = 1;
+  const COPY_LIMITE_FICHA = 'Você já usou a sua atualização da ficha. Agora só dá para ajustar pelos grifos no script.';
+
+  /** Teto de atualizacoes da ficha: `cohort_config.ficha_limite` quando existir, senao 1. */
+  async function limiteDeFicha() {
+    try {
+      const row = await dbGet(`SELECT value FROM cohort_config WHERE key = 'ficha_limite'`);
+      const n = row == null ? NaN : Number(row.value);
+      return Number.isInteger(n) && n >= 0 ? n : FICHA_LIMITE_PADRAO;
+    } catch {
+      return FICHA_LIMITE_PADRAO;
+    }
+  }
+
+  /**
+   * { usados, limite, com_versao } do clube. `usados` = jobs `script` pedidos pelo membro (fechar a ficha ou
+   * "Gerar do zero"), em qualquer status, nascidos DEPOIS da primeira versao. Sem versao nenhuma, `usados` e 0
+   * e a trava nao vale.
+   */
+  async function contarAtualizacoesFicha(clubSlug) {
+    const limite = await limiteDeFicha();
+    try {
+      const desde = await SV.primeiraVersaoEm({ dbGet }, clubSlug);
+      if (!desde) return { usados: 0, limite, com_versao: false };
+      const row = await dbGet(
+        `SELECT COUNT(*) AS n FROM cohort_jobs
+          WHERE tipo = 'script' AND club_slug = ?
+            AND COALESCE(json_extract(payload, '$.origem'), ?) = ?
+            AND COALESCE(json_extract(payload, '$.motivo'), '') IN ('complete', 'gerar-script')
+            AND created_at > ?`,
+        [clubSlug, SV.ORIGEM_MEMBRO, SV.ORIGEM_MEMBRO, desde]
+      );
+      return { usados: row ? Number(row.n) || 0 : 0, limite, com_versao: true };
+    } catch {
+      return { usados: 0, limite, com_versao: false };
+    }
+  }
+
+  /** A trava do item 26 pegou: o clube ja tem script e ja gastou a atualizacao da ficha. */
+  function fichaNoLimite(conta) {
+    return !!conta && conta.com_versao && conta.limite > 0 && conta.usados >= conta.limite;
+  }
+
   // POST /api/script/ficha/complete  -> ficha confirmada + job `script` na fila (1 ativo por clube)
   // Com suficiencia `parcial`/`suficiente` (GATES-suficiencia.md): basta o mentor decidir os campos em `faltam`;
   // o resto do que os materiais trouxeram e confirmado em nome dele (origem 'automatica') na hora de fechar.
   router.post('/api/script/ficha/complete', authMiddleware, cohortGuard, async (req, res) => {
     try {
+      // Item 26: com script escrito, a ficha so fecha de novo UMA vez. Depois disso o caminho sao os grifos.
+      const conta = await contarAtualizacoesFicha(req.cohort.club_slug);
+      if (fichaNoLimite(conta)) {
+        return res.status(409).json({
+          success: false,
+          motivo: 'limite_ficha',
+          message: COPY_LIMITE_FICHA,
+          ficha_atualizacoes_usadas: conta.usados,
+          ficha_limite: conta.limite,
+        });
+      }
       // Modo essencial: fecha com as 16 perguntas decididas; o resto fica em aberto para quando aprofundar
       const modo = SF.normalizeModo(req.ficha.modo);
       let fields = safeJsonParse(req.ficha.fields, {});

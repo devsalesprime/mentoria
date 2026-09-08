@@ -303,3 +303,62 @@ describe('script-ficha.cjs: estrutura persistida ao lado do valor', () => {
     expect(scriptFieldsUpdateSchema.safeParse({ updates: { '4.2': { status: 'editado', valor: 'x', estrutura: 'nope' } } }).success).toBe(false);
   });
 });
+
+const SEP = String.fromCharCode(10, 10);
+
+
+/**
+ * SPEC-workflow-v4 item 5: incorporar o complemento e sempre ACRESCIMO ao que o mentor ja escreveu.
+ * O texto pode vir lapidado por ele ("Editar e incorporar") ou como o worker achou; nos dois casos o
+ * valor de antes continua inteiro no comeco do campo.
+ */
+describe('script-ficha.cjs: complemento entra como acrescimo, nunca por cima', () => {
+  const COMP = { sugerido: 'Achado novo nos materiais', fonte: 'Reuniao de 12/08', classe: 'Fato', alternativas: [], recebido_em: '2026-09-08T10:00:00.000Z' };
+  const ANTES = 'O texto que a mentora escreveu.';
+  const base = () => ({ '2.1': { status: 'editado', valor: ANTES, complemento: { ...COMP } } });
+
+  it('incorporar sem texto anexa o achado do worker e apaga o complemento', () => {
+    const r = SF.applyComplemento(base(), '2.1', 'incorporar', 'a@x.com');
+    expect(r.ok).toBe(true);
+    expect(r.decidiu).toBe(true);
+    expect(r.field.valor).toBe(`${ANTES}${SEP}${COMP.sugerido}`);
+    expect(r.field.status).toBe('editado');
+    expect(r.field.complemento).toBeNull();
+  });
+
+  it('incorporar com texto anexa a versao editada pelo mentor, nao o achado cru', () => {
+    const editado = 'Achado do worker, ja na voz da mentora.';
+    const r = SF.applyComplemento(base(), '2.1', 'incorporar', 'a@x.com', editado);
+    expect(r.field.valor).toBe(`${ANTES}${SEP}${editado}`);
+    expect(r.field.valor).not.toContain(COMP.sugerido);
+  });
+
+  it('texto em branco cai no achado do worker; campo vazio recebe so o acrescimo', () => {
+    expect(SF.applyComplemento(base(), '2.1', 'incorporar', 'a@x.com', '   ').field.valor)
+      .toBe(`${ANTES}${SEP}${COMP.sugerido}`);
+    const vazio = { '2.1': { status: 'editado', valor: '', complemento: { ...COMP } } };
+    expect(SF.applyComplemento(vazio, '2.1', 'incorporar', 'a@x.com').field.valor).toBe(COMP.sugerido);
+  });
+
+  it('dispensar so apaga o achado: o texto do mentor fica igual', () => {
+    const r = SF.applyComplemento(base(), '2.1', 'dispensar', 'a@x.com');
+    expect(r.ok).toBe(true);
+    expect(r.decidiu).toBe(false);
+    expect(r.field.valor).toBe(ANTES);
+    expect(r.field.complemento).toBeNull();
+  });
+
+  it('invariante do acrescimo: o valor de antes e prefixo do valor de depois nos dois caminhos', () => {
+    for (const texto of [undefined, 'Uma versao bem diferente do que o worker achou.']) {
+      const r = SF.applyComplemento(base(), '2.1', 'incorporar', 'a@x.com', texto);
+      expect(r.field.valor.startsWith(ANTES)).toBe(true);
+      expect(r.field.valor.length).toBeGreaterThan(ANTES.length);
+    }
+  });
+
+  it('sem complemento e com acao desconhecida nao muda nada', () => {
+    expect(SF.applyComplemento({ '2.1': { status: 'editado', valor: ANTES } }, '2.1', 'incorporar', 'a@x.com').motivo).toBe('sem complemento');
+    expect(SF.applyComplemento(base(), '2.1', 'outra', 'a@x.com').motivo).toBe('acao invalida');
+    expect(SF.applyComplemento(base(), '9.9', 'incorporar', 'a@x.com').motivo).toBe('campo desconhecido');
+  });
+});
