@@ -22,7 +22,7 @@ vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
 }));
 
-import { AmostraScript, COPY_AMOSTRA_VOLTAR } from '../../components/script/AmostraScript';
+import { AmostraScript, COPY_AMOSTRA_VOLTAR, nomeSemParenteses } from '../../components/script/AmostraScript';
 
 const FIXTURE = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/script-exemplo.md'), 'utf8');
 
@@ -48,12 +48,23 @@ describe('AmostraScript: o exemplo em modo leitura', () => {
     expect(onVoltar).toHaveBeenCalled();
   });
 
+  it('a faixa tira o parêntese do nome do clube (onda J, item 27)', async () => {
+    expect(nomeSemParenteses('Prosperus (script do Danilo)')).toBe('Prosperus');
+    expect(nomeSemParenteses('Clube Exemplo')).toBe('Clube Exemplo');
+    mockAmostra({ club_nome: 'Prosperus (script do Danilo)' });
+    render(<AmostraScript token="t" onVoltar={vi.fn()} />);
+    const faixa = await screen.findByTestId('amostra-faixa');
+    expect(faixa).toHaveTextContent('Exemplo: script do Prosperus');
+    expect(faixa.textContent).not.toContain('(');
+  });
+
   it('não renderiza nenhum controle de interação sobre o script', async () => {
     render(<AmostraScript token="t" onVoltar={vi.fn()} />);
     await screen.findByTestId('script-reader');
-    // a tela 0 é a do exemplo, não a do "seu script está pronto"
-    expect(screen.getByTestId('tela-inicio-amostra')).toBeInTheDocument();
-    expect(screen.queryByTestId('tela-inicio')).toBeNull();
+    // a tela 0 é a do exemplo, não a do "seu script está pronto"; o resumo vem junto (onda J, item 9)
+    expect(screen.getByTestId('intro-amostra')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'O seu script está pronto' })).toBeNull();
+    expect(screen.getByText('Script dos 7 passos da venda')).toBeInTheDocument();
     // sem grifos: nem a dica, nem o botão flutuante da lista
     expect(screen.queryByTestId('dica-grifo')).toBeNull();
     expect(screen.queryByTestId('grifos-flutuante')).toBeNull();
@@ -69,15 +80,17 @@ describe('AmostraScript: o exemplo em modo leitura', () => {
     expect(document.querySelectorAll('input').length).toBe(0);
   });
 
-  it('a navegação inteira funciona e nenhuma tela traz tarefa nem "Baixar cartão"', async () => {
+  it('a navegação inteira funciona e nenhuma tela traz tarefa nem "Baixar a preparação"', async () => {
     render(<AmostraScript token="t" onVoltar={vi.fn()} />);
     await screen.findByTestId('script-reader');
-    fireEvent.click(screen.getByTestId('inicio-cartao'));
+    fireEvent.click(screen.getByTestId('inicio-passo-1'));
     await waitFor(() => expect(screen.getByTestId('script-reader').querySelector('[data-tela-atual="1"]')).toBeTruthy());
-    expect(screen.queryByTestId('baixar-cartao-tela')).toBeNull();
+    // na amostra ninguém baixa nada, e o "baixe" do cartão saiu junto com ele
+    expect(screen.queryByTestId('baixar-preparacao-tela')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/baixe/i);
 
     // percorre até a última tela: nenhuma delas mostra checkbox de tarefa nem chip de contagem
-    for (let t = 2; t <= 10; t += 1) {
+    for (let t = 2; t <= 8; t += 1) {
       fireEvent.click(screen.getByTestId('rodape-proximo'));
       await waitFor(() => expect(screen.getByTestId('script-reader').querySelector(`[data-tela-atual="${t}"]`)).toBeTruthy());
       expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
@@ -86,6 +99,7 @@ describe('AmostraScript: o exemplo em modo leitura', () => {
     // na última tela o rodapé não oferece "Ir para as ações": não há ações na amostra
     expect(screen.queryByTestId('rodape-proximo')).toBeNull();
     expect(screen.getByTestId('rodape-anterior')).toBeInTheDocument();
+    expect(screen.queryByTestId('baixar-preparacao-tela')).toBeNull();
   });
 
   it('sem amostra publicada, a tela explica em português e o "Voltar" continua lá', async () => {

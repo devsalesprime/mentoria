@@ -7,12 +7,14 @@ import { COPY_PPTX_BAIXAR, COPY_PPTX_GERAR } from '../../components/script/scrip
 /**
  * Onda E1 (SPEC-workflow-v3-decisoes-07-09 §2, itens 1, 2, 4, 5 e 8): a barra de cima de "Seu script".
  * - esquerda: a pílula da versão (com a troca) e "O que mudou"
- * - direita: "Baixar" (cartão em imagem, PDFs, texto e a apresentação) e a chave Treinamento | Campo,
- *   na mesma altura e hierarquia do "Baixar"
+ * - direita: "Baixar" (preparação em imagem, PDFs, texto e a apresentação)
  * - o topo não tem mais "Aprovar o script", "Pedir nova versão", "Escrever do zero", "Revisar a ficha"
  *   nem "Aprofundar para o completo": as três primeiras viraram o bloco "Ações", no fim do leitor, e as
  *   duas últimas ficam no menu do Dashboard (Ficha)
- * - "Baixar cartão" baixa uma imagem (PNG) do cartão de bolso
+ *
+ * Onda J (SPEC-workflow-v4-decisoes-08-09, itens 23 e 24):
+ * - a chave Treinamento | Campo saiu do canto e virou uma barra de duas opções em largura cheia, abaixo do topo
+ * - "Baixar a preparação" tomou o lugar de "Baixar cartão": o PNG agora é o da Preparação
  * - a vista Campo é global e esconde os treinamentos e o "Por que funciona"
  */
 
@@ -119,7 +121,7 @@ describe('Seu script · barra de cima', () => {
     sessionStorage.clear();
   });
 
-  it('esquerda: versão e "O que mudou"; direita: "Baixar" e a chave Treinamento | Campo', async () => {
+  it('esquerda: versão e "O que mudou"; direita: "Baixar"; e a barra Treinamento ou Campo abaixo do topo', async () => {
     mockVersao();
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="tok" onNavigate={vi.fn()} />);
     await screen.findByTestId('mudou-botao');
@@ -129,9 +131,17 @@ describe('Seu script · barra de cima', () => {
     expect(within(esquerda).getByTestId('versao-pilula')).toHaveTextContent('v1');
     expect(within(esquerda).getByTestId('mudou-botao')).toHaveTextContent('O que mudou');
     expect(within(direita).getByTestId('baixar-botao')).toHaveTextContent('Baixar');
-    const modo = within(direita).getByRole('group', { name: 'Modo de leitura' });
+
+    // onda J (item 24): a escolha saiu do canto do topo e virou barra de largura cheia, com duas opções só
+    expect(within(topo).queryByRole('group', { name: 'Modo de leitura' })).toBeNull();
+    const modo = screen.getByRole('group', { name: 'Modo de leitura' });
+    expect(modo.className).toContain('script-modo-barra');
+    expect(within(modo).getAllByRole('button')).toHaveLength(2);
     expect(within(modo).getByTestId('modo-treinamento')).toHaveAttribute('aria-pressed', 'true');
     expect(within(modo).getByTestId('modo-campo')).toHaveAttribute('aria-pressed', 'false');
+    // a legenda solta saiu: cada opção já carrega a própria linha
+    expect(screen.queryByTestId('modo-legenda')).toBeNull();
+    expect(within(modo).getByTestId('modo-campo').textContent).toContain('levar aberto na conversa');
 
     // "O que mudou" abre o resumo da versão
     const mudou = container.querySelector('details.script-mudou') as HTMLDetailsElement;
@@ -152,14 +162,15 @@ describe('Seu script · barra de cima', () => {
     }
   });
 
-  it('o menu "Baixar" traz cartão em imagem, os PDFs, o texto e a apresentação quando ela existe', async () => {
+  it('o menu "Baixar" traz a preparação em imagem, os PDFs, o texto e a apresentação quando ela existe', async () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     await screen.findByTestId('script-reader');
     abrirMenuBaixar(container);
 
     const menu = screen.getByRole('group', { name: 'Baixar' });
-    expect(within(menu).getByTestId('baixar-cartao')).toHaveTextContent('Cartão de bolso (imagem)');
+    expect(within(menu).getByTestId('baixar-preparacao')).toHaveTextContent('Preparação (imagem)');
+    expect(menu.textContent).not.toContain('Cartão de bolso');
     expect(within(menu).getByTestId('pdf-campo')).toHaveTextContent('Script de campo (PDF)');
     expect(within(menu).getByTestId('pdf-treinamento')).toHaveTextContent('Treinamento (PDF)');
     // onda E4: "Os dois (PDF)" saiu do menu (quem quer os dois baixa cada um)
@@ -185,7 +196,7 @@ describe('Seu script · barra de cima', () => {
   });
 });
 
-describe('Seu script · baixar o cartão de bolso como imagem', () => {
+describe('Seu script · baixar a preparação como imagem', () => {
   const baixados: Array<{ href: string; download: string }> = [];
 
   beforeEach(() => {
@@ -198,23 +209,23 @@ describe('Seu script · baixar o cartão de bolso como imagem', () => {
     });
   });
 
-  it('o Cartão de bolso tem um botão só: "Baixar cartão", que gera o PNG', async () => {
+  it('a Preparação tem o botão "Baixar a preparação", que gera o PNG', async () => {
     mockVersao();
     render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     const reader = await screen.findByTestId('script-reader');
-    // onda E4: o script novo abre no Início; o cartão é a tela seguinte
-    fireEvent.click(await within(reader).findByTestId('inicio-cartao'));
-    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
-    expect(within(reader).queryByRole('button', { name: 'Copiar cartão de bolso' })).toBeNull();
-    expect(within(reader).queryByRole('button', { name: 'Imprimir cartão de bolso' })).toBeNull();
+    await irParaTela('Preparação e métricas');
+    const botao = await within(reader).findByTestId('baixar-preparacao-tela');
+    expect(botao).toHaveTextContent('Baixar a preparação');
+    // o cartão de bolso não é mais tela nem download
+    expect(within(reader).queryByTestId('baixar-cartao-tela')).toBeNull();
 
-    fireEvent.click(within(reader).getByTestId('baixar-cartao-tela'));
+    fireEvent.click(botao);
     await waitFor(() => expect(toPng).toHaveBeenCalled());
     const [alvo, opcoes] = toPng.mock.calls[0] as unknown as [HTMLElement, Record<string, unknown>];
-    expect(alvo.id).toBe('script-cartao-export');
+    expect(alvo.id).toBe('script-preparacao-export');
     expect(opcoes).toMatchObject({ pixelRatio: 2, backgroundColor: '#FCF7F0' });
     await waitFor(() => expect(baixados).toHaveLength(1));
-    expect(baixados[0].download).toBe('cartao-de-bolso-elos-club-v1.png');
+    expect(baixados[0].download).toBe('preparacao-elos-club-v1.png');
     expect(baixados[0].href).toContain('data:image/png');
   });
 
@@ -222,11 +233,11 @@ describe('Seu script · baixar o cartão de bolso como imagem', () => {
     mockVersao();
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     await screen.findByTestId('script-reader');
-    await irParaTela('Preparação e métricas');
+    await irParaTela(/^Passo 1:/);
     abrirMenuBaixar(container);
-    fireEvent.click(screen.getByTestId('baixar-cartao'));
+    fireEvent.click(screen.getByTestId('baixar-preparacao'));
     await waitFor(() => expect(baixados).toHaveLength(1));
-    expect(baixados[0].download).toBe('cartao-de-bolso-elos-club-v1.png');
+    expect(baixados[0].download).toBe('preparacao-elos-club-v1.png');
   });
 });
 
@@ -256,7 +267,6 @@ describe('Seu script · Treinamento e Campo global', () => {
     expect(within(reader).queryByTestId('treinamentos-passo')).toBeNull();
     expect(within(reader).queryByRole('button', { name: 'Por que funciona' })).toBeNull();
     expect(sessionStorage.getItem('script-aba')).toBe('campo');
-    expect(screen.getByTestId('modo-legenda')).toHaveTextContent('Campo');
   });
 
   it('a sessão lembra a vista Campo quando a tela abre de novo', async () => {
@@ -310,12 +320,11 @@ describe('Seu script · bloco "Ações" no fim', () => {
     await waitFor(() => expect(screen.getByTestId('cartao-pptx-montando')).toBeInTheDocument());
   });
 
-  it('o Cartão de bolso não tem mais o bloco da apresentação', async () => {
+  it('a tela de Início não tem o bloco da apresentação', async () => {
     mockVersao({ entregaveis: [ENTREGAVEL_SLIDES] });
     render(<ScriptScreen ficha={fichaMock()} token="tok" />);
     const reader = await screen.findByTestId('script-reader');
-    fireEvent.click(await within(reader).findByTestId('inicio-cartao'));
-    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
+    expect(await within(reader).findByTestId('tela-inicio')).toBeInTheDocument();
     expect(screen.queryByTestId('cartao-apresentacao')).toBeNull();
 
     await irParaTela('Preparação e métricas');

@@ -188,33 +188,27 @@ describe('ScriptScreen', () => {
     expect(onNavigate).toHaveBeenCalledWith('script_ficha');
   });
 
-  it('com versao: abre no cartao, mapa com os 7 passos, um passo por tela com Treinamento e Campo, falas com copiar, folha de impressao inteira, sem marcas de fonte', async () => {
+  it('com versao: abre no Inicio com o resumo, mapa com os 7 passos, um passo por tela com Treinamento e Campo, falas com copiar, folha de impressao inteira, sem marcas de fonte', async () => {
     mockVersao(FIXTURE);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="t" />);
     expect(await screen.findByText('Script v1')).toBeInTheDocument();
     const reader = await screen.findByTestId('script-reader');
 
-    // onda E4: o script novo abre na tela de Início; o cartão de bolso é a tela seguinte
+    // onda J: o script novo abre na tela de Início, com o resumo na mesma tela
     expect(within(reader).getByRole('heading', { name: 'O seu script está pronto' })).toBeInTheDocument();
-    fireEvent.click(within(reader).getByTestId('inicio-cartao'));
+    expect(within(reader).getByText('Script dos 7 passos da venda')).toBeInTheDocument();
+    expect(within(reader).getByText('Para quem eu vendo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ir para o passo 3: Apresentação (da Solução)' })).toBeInTheDocument();
 
-    // segunda tela: cartao de bolso, com um botao so ("Baixar cartão")
-    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
-    expect(within(reader).getByTestId('baixar-cartao-tela')).toHaveTextContent('Baixar cartão');
-
-    // mapa: cartao, sumario, 7 passos, preparacao
+    // mapa: Início, 7 passos, preparacao (o cartão de bolso e o sumário não são mais telas)
     const nav = screen.getByRole('navigation', { name: 'Índice do script' });
     expect(within(nav).getAllByRole('button', { name: /^Passo \d:/ })).toHaveLength(7);
     expect(within(nav).getByRole('button', { name: 'Passo 2: Investigação (Método CNCS)' })).toBeInTheDocument();
-    expect(within(nav).getByRole('button', { name: 'Cartão de bolso' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Início' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).queryByRole('button', { name: 'Cartão de bolso' })).toBeNull();
+    expect(within(nav).queryByRole('button', { name: 'Sumário' })).toBeNull();
     // o passo 2 tem comentario: ponto no mapa
     expect(within(nav).getByRole('button', { name: /^Passo 2:/ })).toHaveAttribute('data-marcada', 'sim');
-
-    // sumario: titulo, cabecalho, os 7 passos em uma linha
-    fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
-    expect(await within(reader).findByText('Script dos 7 passos da venda')).toBeInTheDocument();
-    expect(within(reader).getByText('Para quem eu vendo')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ir para o passo 3: Apresentação (da Solução)' })).toBeInTheDocument();
 
     // passo 1: treinamento com medalhao, falas em cartoes com copiar, etiquetas, checklist, notas
     await irParaPasso(1);
@@ -231,7 +225,8 @@ describe('ScriptScreen', () => {
     expect(within(reader).getAllByText('Vendedor').length).toBeGreaterThan(0);
     expect(within(reader).getByText('Mentora')).toBeInTheDocument();
     expect(within(reader).getByText('ACIONAR MENTORA')).toBeInTheDocument();
-    expect(reader.querySelectorAll('.script-check').length).toBe(2);
+    // onda J (item 14): "Perguntas recomendadas" nao e mais desenhado; sobram os checks do proprio passo
+    expect(reader.querySelectorAll('.script-check').length).toBe(0);
     // onda E2: "Erro a evitar" virou um aviso com molde próprio (vermelho), no lugar da nota genérica
     expect(reader.querySelectorAll('.script-callout-erro').length).toBe(1);
     expect(within(reader).getByText('O que observar')).toBeInTheDocument();
@@ -246,8 +241,13 @@ describe('ScriptScreen', () => {
     // preparacao e metricas: mapa em tabela + performance
     fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
     expect(await within(reader).findByText('Mapa de preparação')).toBeInTheDocument();
-    expect(reader.querySelector('.script-table table')).not.toBeNull();
-    expect(within(reader).getByText('Performance e métricas')).toBeInTheDocument();
+    expect(within(reader).getByTestId('preparacao-mapa').querySelector('table')).not.toBeNull();
+    // onda J (item 23): o checklist da Dani fecha o cartão da preparação
+    expect(within(reader).getByTestId('preparacao-checklist')).toBeInTheDocument();
+    // na vista Campo o cartão fica no essencial; no Treinamento as métricas voltam
+    expect(within(reader).queryByText('Performance e métricas')).toBeNull();
+    fireEvent.click(screen.getByTestId('modo-treinamento'));
+    expect(await within(reader).findByText('Performance e métricas')).toBeInTheDocument();
 
     // a folha de impressao inteira (Ctrl+P): os dois documentos, 7 passos cada, cartao
     const paper = container.querySelector('#script-print-root')!;
@@ -273,7 +273,7 @@ describe('ScriptScreen', () => {
     abrirMenuBaixar(container);
     expect(screen.getByRole('group', { name: 'Baixar' })).toBeInTheDocument();
     expect(screen.getByTestId('baixar-md')).toHaveTextContent('Texto (.md)');
-    expect(screen.getByTestId('baixar-cartao')).toHaveTextContent('Cartão de bolso (imagem)');
+    expect(screen.getByTestId('baixar-preparacao')).toHaveTextContent('Preparação (imagem)');
     const open = vi.fn().mockReturnValue({});
     Object.defineProperty(window, 'open', { value: open, configurable: true, writable: true });
     fireEvent.click(screen.getByTestId('pdf-campo'));
@@ -306,7 +306,7 @@ describe('ScriptScreen', () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/script/versoes/1/comentarios', { passo: 1, texto: 'Mais direto' }, expect.anything()));
     expect((await screen.findAllByText('Mais direto')).length).toBeGreaterThan(0);
     expect(within(nav).getByRole('button', { name: /^Passo 1:/ })).toHaveAttribute('data-marcada', 'sim');
-    fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
+    fireEvent.click(within(nav).getByRole('button', { name: 'Início' }));
     expect(await screen.findByText('Comentar o script como um todo')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('O que achou do script como um todo?')).toBeInTheDocument();
 
@@ -363,10 +363,7 @@ describe('ScriptScreen', () => {
     mockVersao(v1);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token="t" />);
     const reader = await screen.findByTestId('script-reader');
-    fireEvent.click(await within(reader).findByTestId('inicio-cartao'));
-    // cartao montado a partir das falas
-    expect(await within(reader).findByText('Cartão de bolso')).toBeInTheDocument();
-    expect(within(reader).getByText(/Montado a partir do script de campo/)).toBeInTheDocument();
+    expect(await within(reader).findByText('Script dos 7 passos da venda')).toBeInTheDocument();
     await irParaPasso(3);
     expect(screen.queryByRole('tablist')).toBeNull();
     expect(within(reader).getByText('Fala do passo 3.')).toBeInTheDocument();

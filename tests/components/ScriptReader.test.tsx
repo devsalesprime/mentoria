@@ -154,6 +154,11 @@ function selecionar(el: Element, inicio: number, tamanho: number) {
   return { range, sel };
 }
 
+/** Onda J (item 7): a lista de grifos so existe depois de tocar na pastilha flutuante, nos dois tamanhos. */
+function abrirListaDeGrifos() {
+  fireEvent.click(screen.getByTestId('grifos-flutuante'));
+}
+
 async function abrirEmPasso1() {
   const utils = render(<ScriptScreen ficha={fichaMock()} token={TOKEN} />);
   await screen.findByText('Script v1');
@@ -282,7 +287,8 @@ describe('telas e grifos (helpers)', () => {
   it('mapa tela <-> passo do comentario; rotulos; tela lembrada', () => {
     expect([0, 1, 2, 5, 8, 9].map(passoDaTela)).toEqual([0, 0, 1, 4, 7, 9]);
     expect([0, 1, 4, 7, 9].map(telaDoPasso)).toEqual([1, 2, 5, 8, 9]);
-    expect(Array.from({ length: 10 }, (_, t) => rotuloCurto(t))).toEqual(['Cartão', 'Sumário', '1', '2', '3', '4', '5', '6', '7', 'Preparação']);
+    // onda J: o conteúdo do antigo cartão (0) e o do sumário (1) leem os dois como "Início"
+    expect(Array.from({ length: 10 }, (_, t) => rotuloCurto(t))).toEqual(['Início', 'Início', '1', '2', '3', '4', '5', '6', '7', 'Preparação']);
     expect(nomeTela(3, 'Investigação')).toBe('Passo 2 · Investigação');
     expect(lerTelaLembrada('elos', 1)).toBeNull();
     guardarTela('elos', 1, 4);
@@ -336,7 +342,7 @@ describe('ScriptScreen · leitor em telas', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
   });
 
-  it('script novo abre no Início; Próximo leva ao cartão, ao sumário (premissa, ficha) e ao Passo 1; a tela fica lembrada', async () => {
+  it('script novo abre no Início com o resumo (premissa, ficha); Próximo leva ao Passo 1; a tela fica lembrada', async () => {
     mockApi(MD_DOUTRINA);
     const { container } = render(<ScriptScreen ficha={fichaMock()} token={TOKEN} />);
     await screen.findByText('Script v1');
@@ -345,19 +351,12 @@ describe('ScriptScreen · leitor em telas', () => {
     const inicio = within(reader as HTMLElement).getByTestId('tela-inicio');
     expect(within(inicio).getByRole('heading', { name: 'O seu script está pronto' })).toBeInTheDocument();
     expect(within(inicio).getByTestId('chips-grifo').textContent).toContain('Dourado para ajustar');
-    fireEvent.click(within(inicio).getByTestId('inicio-cartao'));
-    expect(await within(reader as HTMLElement).findByText('Cartão de bolso')).toBeInTheDocument();
-    expect(within(reader as HTMLElement).getByText(/Conexão: a pessoa antes da empresa/)).toBeInTheDocument();
-    // um botão só no cartão: "Baixar cartão" (a imagem); "Copiar" e "Imprimir" saíram na onda E1
-    expect(within(reader as HTMLElement).getByTestId('baixar-cartao-tela')).toHaveTextContent('Baixar cartão');
-    expect(within(reader as HTMLElement).queryByRole('button', { name: 'Copiar cartão de bolso' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Imprimir cartão de bolso' })).toBeNull();
+    // onda J (item 9): o cartão de bolso não é mais tela
     const nav = screen.getByRole('navigation', { name: 'Índice do script' });
-    expect(within(nav).getByRole('button', { name: 'Cartão de bolso' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).queryByRole('button', { name: 'Cartão de bolso' })).toBeNull();
     expect(within(nav).getAllByRole('button', { name: /^Passo \d:/ })).toHaveLength(7);
-    expect(within(nav).getByRole('button', { name: 'Início' })).toBeInTheDocument();
+    expect(within(nav).getByRole('button', { name: 'Início' })).toHaveAttribute('aria-current', 'page');
 
-    fireEvent.click(within(nav).getByRole('button', { name: 'Próxima tela' }));
     // (a folha de impressao escondida tambem tem o titulo: consultar dentro do leitor)
     expect(await within(reader).findByText('Script dos 7 passos da venda')).toBeInTheDocument();
     expect(within(reader).getByText('Para quem eu vendo')).toBeInTheDocument();
@@ -365,15 +364,13 @@ describe('ScriptScreen · leitor em telas', () => {
     expect(within(reader).getByText('Sucessão organizada em 12 meses')).toBeInTheDocument();
     expect(within(reader).getByText('Os 3 blocos da conversa')).toBeInTheDocument();
     expect(within(reader).getByText('Os 7 passos, um por tela')).toBeInTheDocument();
-    const premissa = within(reader).getByTestId('premissa');
-    expect(within(premissa).getByText('Premissa REP: Repetir, Elogiar, Perguntar')).toBeInTheDocument();
-    expect(within(premissa).getByText(/Alex Hormozi/)).toBeInTheDocument();
-    expect(within(reader).getByText('Treinamento')).toBeInTheDocument();
     expect(within(reader).getByText('Comentar o script como um todo')).toBeInTheDocument();
-    expect(lerTelaLembrada('elos', 1)).toBe(2);
+    expect(lerTelaLembrada('elos', 1)).toBe(0);
 
     fireEvent.click(within(nav).getByRole('button', { name: 'Próxima tela' }));
     expect(await screen.findByText('Passo 1 de 7')).toBeInTheDocument();
+    // onda J (item 19): a premissa REP saiu do resumo e vive no Passo 2
+    expect(within(reader).queryByTestId('premissa')).toBeNull();
     // a vista Treinamento | Campo é global (barra de cima) e não existe mais dentro do passo
     expect(screen.getByTestId('modo-treinamento')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('tablist')).toBeNull();
@@ -404,27 +401,36 @@ describe('ScriptScreen · leitor em telas', () => {
 
     // vista Campo, pela barra de cima
     fireEvent.click(screen.getByTestId('modo-campo'));
-    expect(await within(reader).findByText(/Fala de campo do passo 1/)).toBeInTheDocument();
+    expect((await within(reader).findAllByText(/Fala de campo do passo 1/)).length).toBeGreaterThan(0);
     expect(within(reader).getByText('Pausa.')).toBeInTheDocument();
-    expect(lerTelaLembrada('elos', 1)).toBe(3);
+    expect(lerTelaLembrada('elos', 1)).toBe(1);
 
     // setas do teclado
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     expect(await screen.findByText('Passo 2 de 7')).toBeInTheDocument();
+    const premissa = within(reader).getByTestId('premissa');
+    expect(within(premissa).getByText('Premissa REP: Repetir, Elogiar, Perguntar')).toBeInTheDocument();
+    expect(within(premissa).getByText(/Alex Hormozi/)).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'ArrowLeft' });
     expect(await screen.findByText('Passo 1 de 7')).toBeInTheDocument();
 
-    // ultima tela
+    // ultima tela: o cartao da preparacao. Na vista Campo ele fica no essencial da reuniao (mapa e checklist)
     fireEvent.click(within(nav).getByRole('button', { name: 'Preparação e métricas' }));
+    expect(await within(reader).findByTestId('preparacao-cartao')).toBeInTheDocument();
+    expect(within(reader).getByTestId('preparacao-checklist')).toBeInTheDocument();
+    expect(within(reader).queryByText(/Tempo máximo da abertura/)).toBeNull();
+    // de volta ao Treinamento, as metricas de acompanhamento voltam
+    fireEvent.click(screen.getByTestId('modo-treinamento'));
     expect(await within(reader).findByText(/Tempo máximo da abertura/)).toBeInTheDocument();
-    expect(reader.querySelector('.script-table table')).not.toBeNull();
+    expect(within(reader).getByTestId('preparacao-mapa').querySelector('table')).not.toBeNull();
     expect(within(nav).getByRole('button', { name: 'Próxima tela' })).toBeDisabled();
 
     // a folha de impressao inteira continua no DOM (Ctrl+P imprime os dois documentos)
     const paper = container.querySelector('#script-print-root')!;
     expect(paper.querySelectorAll('section[data-doc="d1"] section.script-passo')).toHaveLength(7);
     expect(paper.querySelectorAll('section[data-doc="d2"] section.script-passo')).toHaveLength(7);
-    expect(container.querySelector('#script-cartao-export')).not.toBeNull();
+    // na tela da Preparacao o no do download e o proprio cartao (nunca dois com o mesmo id)
+    expect(container.querySelectorAll('#script-preparacao-export')).toHaveLength(1);
 
     const texto = container.textContent || '';
     expect(texto).not.toContain('\u2014');
@@ -433,7 +439,7 @@ describe('ScriptScreen · leitor em telas', () => {
   }, 30000);
 
   it('tela lembrada por versao: abre direto no Passo 2', async () => {
-    guardarTela('elos', 1, 4);
+    guardarTela('elos', 1, 2);
     mockApi(MD_DOUTRINA);
     render(<ScriptScreen ficha={fichaMock()} token={TOKEN} />);
     expect(await screen.findByText('Passo 2 de 7')).toBeInTheDocument();
@@ -464,7 +470,8 @@ describe('ScriptScreen · leitor em telas', () => {
     expect(enviado.sufixo.length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.queryByTestId('grifo-balao')).toBeNull());
 
-    // painel "Seus grifos" (desktop): item com cor, trecho, nota, autor; tela marcada no mapa; botao de pedir com grifos
+    // lista "Seus grifos" (pela pastilha): item com cor, trecho, nota, autor; tela marcada no mapa; botao de pedir
+    abrirListaDeGrifos();
     const painel = screen.getAllByTestId('grifos-painel')[0];
     const item = within(painel).getByTestId('grifo-item');
     expect(within(item).getByText('Ajustar')).toBeInTheDocument();
@@ -501,6 +508,7 @@ describe('ScriptScreen · leitor em telas', () => {
     const deOutro = grifoFake({ id: 'g-beto', passo: 3, texto: 'trecho que não existe mais nesta versão do script', cor: 'verde', autor_email: 'beto@x.com', autor_nome: 'Beto Lima' });
     mockApi(MD_DOUTRINA, [deOutro]);
     const { container } = await abrirEmPasso1();
+    abrirListaDeGrifos();
     const painel = screen.getAllByTestId('grifos-painel')[0];
     const item = await within(painel).findByTestId('grifo-item');
     expect(within(item).getByText('por Beto')).toBeInTheDocument();
@@ -578,6 +586,6 @@ describe('ScriptScreen · leitor em telas', () => {
     const reader = await screen.findByTestId('script-reader');
     await waitFor(() => expect(within(reader).getAllByText('Passo novo 3').length).toBeGreaterThan(0));
     expect(within(reader).getByText('Passo 3 de 7')).toBeInTheDocument();
-    expect(lerTelaLembrada('elos', 2)).toBe(5);
+    expect(lerTelaLembrada('elos', 2)).toBe(3);
   }, 30000);
 });

@@ -194,6 +194,8 @@ describe('ScriptScreen: selecao -> balao "Grifar" -> marca pendente', () => {
       expect(verde.ranges).toHaveLength(1);
       expect(normalizar(verde.ranges[0].toString())).toBe(texto);
     });
+    // onda J (item 7): a lista abre pela pastilha flutuante, no celular e no desktop
+    fireEvent.click(screen.getByTestId('grifos-flutuante'));
     expect(screen.getByTestId('grifos-painel')).toHaveTextContent(texto.slice(0, 40));
   });
 });

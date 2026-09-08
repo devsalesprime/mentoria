@@ -6,11 +6,12 @@ import type { UseScriptFicha, ScriptVersion, ScriptComment, ScriptJobInfo, Scrip
 import { AvisoModoAutomatico } from './AvisoModoAutomatico';
 import { EtaEspera } from './EtaEspera';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
-import { ScriptPaper, destacarValores } from './script/ScriptPaper';
+import { ScriptPaper } from './script/ScriptPaper';
 import { ScriptReader, COPY_AJUSTES_USADOS, type AjustesInfo, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
+import { PreparacaoCartao, ID_PREPARACAO_EXPORT } from './script/secoes';
 import { ConfirmarApresentacaoModal, type EtapaApresentacao } from './script/ConfirmarApresentacaoModal';
 import {
-  NAV_INICIO, NAV_SUMARIO, TOTAL_NAV, clampNav, conteudoDaNav, navDoConteudo,
+  NAV_INICIO, NAV_PREPARACAO, TOTAL_NAV, clampNav, conteudoDaNav, navDoConteudo,
   ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId,
 } from './script/telas';
 import { chaveTarefa } from './script/tarefas';
@@ -27,8 +28,8 @@ export { splitScript };
  * "Seu script" (/dashboard/script): o script escrito pelo worker a partir da ficha confirmada.
  * Estado 1: sem versao -> aviso "está sendo escrito" + status do job `script`, se houver.
  * Estado 2: versao -> barra de cima + leitor em telas (components/script/script/ScriptReader.tsx): 0 Inicio
- * ("O seu script está pronto", a primeira coisa que aparece num script novo) · 1 Cartao de bolso · 2 Sumario ·
- * 3..9 um passo por tela · 10 Preparacao e metricas.
+ * (a introducao com o sumario na mesma tela, a primeira coisa que aparece num script novo) · 1..7 um passo por
+ * tela · 8 Preparacao e metricas.
  *
  * Onda E4 (07/09): a tela de Inicio, o rodape de navegacao no fim de cada tela (dentro do leitor), a confirmacao
  * em duas etapas do "Gerar apresentação" (ConfirmarApresentacaoModal) e a rodada unica de ajustes (o servidor conta
@@ -60,8 +61,14 @@ export { splitScript };
  * Apresentacao comercial: a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job` (pedido na
  * fila). Com arquivo -> baixar o PPTX (e ver o PDF / as notas no bloco "Ações"); na fila -> "Apresentação sendo
  * montada"; sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
- * "Baixar cartão": o cartao de bolso vira PNG (html-to-image, 2x, fundo creme e texto navy) a partir de um cartao
- * escondido fora da tela (#script-cartao-export), entao funciona de qualquer tela do leitor.
+ * "Baixar a preparação" (onda J, item 23): a Preparacao vira PNG (html-to-image, 2x, fundo creme e texto navy) a
+ * partir do proprio cartao (#script-preparacao-export). Fora da tela de Preparacao o cartao fica montado
+ * escondido, entao o download funciona de qualquer tela; nunca ha dois nos com o mesmo id.
+ * O cartao de bolso deixou de ter tela e deixou de ser baixavel; o texto dele continua no `.md`.
+ *
+ * Onda J (itens 7 e 24): a chave Treinamento | Campo virou uma barra de duas opcoes em LARGURA CHEIA, logo acima
+ * do leitor (o seletor pequeno do canto saiu); a lista de grifos perdeu a coluna fixa do desktop e abre pela
+ * pastilha flutuante nos dois tamanhos, como gaveta a direita (lg+) ou folha de baixo (celular).
  */
 
 interface ScriptScreenProps {
@@ -515,22 +522,22 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   };
 
   /**
-   * "Baixar cartão" (onda E1, item 5 da spec): o cartao de bolso vira PNG. A imagem sai de um cartao escondido
-   * fora da tela (#script-cartao-export), em creme com texto navy, entao dá para baixar de qualquer tela do leitor
-   * e a imagem fica legivel impressa ou no celular. 2x para não sair borrada.
+   * "Baixar a preparação" (onda J, item 23): a Preparação vira PNG. A imagem sai do cartão da Preparação
+   * (#script-preparacao-export), em creme com texto navy; fora daquela tela ele fica montado escondido, então
+   * dá para baixar de qualquer tela do leitor. 2x para não sair borrada.
    */
-  const baixarCartao = async () => {
+  const baixarPreparacao = async () => {
     if (typeof document === 'undefined') return;
-    const alvo = document.getElementById('script-cartao-export');
-    if (!alvo || !parsed?.cartao) {
-      setAviso('Esta versão veio sem cartão de bolso.');
+    const alvo = document.getElementById(ID_PREPARACAO_EXPORT);
+    if (!alvo || !parsed) {
+      setAviso('Esta versão veio sem preparação.');
       return;
     }
     try {
       const imagem = await toPng(alvo, { pixelRatio: 2, backgroundColor: '#FCF7F0', cacheBust: true });
-      baixarArquivo(imagem, `cartao-de-bolso-${slugify(ficha.data?.club.nome || 'clube')}-v${versao?.versao ?? selected ?? 1}.png`);
+      baixarArquivo(imagem, `preparacao-${slugify(ficha.data?.club.nome || 'clube')}-v${versao?.versao ?? selected ?? 1}.png`);
     } catch {
-      setAviso('Não deu para baixar o cartão agora. Tente de novo.');
+      setAviso('Não deu para baixar a preparação agora. Tente de novo.');
     }
   };
 
@@ -562,7 +569,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
 
   /**
    * "Quero ajustar antes" (etapa 1 da apresentação): fecha o aviso, abre a lista de grifos e leva a pessoa até a
-   * caixa de comentário. A tela das ações não tem caixa de comentário, então o caminho é o sumário
+   * caixa de comentário. A tela das ações não tem caixa de comentário, então o caminho é a tela de Início
    * ("Comentar o script como um todo"), que vale para o script inteiro.
    */
   const abrirComentarios = useCallback(() => {
@@ -579,7 +586,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     setEtapaSlides(null);
     setPainelAberto(true);
     if (!abrirComentarios()) {
-      irPara(NAV_SUMARIO);
+      irPara(NAV_INICIO);
       setTimeout(abrirComentarios, 0);
     }
   };
@@ -972,7 +979,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                 <span aria-hidden="true" className="text-black/50">&#x25BE;</span>
               </summary>
               <div className="script-mais-menu" role="group" aria-label="Baixar">
-                <button type="button" className="script-menu-item" data-testid="baixar-cartao" disabled={!parsed?.cartao} onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); baixarCartao(); }}>Cartão de bolso (imagem)</button>
+                <button type="button" className="script-menu-item" data-testid="baixar-preparacao" disabled={!parsed} onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); baixarPreparacao(); }}>Preparação (imagem)</button>
                 <div className="script-menu-sep" />
                 {multiplos ? (
                   <>
@@ -989,29 +996,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
                 <button type="button" className="script-menu-item script-mais-fechar" onClick={(e) => e.currentTarget.closest('details')?.removeAttribute('open')}>Fechar</button>
               </div>
             </details>
-            {multiplos && (
-              <div className="script-modo" role="group" aria-label="Modo de leitura" data-testid="script-modo">
-                {(['treinamento', 'campo'] as DocumentoId[]).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={docAtivo === id}
-                    data-testid={`modo-${id}`}
-                    onClick={() => trocarModo(id)}
-                    className={`script-modo-btn ${docAtivo === id ? 'script-modo-btn-ativo' : ''}`}
-                  >
-                    {id === 'campo' ? 'Campo' : 'Treinamento'}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
-        {multiplos && (
-          <p className="script-modo-legenda" data-testid="modo-legenda">
-            {docAtivo === 'campo' ? 'Campo: só o que dizer e perguntar, para levar aberto na conversa.' : 'Treinamento: cada fala com o porquê, mais as gravações recomendadas.'}
-          </p>
-        )}
         {aviso && <p className="text-xs text-prosperus-gold-light">{aviso}</p>}
         {scriptJobAtivo && !aviso && (
           <p className="text-xs text-white/60 flex items-center gap-2">
@@ -1027,7 +1013,28 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
         )}
       </div>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,760px)_300px] lg:justify-center lg:gap-6 lg:items-start">
+      {/* Onda J (item 24): no lugar do trilho, a escolha Treinamento ou Campo em largura cheia, duas opções só */}
+      {multiplos && (
+        <div className="script-modo-barra script-no-print" role="group" aria-label="Modo de leitura" data-testid="script-modo">
+          {(['treinamento', 'campo'] as DocumentoId[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={docAtivo === id}
+              data-testid={`modo-${id}`}
+              onClick={() => trocarModo(id)}
+              className={`script-modo-barra-btn ${docAtivo === id ? 'script-modo-barra-btn-ativo' : ''}`}
+            >
+              <span className="script-modo-barra-nome">{id === 'campo' ? 'Campo' : 'Treinamento'}</span>
+              <span className="script-modo-barra-linha">
+                {id === 'campo' ? 'Só o que dizer e perguntar, para levar aberto na conversa.' : 'Cada fala com o porquê, mais as gravações recomendadas.'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mx-auto w-full lg:max-w-[760px]">
         <div className="min-w-0">
           {parsed && (
             <ScriptReader
@@ -1041,7 +1048,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               marcadas={marcadas}
               comentariosDo={renderComentarios}
               ficha={fichaResumo}
-              onBaixarCartao={baixarCartao}
+              onBaixarPreparacao={baixarPreparacao}
               apresentacao={apresentacao}
               acoes={acoesFinais}
               totalGrifos={grifos.length}
@@ -1056,19 +1063,13 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           )}
           {!parsed && <p className="text-sm text-white/60">Esta versão veio vazia. Peça uma nova versão.</p>}
         </div>
-
-        {/* "Seus grifos": coluna no desktop */}
-        {parsed && (
-          <aside className="script-no-print hidden lg:block lg:sticky lg:top-4">
-            {painel}
-          </aside>
-        )}
       </div>
 
-      {/* "Seus grifos": folha no celular */}
+      {/* "Seus grifos" (onda J, item 7): a mesma folha nos dois tamanhos, aberta pela pastilha flutuante.
+          No celular ela sobe do rodapé; a partir de 1024 px ela entra como gaveta pela direita (o CSS decide). */}
       {parsed && painelAberto && (
-        <div className="script-no-print lg:hidden script-grifos-folha-fundo" onClick={() => setPainelAberto(false)}>
-          <div className="script-grifos-folha" onClick={(e) => e.stopPropagation()}>
+        <div className="script-no-print script-grifos-folha-fundo" onClick={() => setPainelAberto(false)}>
+          <div className="script-grifos-folha" data-testid="grifos-folha" onClick={(e) => e.stopPropagation()}>
             {painel}
           </div>
         </div>
@@ -1111,20 +1112,18 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
             escritoEm={formatDate(versao?.created_at)}
             aprovadoEm={aprovado ? formatDate(versao?.aprovado_em) : null}
             docAtivo={parsed.documentos[0]?.id || ''}
+            todosVisiveis
             refFor={refFor}
             comentariosDo={() => null}
           />
         </div>
       )}
 
-      {/* Cartao de bolso de onde sai a imagem do "Baixar cartão": fora da tela, em creme com texto navy.
-          Fica sempre montado para o download funcionar de qualquer tela do leitor. */}
-      {parsed && parsed.cartao && (
-        <div className="script-cartao-export-fora script-no-print" aria-hidden="true">
-          <div id="script-cartao-export" className="script-cartao script-cartao-export">
-            <h2 className="font-serif text-2xl leading-tight">Cartão de bolso</h2>
-            <div className="script-cartao-corpo mt-2" dangerouslySetInnerHTML={{ __html: destacarValores(parsed.cartao.html) }} />
-          </div>
+      {/* Preparação de onde sai a imagem do "Baixar a preparação". Na tela da Preparação o cartão já está no
+          papel; nas outras ele fica montado fora da tela, para o download funcionar de qualquer lugar. */}
+      {parsed && tela !== NAV_PREPARACAO && (
+        <div className="script-export-fora script-no-print" aria-hidden="true">
+          <PreparacaoCartao doc={parsed} campo={multiplos && docAtivo === 'campo'} />
         </div>
       )}
     </div>

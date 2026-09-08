@@ -154,7 +154,7 @@ describe('Dashboard', () => {
     renderDashboard();
     expect(await screen.findByRole('heading', { name: 'Visão Geral' })).toBeInTheDocument();
     expect(screen.queryByText('SCRIPT 7 PASSOS')).toBeNull();
-    expect(screen.queryByText('Ficha do Script')).toBeNull();
+    expect(screen.queryByText('Materiais e ficha')).toBeNull();
     // Sem cohort no banco, nao renova token
     expect(mockFetch).not.toHaveBeenCalledWith('/auth/verify-member', expect.anything());
   });
@@ -164,13 +164,12 @@ describe('Dashboard', () => {
     renderDashboard();
     // Enquanto o diagnostic nao responde, nem o menu e pintado (nada de secao entrando depois)
     expect(screen.queryByRole('heading', { name: 'Visão Geral' })).toBeNull();
-    await screen.findByText('SCRIPT 7 PASSOS');
-    // Re-consulta dentro do nav: o mock de framer-motion remonta o aside a cada render (o elemento do findBy fica
-    // destacado) e, depois do redirecionamento para a Ficha, o h1 tambem diz "Ficha do Script"
+    await screen.findByText('Materiais e ficha');
+    // Onda J (item 3): 3 itens soltos, sem o cabecalho de abrir e fechar (nao ha versao anterior aqui)
     const nav = within(screen.getByRole('navigation', { name: 'Navegação do diagnóstico' }));
-    expect(nav.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
-    expect(nav.getByText('Materiais')).toBeInTheDocument();
-    expect(nav.getByText('Ficha do Script')).toBeInTheDocument();
+    expect(nav.queryByText('SCRIPT 7 PASSOS')).toBeNull();
+    expect(nav.getByText('Como funciona')).toBeInTheDocument();
+    expect(nav.getByText('Materiais e ficha')).toBeInTheDocument();
     expect(nav.getByText('Seu script')).toBeInTheDocument();
     // O hook buscou a ficha quando enabled virou true (false -> true)
     expect(axios.get).toHaveBeenCalledWith('/api/script/ficha', expect.anything());
@@ -196,14 +195,14 @@ describe('Dashboard', () => {
     // Segunda montagem na mesma sessao: guard no sessionStorage, nao renova de novo
     unmount();
     renderDashboard({ onTokenRefresh });
-    await screen.findByText('SCRIPT 7 PASSOS');
+    await screen.findByText('Materiais e ficha');
     expect(mockFetch.mock.calls.filter(([url]) => url === '/auth/verify-member')).toHaveLength(1);
   });
 
   it('token WITH cohort claim: the section is on the very first paint, before /api/diagnostic', () => {
     mockApi({ cohort: 'exclusive' });
     renderDashboard({ token: TOKEN_COM_COHORT });
-    expect(screen.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
+    expect(screen.getByText('Materiais e ficha')).toBeInTheDocument();
     expect(screen.queryByRole('status')).toBeNull();
   });
 });

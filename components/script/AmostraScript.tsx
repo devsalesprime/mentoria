@@ -10,9 +10,10 @@ import { Button } from '../ui/Button';
  * Amostra do script (onda I, item A1, decisao D2): o script de exemplo que o admin configurou
  * (clube + versao em `cohort_config.amostra_script`) aberto no MESMO leitor, em modo leitura.
  *
- * O que a amostra tem: o conteudo inteiro e a navegacao inteira (cartao de bolso, sumario, os 7 passos,
- * preparacao). O que ela NAO tem: grifo, comentario, tarefa, acao (aprovar, gerar apresentacao, baixar)
- * e WhatsApp. Em cima, uma faixa dizendo de quem e o script e o caminho de volta.
+ * O que a amostra tem: o conteudo inteiro e a navegacao inteira (o resumo, os 7 passos, a preparacao).
+ * O que ela NAO tem: grifo, comentario, tarefa, acao (aprovar, gerar apresentacao, baixar) e WhatsApp.
+ * Em cima, uma faixa dizendo de quem e o script e o caminho de volta. O nome do clube na faixa sai sem o
+ * parentese interno (onda J, item 27): "Prosperus (script do Danilo)" vira "Prosperus".
  *
  * Nenhum clube e nenhuma versao vivem aqui: tudo vem de GET /api/script/amostra, que devolve 404
  * quando o admin ainda nao configurou nada (e ai a tela inicial nem oferece o botao).
@@ -20,6 +21,11 @@ import { Button } from '../ui/Button';
 
 export const COPY_AMOSTRA_VOLTAR = 'Voltar para a tela inicial';
 export const COPY_AMOSTRA_SEM = 'Ainda não há um exemplo publicado.';
+
+/** Nome do clube sem o parêntese interno: "Prosperus (script do Danilo)" vira "Prosperus". */
+export function nomeSemParenteses(nome: string): string {
+  return (nome || '').replace(/\s*\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+}
 
 const SEM_MARCAS: Set<number> = new Set<number>();
 
@@ -69,7 +75,7 @@ export const AmostraScript: React.FC<AmostraScriptProps> = ({ token, onVoltar })
       data-testid="amostra-faixa"
     >
       <p className="text-sm text-white/80 font-sans">
-        {amostra ? `Exemplo: script do ${amostra.club_nome}` : 'Exemplo de script'}
+        {amostra ? `Exemplo: script do ${nomeSemParenteses(amostra.club_nome) || amostra.club_nome}` : 'Exemplo de script'}
       </p>
       <Button variant="ghost" size="md" onClick={onVoltar} data-testid="amostra-voltar">{COPY_AMOSTRA_VOLTAR}</Button>
     </div>

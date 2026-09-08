@@ -33,7 +33,9 @@ describe('AulaDani · cartao da aula', () => {
     // a thumbnail é o pôster público da Bunny, tirado do GUID do embed
     const thumb = screen.getByTestId('aula-thumb');
     expect(thumb.getAttribute('src')).toBe(thumbDaAula(AULA_7_PASSOS));
-    expect(thumb.getAttribute('src')).toContain('preview.webp');
+    // onda J (item 10): capa estatica, nao a previa animada
+    expect(thumb.getAttribute('src')).toContain('thumbnail.jpg');
+    expect(thumb.getAttribute('src')).not.toContain('preview.webp');
     // "Abrir em tela cheia" saiu (onda E1)
     expect(screen.queryByRole('link', { name: /tela cheia/i })).toBeNull();
 

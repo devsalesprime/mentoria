@@ -7,7 +7,6 @@ import axios from 'axios';
 /**
  * Onda I (SPEC-experiencia-pre-script-v1 §3): entrada e expectativa.
  * - I1: a tela "Como funciona" abre na PRIMEIRA entrada e depois vive no menu (decisao D1)
- * - I2: o trilho de etapas com o "o que falta" de cada uma
  * - I4: a linha da espera (fila com nome dos clubes + tempo medio) e o lembrete unico do WhatsApp
  * - I5: a espera antes da ficha quando a leitura ainda nao trouxe sugestao nenhuma
  * - Copy: sem travessao, sem "a definir", sem emoji, sem exclamacao
@@ -25,10 +24,9 @@ vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
 }));
 
-import { rotaInicialDoClube, esperandoPrimeiraSugestao } from '../../hooks/useScriptFicha';
+import { rotaInicialDoClube, esperandoPrimeiraSugestao, etapaInicialMateriaisFicha } from '../../hooks/useScriptFicha';
 import type { ScriptFichaData, UseScriptFicha } from '../../hooks/useScriptFicha';
 import { ComoFuncionaScreen, COPY_COMECAR, COPY_NADA_SE_PERDE, COPY_VER_EXEMPLO, VALE_MAIS } from '../../components/script/ComoFuncionaScreen';
-import { TrilhoEtapas, contagemDaFicha, etapasDoTrilho } from '../../components/script/TrilhoEtapas';
 import { EtaEspera, COPY_LEMBRETE_DISPENSAR, COPY_PODE_FECHAR } from '../../components/script/EtaEspera';
 import { EsperaLeitura, COPY_RESPONDER_ANTES } from '../../components/script/EsperaLeitura';
 import { fraseDaFila, frasePorMediana, linhaDeEspera, listarClubes } from '../../hooks/useEsperaScript';
@@ -104,18 +102,23 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
     expect(rotaInicialDoClube({ ficha_status: 'confirmada', suficiencia: null, modo: 'completo', visto_como_funciona: null })).toBe('script_como_funciona');
     // depois de vista, o fluxo normal volta
     expect(rotaInicialDoClube({ ...base, visto_como_funciona: VISTO })).toBe('script_escolha');
-    expect(rotaInicialDoClube({ ...base, modo: 'completo', visto_como_funciona: VISTO, materials_status: 'skipped' })).toBe('script_ficha');
+    expect(rotaInicialDoClube({ ...base, modo: 'completo', visto_como_funciona: VISTO, materials_status: 'skipped' })).toBe('script_materiais_ficha');
     // quem chamou sem carregar o dado (undefined) segue o fluxo de sempre
     expect(rotaInicialDoClube({ ...base })).toBe('script_escolha');
   });
 
-  it('mostra o que recebe, as 4 etapas, o que vale mais mandar e a linha do "nada se perde"', async () => {
+  it('mostra o que recebe, as 3 etapas, o que vale mais mandar e a linha do "nada se perde"', async () => {
     render(<ComoFuncionaScreen ficha={fichaDe()} token="t" onNavigate={vi.fn()} />);
     expect(screen.getByTestId('como-funciona-screen')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'O que você recebe' })).toBeInTheDocument();
-    for (const nome of ['escolha', 'materiais', 'ficha', 'script']) {
+    // onda J (item 4): Materiais e Ficha viraram uma etapa só
+    expect(screen.getByRole('heading', { name: 'As 3 etapas' })).toBeInTheDocument();
+    for (const nome of ['escolha', 'materiais-ficha', 'script']) {
       expect(screen.getByTestId(`etapa-${nome}`)).toBeInTheDocument();
     }
+    expect(screen.getByTestId('etapa-materiais-ficha')).toHaveTextContent('Materiais e ficha');
+    // o cartão de bolso saiu da lista do que a pessoa recebe
+    expect(screen.getByTestId('como-funciona-screen').textContent).not.toContain('Cartão de bolso');
     for (const item of VALE_MAIS) expect(screen.getByText(item)).toBeInTheDocument();
     expect(screen.getByText(COPY_NADA_SE_PERDE)).toBeInTheDocument();
     expect(screen.getByTestId('comecar-script')).toHaveTextContent(COPY_COMECAR);
@@ -124,8 +127,8 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
 
   it('o tempo das etapas vem do histórico; sem histórico, a linha sai sem número', async () => {
     const { unmount } = render(<ComoFuncionaScreen ficha={fichaDe()} token="t" onNavigate={vi.fn()} />);
-    await waitFor(() => expect(screen.getByTestId('etapa-tempo-materiais')).toHaveTextContent('A leitura começa assim que você envia'));
-    expect(screen.getByTestId('etapa-tempo-materiais').textContent).not.toMatch(/\d/);
+    await waitFor(() => expect(screen.getByTestId('etapa-tempo-materiais-ficha')).toHaveTextContent('A leitura começa assim que você envia'));
+    expect(screen.getByTestId('etapa-tempo-materiais-ficha').textContent).not.toMatch(/\d/);
     unmount();
 
     mockRotas({ mediana: 12 });
@@ -135,12 +138,12 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
 
   it('"Começar o meu script" grava a marca no servidor e leva para a rota calculada', async () => {
     const marcarComoFuncionaVisto = vi.fn().mockResolvedValue(true);
-    const rotaDepoisDaEntrada = vi.fn().mockReturnValue('script_materiais');
+    const rotaDepoisDaEntrada = vi.fn().mockReturnValue('script_materiais_ficha');
     const onNavigate = vi.fn();
     render(<ComoFuncionaScreen ficha={fichaDe({ marcarComoFuncionaVisto, rotaDepoisDaEntrada })} token="t" onNavigate={onNavigate} />);
     fireEvent.click(screen.getByTestId('comecar-script'));
     await waitFor(() => expect(marcarComoFuncionaVisto).toHaveBeenCalled());
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_materiais'));
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('script_materiais_ficha'));
   });
 
   it('abrir a tela já conta como vista: a marca não espera o clique no botão', async () => {
@@ -163,93 +166,6 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
     const comAmostra = dados({ config: { prazo_materiais: '', amostra_disponivel: true } });
     render(<ComoFuncionaScreen ficha={fichaDe({}, comAmostra)} token="t" onNavigate={vi.fn()} />);
     expect(screen.getByTestId('ver-amostra')).toHaveTextContent(COPY_VER_EXEMPLO);
-  });
-});
-
-describe('I2: o trilho de etapas', () => {
-  it('feita em verde, atual em navy, próxima em creme; a Escolha só é clicável enquanto ninguém escolheu', () => {
-    const d = dados({ visto_como_funciona: VISTO, modo: null });
-    const etapas = etapasDoTrilho(d, 'script_escolha');
-    expect(etapas.map((e) => e.nome)).toEqual(['Como funciona', 'Escolha', 'Materiais', 'Ficha', 'Script']);
-    expect(etapas[0].estado).toBe('feita');
-    expect(etapas[1].estado).toBe('atual');
-    expect(etapas[2].estado).toBe('proxima');
-    expect(etapas[1].clicavel).toBe(true);
-
-    // Com o caminho escolhido a Escolha fecha: o aprofundar continua dentro da ficha
-    const escolhido = etapasDoTrilho(dados({ visto_como_funciona: VISTO, modo: 'completo' }), 'script_materiais');
-    expect(escolhido[1].clicavel).toBe(false);
-    expect(escolhido[1].estado).toBe('feita');
-    expect(escolhido[1].falta).toBe('Caminho completo');
-  });
-
-  it('a linha da Ficha conta o que confirmar e o que responder', () => {
-    const blocos = [{
-      numero: 1, nome: 'Meta', descricao: '', total: 3, decididos: 0, obrigatorios: 3, obrigatorios_decididos: 0,
-      minutos_pendentes: 3, fechado: false,
-      campos: [
-        campo('1.1', { status: 'sugerido', sugerido: 'algo encontrado' }),
-        campo('1.2', { status: 'sugerido', sugerido: 'outra coisa' }),
-        campo('1.3'),
-      ],
-    }] as any;
-    const d = dados({ visto_como_funciona: VISTO, modo: 'completo', materials_status: 'submitted', blocos });
-    expect(contagemDaFicha(d)).toEqual({ confirmar: 2, voce: 1 });
-    const ficha = etapasDoTrilho(d, 'script_ficha').find((e) => e.nome === 'Ficha')!;
-    expect(ficha.falta).toBe('2 para confirmar, 1 para você');
-    expect(ficha.estado).toBe('atual');
-  });
-
-  it('a espera antes da ficha aparece dentro da etapa da Ficha', () => {
-    const d = dados({ visto_como_funciona: VISTO, modo: 'completo', materials_status: 'submitted' });
-    const etapas = etapasDoTrilho(d, 'script_espera');
-    expect(etapas.find((e) => e.nome === 'Ficha')!.estado).toBe('atual');
-  });
-
-  it('"Como funciona" fica concluída quando a pessoa já está numa etapa adiante', () => {
-    // sem a marca no servidor (entrou pelo menu, nunca clicou no botão), mas já com caminho e materiais
-    const semMarca = dados({ visto_como_funciona: null, modo: 'completo', materials_status: 'submitted' });
-    const noScript = etapasDoTrilho(semMarca, 'script_script');
-    expect(noScript[0].estado).toBe('feita');
-    expect(noScript[0].falta).toBe('Leia quando quiser');
-    // olhando a própria intro, quem ainda não andou nada continua começando por ali
-    const zerado = dados({ visto_como_funciona: null });
-    expect(etapasDoTrilho(zerado, 'script_como_funciona')[0].estado).toBe('atual');
-    expect(etapasDoTrilho(zerado, 'script_como_funciona')[0].falta).toBe('Comece por aqui');
-    expect(etapasDoTrilho(zerado, 'script_como_funciona')[1].estado).toBe('proxima');
-  });
-
-  it('na entrada o celular vê a versão curta; nas outras telas, o trilho inteiro', () => {
-    const d = dados({ visto_como_funciona: VISTO, modo: null });
-    const { unmount } = render(<TrilhoEtapas data={d} atual="script_como_funciona" compactoNoCelular onNavigate={vi.fn()} />);
-    const compacto = screen.getByTestId('trilho-compacto');
-    expect(compacto).toHaveTextContent('Como funciona');
-    expect(compacto.className).toContain('sm:hidden');
-    // no desktop (sm para cima) a lista inteira volta
-    expect(screen.getByTestId('trilho-etapas').querySelector('ol')!.className).toContain('hidden sm:grid');
-    // e o trilho divide a coluna com o conteúdo de baixo, sem degrau no desktop
-    expect(screen.getByTestId('trilho-etapas').className).toContain('max-w-3xl');
-    unmount();
-
-    const outra = render(<TrilhoEtapas data={d} atual="script_materiais" onNavigate={vi.fn()} />);
-    expect(screen.queryByTestId('trilho-compacto')).toBeNull();
-    expect(screen.getByTestId('trilho-etapas').querySelector('ol')!.className).not.toContain('hidden');
-    outra.unmount();
-
-    // na tela do script o leitor divide a área com o painel de grifos: ali o trilho acompanha a largura inteira
-    render(<TrilhoEtapas data={d} atual="script_script" largura="cheia" onNavigate={vi.fn()} />);
-    expect(screen.getByTestId('trilho-etapas').className).not.toContain('max-w-3xl');
-  });
-
-  it('renderiza os cinco passos com o estado no DOM e navega ao clicar', () => {
-    const onNavigate = vi.fn();
-    const d = dados({ visto_como_funciona: VISTO, modo: 'completo', materials_status: 'pending' });
-    render(<TrilhoEtapas data={d} atual="script_materiais" onNavigate={onNavigate} />);
-    expect(screen.getByTestId('trilho-etapas')).toBeInTheDocument();
-    expect(screen.getByTestId('trilho-script_materiais')).toHaveAttribute('data-estado', 'atual');
-    expect(screen.getByTestId('trilho-script_como_funciona')).toHaveAttribute('data-estado', 'feita');
-    fireEvent.click(screen.getByTestId('trilho-script_como_funciona').querySelector('button')!);
-    expect(onNavigate).toHaveBeenCalledWith('script_como_funciona');
   });
 });
 
@@ -309,12 +225,15 @@ describe('I5: a espera antes da ficha', () => {
     const comum = { ficha_status: 'pre_preenchida' as const, suficiencia: null, modo: 'completo' as const, visto_como_funciona: VISTO };
     const semSugestao = { ...comum, materials_status: 'submitted' as const, job: jobLendo, blocos: [{ campos: [campo('1.1'), campo('1.2')] }] as any };
     expect(esperandoPrimeiraSugestao(semSugestao)).toBe(true);
-    expect(rotaInicialDoClube(semSugestao)).toBe('script_espera');
+    // onda J (item 4): a rota é a tela única; a espera é a etapa 2 dela
+    expect(rotaInicialDoClube(semSugestao)).toBe('script_materiais_ficha');
+    expect(etapaInicialMateriaisFicha(semSugestao)).toBe('espera');
 
     // chegou a primeira sugestão: a ficha volta a ser o destino
     const comSugestao = { ...semSugestao, blocos: [{ campos: [campo('1.1', { status: 'sugerido', sugerido: 'achado' })] }] as any };
     expect(esperandoPrimeiraSugestao(comSugestao)).toBe(false);
-    expect(rotaInicialDoClube(comSugestao)).toBe('script_ficha');
+    expect(rotaInicialDoClube(comSugestao)).toBe('script_materiais_ficha');
+    expect(etapaInicialMateriaisFicha(comSugestao)).toBe('ficha');
 
     // sem job, com job de outro tipo ou com a leitura terminada: nada de espera
     expect(esperandoPrimeiraSugestao({ ...semSugestao, job: null })).toBe(false);
@@ -341,7 +260,7 @@ describe('I5: a espera antes da ficha', () => {
 describe('a copy das telas novas segue as regras da casa', () => {
   const ARQUIVOS = [
     'components/script/ComoFuncionaScreen.tsx',
-    'components/script/TrilhoEtapas.tsx',
+    'components/script/MateriaisFichaScreen.tsx',
     'components/script/EtaEspera.tsx',
     'components/script/EsperaLeitura.tsx',
     'components/script/AmostraScript.tsx',
@@ -371,10 +290,7 @@ describe('a copy das telas novas segue as regras da casa', () => {
   it('as telas montadas não trazem travessão nem exclamação', () => {
     const d = dados({ visto_como_funciona: VISTO, modo: 'completo', materials_status: 'submitted' });
     const { container } = render(
-      <>
-        <TrilhoEtapas data={d} atual="script_ficha" onNavigate={vi.fn()} />
-        <ComoFuncionaScreen ficha={fichaDe({}, d)} token="" onNavigate={vi.fn()} />
-      </>
+      <ComoFuncionaScreen ficha={fichaDe({}, d)} token="" onNavigate={vi.fn()} />
     );
     const texto = container.textContent || '';
     expect(texto).not.toMatch(/[—–]/);

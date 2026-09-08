@@ -26,13 +26,11 @@ import { EducationalSuggestionsView } from './suggestions/EducationalSuggestions
 import { InsightsHub } from './insights/InsightsHub';
 import { PrioritiesScreen } from './modules/PrioritiesScreen';
 import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
-import { FichaScreen } from './script/FichaScreen';
-import { MateriaisScreen } from './script/MateriaisScreen';
+import { MateriaisFichaScreen } from './script/MateriaisFichaScreen';
 import { ScriptScreen } from './script/ScriptScreen';
 import { EscolhaCaminho } from './script/EscolhaCaminho';
 import { ComoFuncionaScreen } from './script/ComoFuncionaScreen';
-import { TrilhoEtapas } from './script/TrilhoEtapas';
-import { useScriptFicha, rotaInicialDoClube, fichaEhSecundaria } from '../hooks/useScriptFicha';
+import { useScriptFicha, rotaInicialDoClube, type EtapaMateriaisFicha } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
 import type { FichaStatus, MaterialsStatus, ScriptModo } from '../data/script-ficha-fields';
 
@@ -52,16 +50,28 @@ const SLUG_TO_ID: Record<string, string> = {
   // Script 7 Passos (cohort Exclusive)
   'como-funciona': 'script_como_funciona',
   'escolha': 'script_escolha',
-  'materiais': 'script_materiais',
-  // Espera antes da ficha (onda I, item I5): a leitura dos materiais ainda não trouxe nenhuma sugestão
-  'espera': 'script_espera',
-  'ficha': 'script_ficha',
+  // Onda J (item 4): Materiais e Ficha viraram uma tela só, com duas etapas internas
+  'materiais-ficha': 'script_materiais_ficha',
   'script': 'script_script',
 };
 
 const ID_TO_SLUG: Record<string, string> = Object.fromEntries(
   Object.entries(SLUG_TO_ID).map(([slug, id]) => [id, slug])
 );
+
+/** Endereços antigos: caem na tela única, cada um na sua etapa. */
+const SLUG_ANTIGO_ETAPA: Record<string, EtapaMateriaisFicha> = {
+  'materiais': 'materiais',
+  'espera': 'espera',
+  'ficha': 'ficha',
+};
+
+/** Pedidos antigos das telas de dentro ("ir para a ficha", "enviar mais materiais"): viram etapa. */
+const ID_ANTIGO_ETAPA: Record<string, EtapaMateriaisFicha> = {
+  'script_materiais': 'materiais',
+  'script_espera': 'espera',
+  'script_ficha': 'ficha',
+};
 
 /** Telas da versao anterior (antes do Script 7 Passos). Quem e do clube e nunca concluiu aquela versao nao as ve. */
 const TELAS_ANTERIORES = new Set([
@@ -102,10 +112,6 @@ type ScriptMenuState = {
   materialsStatus: MaterialsStatus | null;
   /** "Seu script": 'aprovado' | 'rascunho' (versao existe) | 'escrevendo' (job na fila) | null */
   scriptState?: 'aprovado' | 'rascunho' | 'escrevendo' | null;
-  /** Os materiais bastaram (suficiente): "Ficha" vira opcao secundaria depois de "Seu script", nao uma etapa. */
-  fichaSecundaria?: boolean;
-  /** Caminho escolhido na entrada: no essencial a etapa da ficha se chama "Ficha essencial". */
-  modo?: ScriptModo | null;
 };
 
 // ─── Dynamic sidebar menu ──────────────────────────────────────────────────────
@@ -141,38 +147,25 @@ const getSidebarMenu = (
   ];
 
   // SCRIPT 7 PASSOS — so para o cohort do Exclusive (users.cohort)
+  // Onda J (item 3): tres itens, sempre nesta ordem. "Materiais e ficha" e uma tela so (item 4).
   if (script.enabled) {
-    const fichaDot: 'green' | 'yellow' | 'gold' =
-      script.fichaStatus === 'confirmada' ? 'green' :
-      script.fichaStatus === 'em_revisao' ? 'gold' : 'yellow';
     const scriptDot: 'green' | 'yellow' | 'gold' | 'gray' =
       script.scriptState === 'aprovado' ? 'green' :
       script.scriptState === 'rascunho' ? 'gold' :
       script.scriptState === 'escrevendo' ? 'yellow' : 'gray';
-    // "Enviei o que tinha" e "Não tenho materiais" fecham a etapa dos materiais do mesmo jeito
-    const materiaisDot: 'green' | 'yellow' =
-      script.materialsStatus === 'submitted' || script.materialsStatus === 'skipped' ? 'green' : 'yellow';
-    // No caminho essencial a etapa se chama "Ficha essencial" (são as perguntas essenciais, não a ficha inteira)
-    const fichaLabel = script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha do Script';
-    // Onda I (item I1): "Como funciona" é o primeiro item do grupo e fica sempre disponível, para quem
-    // fechou a aba reencontrar a explicação (e a Escolha, que só o trilho mostrava).
-    const comoFunciona: MenuItem = { id: 'script_como_funciona', label: 'Como funciona', secondary: true };
+    // Verde quando a ficha fechou; dourado enquanto ela esta sendo revista; amarelo no resto do caminho
+    const materiaisFichaDot: 'green' | 'yellow' | 'gold' =
+      script.fichaStatus === 'confirmada' ? 'green' :
+      script.fichaStatus === 'em_revisao' ? 'gold' : 'yellow';
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
-      items: script.fichaSecundaria
-        ? [
-          comoFunciona,
-          { id: 'script_materiais', label: 'Materiais', statusDot: materiaisDot },
-          { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
-          { id: 'script_ficha', label: script.modo === 'essencial' ? 'Ficha essencial' : 'Ficha', secondary: true },
-        ]
-        : [
-          comoFunciona,
-          { id: 'script_materiais', label: 'Materiais', statusDot: materiaisDot },
-          { id: 'script_ficha', label: fichaLabel, statusDot: fichaDot },
-          { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
-        ],
+      items: [
+        // Onda I (item I1): "Como funciona" fica sempre disponível, para quem fechou a aba reencontrar a explicação
+        { id: 'script_como_funciona', label: 'Como funciona', secondary: true },
+        { id: 'script_materiais_ficha', label: 'Materiais e ficha', statusDot: materiaisFichaDot },
+        { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
+      ],
     });
   }
 
@@ -268,28 +261,44 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const resolvedDescription = props.userData?.description ?? props.userDescription ?? '';
 
   // Resolve initial module: URL param > initialModule prop > 'overview'
-  const resolveModule = (slug?: string) => (slug && SLUG_TO_ID[slug]) || 'overview';
+  const resolveModule = (slug?: string) => {
+    if (!slug) return 'overview';
+    if (SLUG_TO_ID[slug]) return SLUG_TO_ID[slug];
+    return SLUG_ANTIGO_ETAPA[slug] ? 'script_materiais_ficha' : 'overview';
+  };
   const initialFromUrl = resolveModule(urlModule);
   const [activeItem, setActiveItem] = useState(props.initialModule || initialFromUrl);
-
-  // Sync URL → state when URL param changes
-  useEffect(() => {
-    const resolved = resolveModule(urlModule);
-    if (resolved !== activeItem && urlModule) {
-      setActiveItem(resolved);
-    }
-  }, [urlModule]);
+  // Etapa pedida dentro de "Materiais e ficha" (endereço antigo ou botão de dentro das telas)
+  const [etapaMateriaisFicha, setEtapaMateriaisFicha] = useState<EtapaMateriaisFicha | undefined>(
+    () => (urlModule ? SLUG_ANTIGO_ETAPA[urlModule] : undefined)
+  );
 
   // Navigate helper that updates both state and URL
   const navigateTo = (moduleId: string) => {
-    setActiveItem(moduleId);
-    const slug = ID_TO_SLUG[moduleId] || moduleId;
+    const etapa = ID_ANTIGO_ETAPA[moduleId];
+    const alvo = etapa ? 'script_materiais_ficha' : moduleId;
+    if (etapa) setEtapaMateriaisFicha(etapa);
+    setActiveItem(alvo);
+    const slug = ID_TO_SLUG[alvo] || alvo;
     if (slug === 'overview') {
       navigate('/dashboard', { replace: true });
     } else {
       navigate(`/dashboard/${slug}`, { replace: true });
     }
   };
+
+  // Sync URL → state when URL param changes; endereço antigo (materiais, espera, ficha) troca de endereço
+  useEffect(() => {
+    if (!urlModule) return;
+    const etapa = SLUG_ANTIGO_ETAPA[urlModule];
+    if (etapa) {
+      setEtapaMateriaisFicha(etapa);
+      navigateTo('script_materiais_ficha');
+      return;
+    }
+    const resolved = resolveModule(urlModule);
+    if (resolved !== activeItem) setActiveItem(resolved);
+  }, [urlModule]); // eslint-disable-line react-hooks/exhaustive-deps
   const [openSections, setOpenSections] = useState<string[]>(['geral', 'script', 'diagnostic', 'entregaveis', 'inteligencia']);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -333,8 +342,6 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
         : (s?.versoes || 0) > 0 ? 'rascunho'
         : s?.job && (s.job.status === 'queued' || s.job.status === 'running') ? 'escrevendo'
         : null,
-      fichaSecundaria: fichaEhSecundaria(scriptFicha.data),
-      modo: scriptFicha.data?.modo ?? null,
     };
   }, [cohortEfetivo, scriptFicha.enabled, scriptFicha.data]);
 
@@ -457,10 +464,12 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   );
   const secaoScript = menuCompleto.filter((s) => s.id === 'script');
   const secoesAnteriores = menuCompleto.filter((s) => s.id !== 'script');
+  // Onda J (item 3): sem a versão anterior no menu, os 3 itens ficam soltos, sem cabeçalho para abrir e fechar.
+  const secaoScriptPlana = secaoScript.map((s) => ({ ...s, title: '' }));
   const menuStructure: MenuSection[] = !cohortEfetivo
     ? menuCompleto
     : (soFluxoNovo || !diagnosticLoaded)
-      ? secaoScript
+      ? secaoScriptPlana
       : [
         ...secaoScript,
         {
@@ -539,11 +548,6 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
         : [...prev, sectionId]
     );
   };
-
-  // Trilho das etapas (onda I, item I2): fica no topo de toda tela do módulo. No celular ele substitui
-  // as bolinhas do menu; no desktop os dois convivem.
-  const ETAPAS_DO_SCRIPT = new Set(['script_como_funciona', 'script_escolha', 'script_materiais', 'script_espera', 'script_ficha', 'script_script']);
-  const trilhoVisivel = !!cohortEfetivo && scriptFicha.enabled && !!scriptFicha.data && ETAPAS_DO_SCRIPT.has(activeItem);
 
   const getActiveLabel = () => {
     for (const section of menuStructure) {
@@ -743,27 +747,17 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       );
     }
 
-    if (activeItem === 'script_materiais') {
+    // Onda J (item 4): Materiais e Ficha numa tela só, com as duas etapas internas e a espera entre elas
+    if (activeItem === 'script_materiais_ficha') {
       return (
-        <ModuleErrorBoundary moduleName="Materiais">
-          <MateriaisScreen ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
-        </ModuleErrorBoundary>
-      );
-    }
-
-    // Espera antes da ficha (item I5): a mesma tela da Ficha, em estado de painel cheio
-    if (activeItem === 'script_espera') {
-      return (
-        <ModuleErrorBoundary moduleName="Leitura dos materiais">
-          <FichaScreen ficha={scriptFicha} token={token} espera onNavigate={(id) => navigateTo(id)} />
-        </ModuleErrorBoundary>
-      );
-    }
-
-    if (activeItem === 'script_ficha') {
-      return (
-        <ModuleErrorBoundary moduleName="Ficha do Script">
-          <FichaScreen ficha={scriptFicha} token={token} onNavigate={(id) => navigateTo(id)} />
+        <ModuleErrorBoundary moduleName="Materiais e ficha">
+          <MateriaisFichaScreen
+            ficha={scriptFicha}
+            token={token}
+            etapa={etapaMateriaisFicha}
+            onEtapa={setEtapaMateriaisFicha}
+            onNavigate={(id) => navigateTo(id)}
+          />
         </ModuleErrorBoundary>
       );
     }
@@ -920,11 +914,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                         ) : (
                           <span className="truncate flex-1">{item.label}</span>
                         )}
-                        {!isCurrent && !item.secondary && (
-                          trilhoVisivel && ETAPAS_DO_SCRIPT.has(item.id)
-                            ? <span className="hidden lg:inline-flex"><DotIndicator dot={item.statusDot} /></span>
-                            : <DotIndicator dot={item.statusDot} />
-                        )}
+                        {!isCurrent && !item.secondary && <DotIndicator dot={item.statusDot} />}
                       </button>
                     );
                   })}
@@ -1011,15 +1001,6 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {trilhoVisivel && (
-                <TrilhoEtapas
-                  data={scriptFicha.data}
-                  atual={activeItem}
-                  onNavigate={(id) => navigateTo(id)}
-                  compactoNoCelular={activeItem === 'script_como_funciona'}
-                  largura={activeItem === 'script_script' ? 'cheia' : 'conteudo'}
-                />
-              )}
               {renderContent()}
             </motion.div>
           </AnimatePresence>

@@ -103,10 +103,9 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     renderEm('/dashboard');
     await screen.findByText('FichaScreen');
     expect(screen.getByText('FichaScreen')).toBeInTheDocument();
-    expect(screen.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
-    // Onda I: o trilho de etapas repete os nomes no topo do conteúdo, então a busca é dentro do menu
-    expect(itensDoMenu()).toContain('Materiais');
-    expect(itensDoMenu()).toContain('Seu script');
+    // Onda J (item 3): sem versão anterior o grupo fica plano, com os 3 itens e sem o cabeçalho
+    expect(screen.queryByText('SCRIPT 7 PASSOS')).toBeNull();
+    expect(itensDoMenu()).toEqual(['Como funciona', 'Materiais e ficha', 'Seu script']);
     expect(screen.queryByText('Visão Geral')).toBeNull();
     expect(screen.queryByText('DIAGNÓSTICO')).toBeNull();
     expect(screen.queryByText('O Mentor')).toBeNull();
@@ -123,7 +122,7 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     await screen.findByText('FichaScreen');
     expect(screen.getByText('FichaScreen')).toBeInTheDocument();
     expect(screen.queryByText('MentorModule')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Ficha do Script' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Materiais e ficha' })).toBeInTheDocument();
     expect(screen.queryByText('O Mentor')).toBeNull();
   });
 
@@ -136,6 +135,8 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     expect(alternar).toHaveTextContent('Versão anterior');
     expect(alternar).toHaveTextContent('O que você respondeu antes, com os insights');
     expect(alternar).toHaveAttribute('data-secondary', 'true');
+    // com versão anterior o grupo volta a ter o cabeçalho
+    expect(screen.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
     expect(screen.queryByText('O Mentor')).toBeNull();
     expect(screen.queryByText('Insights')).toBeNull();
     expect(screen.queryByText('Visão Geral')).toBeNull();
@@ -176,6 +177,7 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     await waitFor(() => expect(screen.getByTestId('versao-anterior')).toHaveTextContent('Ocultar versão anterior'));
     expect(itensDoMenu()).toContain('O Mentor'); // no menu (o h1 tambem diz "O Mentor")
     expect(localStorage.getItem(`versao-anterior:${EMAIL}`)).toBe('1');
+    // com versão anterior no menu o acordeão continua, para separar os dois mundos
     expect(screen.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
     expect(screen.queryByText('Progresso')).toBeNull();
   });

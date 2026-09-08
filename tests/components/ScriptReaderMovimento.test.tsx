@@ -19,7 +19,7 @@ import { duracaoLegivel, treinamentosDoPasso } from '../../data/treinamentos-por
  *   (nada de iframe carregado sozinho, em nenhuma tela)
  * - a tabela de perfis vira `<table>` de verdade e sai do corpo do passo, sem repetir
  * - os checkboxes marcam na hora e gravam no servidor (PUT), com o estado vindo do GET
- * - o Sumário mostra a contagem de cada passo num chip
+ * - a tela de Início mostra a contagem de cada passo num chip
  * As contagens saem do catálogo (`treinamentosDoPasso`, `tarefasDoPasso`): quando ele muda, o teste acompanha.
  */
 
@@ -278,7 +278,7 @@ describe('ScriptReader · tarefas e contagem', () => {
     expect(onTarefa).toHaveBeenLastCalledWith(3, 'treinar-falas', false);
   });
 
-  it('o Sumário mostra o chip de contagem em cada um dos 7 passos', () => {
+  it('a tela de Início mostra o chip de contagem em cada um dos 7 passos', () => {
     const feitas = new Set([
       chaveTarefa(1, 'treinar-falas'),
       chaveTarefa(1, 'aplicar-reuniao'),
@@ -366,7 +366,7 @@ describe('ScriptScreen · tarefas gravadas no servidor', () => {
     expect(within(bloco).getByTestId('tarefas-contagem')).toHaveTextContent(`0 de ${totalP2} tarefas`);
   });
 
-  it('o Sumário conta o que foi marcado na tela do passo', async () => {
+  it('a tela de Início conta o que foi marcado na tela do passo', async () => {
     mockRede([]);
     render(<ScriptScreen ficha={fichaMock()} token="t" />);
     await screen.findByTestId('script-reader');
@@ -375,7 +375,7 @@ describe('ScriptScreen · tarefas gravadas no servidor', () => {
     await waitFor(() => expect(puts).toHaveLength(1));
 
     const nav = await screen.findByRole('navigation', { name: 'Índice do script' });
-    fireEvent.click(within(nav).getByRole('button', { name: 'Sumário' }));
+    fireEvent.click(within(nav).getByRole('button', { name: 'Início' }));
     const chips = await screen.findAllByTestId('chip-tarefas');
     expect(chips.map((c) => c.textContent)).toEqual(chipsEsperados(new Set([chaveTarefa(4, 'treinar-falas')])));
   });

@@ -1,28 +1,31 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ScriptDoc } from './parseScript';
 import { documentoDe } from './parseScript';
-import { CartaoView, MapaSection, PremissaBox, comTags } from './ScriptPaper';
-import { PassoSecoes } from './secoes/PassoSecoes';
+import { comTags } from './ScriptPaper';
+import { PassoSecoes, PreparacaoCartao } from './secoes';
 import { AulaDani } from './AulaDani';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
 import { TreinamentosPasso } from './TreinamentosPasso';
 import { TarefasPasso } from './TarefasPasso';
-import { PerfisTabela, extrairPerfis } from './PerfisTabela';
 import { contagemDoPasso } from './tarefas';
 import {
-  TOTAL_NAV, NAV_INICIO, NAV_CARTAO, NAV_SUMARIO, NAV_PREPARACAO,
-  TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO,
+  TOTAL_NAV, NAV_INICIO, NAV_PASSO_1, NAV_PREPARACAO,
+  TELA_SUMARIO, TELA_PREPARACAO,
   conteudoDaNav, ehTelaDeInicio, ehTelaDePasso, passoNaTela, rotuloNav, nomeNav, type DocumentoId,
 } from './telas';
 
 /**
- * O leitor em telas de "Seu script": 0 Inicio · 1 Cartao de bolso · 2 Sumario · 3..9 um passo por tela ·
- * 10 Preparacao e metricas. O `tela` que entra aqui e o indice de NAVEGACAO; `data-tela` continua sendo a
+ * O leitor em telas de "Seu script": 0 Inicio (introducao + sumario) · 1..7 um passo por tela ·
+ * 8 Preparacao e metricas. O `tela` que entra aqui e o indice de NAVEGACAO; `data-tela` continua sendo a
  * coordenada de CONTEUDO (0..9), que e a que os grifos e os comentarios guardam (ver telas.ts).
  *
+ * Onda J (SPEC-workflow-v4-decisoes-08-09, itens 9, 10, 11 e 23):
+ * - tela 0 unica: "O seu script está pronto", como navegar, como grifar, como pedir ajustes, o que vem depois
+ *   e, na sequencia, o sumario inteiro (os 3 blocos, os 7 passos, a aula da Dani e a premissa);
+ * - "Como usar este script" fecha a tela 0 como bloco recolhido;
+ * - o Cartao de bolso deixou de ter tela; "Baixar a preparação" toma o lugar de "Baixar cartão".
+ *
  * Onda E4 (pedidos do dono em 07/09):
- * - tela 0 "O seu script está pronto": contexto, como usar (navegar, grifar, pedir ajustes), o que vem depois
- *   (a apresentacao comercial) e os dois botoes de entrada (cartao de bolso e sumario);
  * - RODAPE de navegacao no fim de TODA tela ("Anterior" e "Próximo: <nome da próxima tela>"), para ninguem
  *   precisar voltar ao topo; na ultima tela o "Próximo" vira "Ir para as ações".
  *
@@ -30,12 +33,11 @@ import {
  * - a escolha Treinamento | Campo saiu de dentro do passo e virou global, na barra de cima da tela (ScriptScreen);
  *   aqui ela chega pronta em `documento`. Na vista Campo o leitor esconde os treinamentos e o "Por que funciona"
  *   das falas: fica so o que o vendedor usa na reuniao;
- * - a navegacao (mapa Cartao · Sumario · 1 a 7 · Preparacao) fica numa barra so: grudada no ALTO no desktop e no
+ * - a navegacao (mapa Início · 1 a 7 · Preparação) fica numa barra so: grudada no ALTO no desktop e no
  *   RODAPE no celular (a ordem visual e do CSS, `.script-barra`), sempre com Anterior e Proximo e as setas do teclado;
- * - a barra nao tem mais "Aula" nem "Grifos": a aula macro vive so no Sumario e a lista de grifos abre num botao
- *   flutuante (celular);
+ * - a barra nao tem mais "Aula" nem "Grifos": a aula macro vive so no Inicio e a lista de grifos abre num botao
+ *   flutuante (em todos os tamanhos, desde a onda J);
  * - os treinamentos foram para o FIM da tela do passo, depois das tarefas;
- * - o Cartao de bolso tem um botao so, "Baixar cartão" (imagem), e a apresentacao comercial saiu dele;
  * - "Ações" (aprovar, pedir nova versao, escrever do zero e a apresentacao) fica no FIM de tudo, depois do Passo 7,
  *   na tela de Preparacao.
  *
@@ -65,7 +67,8 @@ export const COPY_PPTX_BAIXAR = 'Baixar apresentação (PPTX)';
 export const COPY_PPTX_MONTANDO = 'Apresentação sendo montada';
 export const COPY_PPTX_GERAR = 'Gerar apresentação';
 export const COPY_PPTX_COMO_USAR = 'Abra no PowerPoint, escolha Modo de apresentador e conecte uma segunda tela: os slides vão para o cliente e o roteiro do script fica com você, nas notas.';
-export const COPY_BAIXAR_CARTAO = 'Baixar cartão';
+/** Onda J (item 23): o download deixou de ser o cartao de bolso e passou a ser a Preparação. */
+export const COPY_BAIXAR_PREPARACAO = 'Baixar a preparação';
 export const ROTULO_ACOES = 'Ações';
 
 /** Uma rodada de ajustes por clube (onda E4). O servidor manda `ajustes_usados` e `ajustes_limite` na ficha. */
@@ -76,7 +79,7 @@ export const COPY_AJUSTES_USADOS = 'A sua rodada de ajustes já foi usada. Preci
 interface ScriptReaderProps {
   doc: ScriptDoc;
   clubNome: string;
-  /** Indice de NAVEGACAO: 0 Inicio · 1 Cartao · 2 Sumario · 3..9 Passos · 10 Preparacao. */
+  /** Indice de NAVEGACAO: 0 Inicio (introducao + sumario) · 1..7 Passos · 8 Preparacao. */
   tela: number;
   onTela: (t: number) => void;
   /** Numero da versao aberta, para a linha de abertura da tela de Inicio. */
@@ -88,8 +91,8 @@ interface ScriptReaderProps {
   marcadas: Set<number>;
   comentariosDo: (passo: number) => React.ReactNode;
   ficha?: FichaResumo;
-  /** "Baixar cartão": o cartao de bolso vira imagem (PNG). */
-  onBaixarCartao?: () => void;
+  /** "Baixar a preparação": a Preparação vira imagem (PNG). Sem ela, o botão não aparece (amostra). */
+  onBaixarPreparacao?: () => void;
   /** Apresentação comercial (PPTX), no bloco "Ações" do fim. */
   apresentacao?: ApresentacaoCartao;
   /** Botoes de decisao (aprovar, pedir nova versao, escrever do zero), no bloco "Ações" do fim. */
@@ -104,8 +107,8 @@ interface ScriptReaderProps {
   /**
    * Modo amostra (onda I, item A1): o leitor abre o script de exemplo configurado pelo admin.
    * Conteudo e navegacao inteiros; nada de grifo, comentario, tarefa nem acao. Quem chama nao passa
-   * `acoes`, `apresentacao`, `onBaixarCartao` nem `onAbrirGrifos`; esta marca tira o resto (a dica do
-   * grifo, os checkboxes das tarefas, os contadores de tarefa e a tela de Inicio do script proprio).
+   * `acoes`, `apresentacao`, `onBaixarPreparacao` nem `onAbrirGrifos`; esta marca tira o resto (a dica do
+   * grifo, os checkboxes das tarefas, os contadores de tarefa e a introducao do script proprio).
    */
   amostra?: boolean;
 }
@@ -125,10 +128,11 @@ function guardarFlag(chave: string, valor: string): void {
   } catch { /* sem armazenamento */ }
 }
 
+/** Os 3 blocos da conversa; `nav` e a tela de NAVEGACAO do primeiro passo de cada bloco. */
 const BLOCOS = [
-  { nome: 'Conexão', passos: 'Passo 1', telas: [2] },
-  { nome: 'Investigação', passos: 'Passo 2', telas: [3] },
-  { nome: 'Solução', passos: 'Passos 3 a 7', telas: [4, 5, 6, 7, 8] },
+  { nome: 'Conexão', passos: 'Passo 1', nav: 1 },
+  { nome: 'Investigação', passos: 'Passo 2', nav: 2 },
+  { nome: 'Solução', passos: 'Passos 3 a 7', nav: 3 },
 ];
 
 function nomeDoPassoEm(doc: ScriptDoc, n: number): string {
@@ -138,10 +142,6 @@ function nomeDoPassoEm(doc: ScriptDoc, n: number): string {
   }
   return '';
 }
-
-const Intro: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="script-tela-intro">{children}</p>
-);
 
 /** Bloco da apresentacao comercial dentro de "Ações": o PPTX com o roteiro nas notas. */
 const BlocoApresentacao: React.FC<{ apresentacao: ApresentacaoCartao }> = ({ apresentacao }) => (
@@ -197,14 +197,11 @@ const CHIPS_GRIFO: Array<{ cor: string; rotulo: string; para: string }> = [
   { cor: 'vermelho', rotulo: 'Vermelho', para: 'tirar' },
 ];
 
-/**
- * Tela 0 (onda E4): a porta de entrada do script. Diz que ele está pronto, mostra como navegar, como grifar e
- * como pedir os ajustes, e antecipa a apresentação comercial que vem depois da validação.
- */
-const TelaInicio: React.FC<{ clubNome: string; versao?: number | null; ajustes?: AjustesInfo; onTela: (t: number) => void }> = ({ clubNome, versao, ajustes, onTela }) => {
+/** Introdução da tela 0: o script está pronto, como andar por ele, como grifar e como pedir os ajustes. */
+const IntroDoScript: React.FC<{ clubNome: string; versao?: number | null; ajustes?: AjustesInfo }> = ({ clubNome, versao, ajustes }) => {
   const sobrando = !ajustes || ajustes.usados < ajustes.limite;
   return (
-    <div className="script-inicio space-y-6" data-testid="tela-inicio">
+    <>
       <header className="script-titulo">
         <p className="text-[11px] uppercase tracking-[0.24em] text-prosperus-gold-dark font-semibold">
           {clubNome}{versao ? ` · v${versao}` : ''}
@@ -221,8 +218,8 @@ const TelaInicio: React.FC<{ clubNome: string; versao?: number | null; ajustes?:
         <div className="script-inicio-cards">
           <article className="script-inicio-card">
             <h3 className="font-serif text-xl text-prosperus-navy-panel">Navegue</h3>
-            <p className="text-sm leading-relaxed text-prosperus-neutral-black">
-              Uma tela por vez: o cartão de bolso, o sumário, os 7 passos e a preparação. Use Anterior e Próximo no fim de cada tela ou o mapa das telas. Em cima você escolhe entre Treinamento e Campo.
+            <p className="text-sm leading-relaxed text-prosperus-neutral-black" data-testid="inicio-navegue">
+              São nove telas: esta, um passo por vez e a preparação no fim. Ande com Anterior e Próximo, no fim de cada tela, ou toque no número do passo na barra. Em cima você escolhe entre Treinamento e Campo.
             </p>
           </article>
           <article className="script-inicio-card">
@@ -257,41 +254,22 @@ const TelaInicio: React.FC<{ clubNome: string; versao?: number | null; ajustes?:
           Depois que você validar o script, a gente gera a sua apresentação comercial: os slides para a reunião com o cliente, com as falas nas notas do apresentador.
         </p>
       </section>
-
-      <div className="script-inicio-botoes">
-        <button type="button" onClick={() => onTela(NAV_CARTAO)} className="script-acao script-acao-forte" data-testid="inicio-cartao">
-          Começar pelo cartão de bolso
-        </button>
-        <button type="button" onClick={() => onTela(NAV_SUMARIO)} className="script-acao" data-testid="inicio-sumario">
-          Ver o sumário
-        </button>
-      </div>
-    </div>
+    </>
   );
 };
 
 export const COPY_AMOSTRA_TITULO = 'Um script completo, de ponta a ponta';
 export const COPY_AMOSTRA_INTRO =
-  'Este é o script de outro clube, publicado como exemplo. Navegue pelas telas para ver o cartão de bolso, os 7 passos e a preparação. O seu vai sair com a sua voz, os seus números e o seu método.';
+  'Este é o script de outro clube, publicado como exemplo. Navegue pelas telas para ver o resumo, os 7 passos e a preparação. O seu vai sair com a sua voz, os seus números e o seu método.';
 
-/** Tela 0 no modo amostra: sem grifo, sem rodada de ajustes, sem promessa de nada. So as portas de entrada. */
-const TelaInicioAmostra: React.FC<{ clubNome: string; onTela: (t: number) => void }> = ({ clubNome, onTela }) => (
-  <div className="script-inicio space-y-6" data-testid="tela-inicio-amostra">
-    <header className="script-titulo">
-      <p className="text-[11px] uppercase tracking-[0.24em] text-prosperus-gold-dark font-semibold">{clubNome}</p>
-      <h2 className="script-h1 font-serif text-3xl sm:text-[2.2rem] leading-tight text-prosperus-navy-panel mt-1">{COPY_AMOSTRA_TITULO}</h2>
-      <p className="script-tela-intro mt-2">{COPY_AMOSTRA_INTRO}</p>
-      <div className="script-rule mt-4" aria-hidden="true" />
-    </header>
-    <div className="script-inicio-botoes">
-      <button type="button" onClick={() => onTela(NAV_CARTAO)} className="script-acao script-acao-forte" data-testid="inicio-cartao">
-        Começar pelo cartão de bolso
-      </button>
-      <button type="button" onClick={() => onTela(NAV_SUMARIO)} className="script-acao" data-testid="inicio-sumario">
-        Ver o sumário
-      </button>
-    </div>
-  </div>
+/** Introdução da tela 0 no modo amostra: sem grifo, sem rodada de ajustes, sem promessa de nada. */
+const IntroDaAmostra: React.FC<{ clubNome: string }> = ({ clubNome }) => (
+  <header className="script-titulo" data-testid="intro-amostra">
+    <p className="text-[11px] uppercase tracking-[0.24em] text-prosperus-gold-dark font-semibold">{clubNome}</p>
+    <h2 className="script-h1 font-serif text-3xl sm:text-[2.2rem] leading-tight text-prosperus-navy-panel mt-1">{COPY_AMOSTRA_TITULO}</h2>
+    <p className="script-tela-intro mt-2">{COPY_AMOSTRA_INTRO}</p>
+    <div className="script-rule mt-4" aria-hidden="true" />
+  </header>
 );
 
 /**
@@ -331,25 +309,7 @@ const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxi
   );
 };
 
-const TelaCartao: React.FC<{ doc: ScriptDoc; onBaixar?: () => void }> = ({ doc, onBaixar }) => (
-  <div data-tela={TELA_CARTAO} data-documento="campo" className="space-y-4">
-    <Intro>O que cabe numa folha dobrada, para levar na reunião. Baixe a imagem e leve no celular; o script inteiro vem nas telas seguintes.</Intro>
-    {doc.cartao ? (
-      <CartaoView
-        cartao={doc.cartao}
-        montado={doc.cartaoMontado}
-        id="script-cartao-tela"
-        acoes={onBaixar && (
-          <button type="button" onClick={onBaixar} className="script-no-print script-copiar script-copiar-claro" data-testid="baixar-cartao-tela" aria-label="Baixar o cartão de bolso como imagem">{COPY_BAIXAR_CARTAO}</button>
-        )}
-      />
-    ) : (
-      <p className="text-sm text-prosperus-navy-panel/70">Esta versão veio sem cartão de bolso.</p>
-    )}
-  </div>
-);
-
-/** Chip "x/y" das tarefas de um passo, no Sumario. Fica dourado cheio quando o passo esta completo. */
+/** Chip "x/y" das tarefas de um passo, no resumo da tela 0. Fica dourado cheio quando o passo esta completo. */
 const ChipTarefas: React.FC<{ passo: number; concluidas: ReadonlySet<string> }> = ({ passo, concluidas }) => {
   const { feitas, total } = contagemDoPasso(passo, concluidas);
   if (!total) return null;
@@ -365,7 +325,26 @@ const ChipTarefas: React.FC<{ passo: number; concluidas: ReadonlySet<string> }> 
   );
 };
 
-const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaResumo; onTela: (t: number) => void; comentarios: React.ReactNode; tarefasConcluidas: ReadonlySet<string>; amostra?: boolean }> = ({ doc, clubNome, ficha, onTela, comentarios, tarefasConcluidas, amostra = false }) => {
+interface TelaInicioProps {
+  doc: ScriptDoc;
+  clubNome: string;
+  versao?: number | null;
+  ajustes?: AjustesInfo;
+  ficha?: FichaResumo;
+  onTela: (t: number) => void;
+  comentarios: React.ReactNode;
+  tarefasConcluidas: ReadonlySet<string>;
+  amostra?: boolean;
+}
+
+/**
+ * Tela 0 (onda J, item 9): a introdução e o resumo do script na MESMA tela. Em cima, o que é e como usar;
+ * embaixo, os 3 blocos da conversa, os 7 passos e a aula da Dani (a premissa REP mudou para o Passo 2, item
+ * 19, e não se repete aqui). "Como usar este script" fecha
+ * a tela como bloco recolhido (item 11: o conteúdo não muda, só deixa de competir com a introdução).
+ * `data-tela` é o do sumário: o grifo desta tela continua nascendo com o mesmo passo de antes.
+ */
+const TelaInicio: React.FC<TelaInicioProps> = ({ doc, clubNome, versao, ajustes, ficha, onTela, comentarios, tarefasConcluidas, amostra = false }) => {
   const tem = (re: RegExp) => doc.cabecalho.some((c) => re.test(c.rotulo));
   const extras: { rotulo: string; valor: string }[] = [];
   if (ficha?.paraQuem && !tem(/para quem/i)) extras.push({ rotulo: 'Para quem este script vende', valor: ficha.paraQuem });
@@ -376,87 +355,103 @@ const TelaSumario: React.FC<{ doc: ScriptDoc; clubNome: string; ficha?: FichaRes
   const d1 = doc.documentos[0];
   const passos = d1 ? d1.passos : [];
   const multiplos = doc.documentos.length > 1;
+  const temPreparacao = !!doc.mapa || doc.documentos.some((d) => d.extras.some((e) => e.titulo !== 'Abertura'));
+
   return (
-    <div data-tela={TELA_SUMARIO} data-documento="treinamento" className="space-y-7">
-      <header className="script-titulo">
-        <p className="text-[11px] uppercase tracking-[0.24em] text-prosperus-gold-dark font-semibold">{clubNome}</p>
-        <h2 className="script-h1 font-serif text-3xl sm:text-[2.2rem] leading-tight text-prosperus-navy-panel mt-1">Script dos 7 passos da venda</h2>
-        {doc.oferta && <p className="font-serif text-lg text-prosperus-navy-panel/80 mt-1">{doc.oferta}</p>}
-        <div className="script-rule mt-4" aria-hidden="true" />
-      </header>
+    <div data-tela={TELA_SUMARIO} data-documento="treinamento" className="script-inicio space-y-7" data-testid="tela-inicio">
+      {amostra ? <IntroDaAmostra clubNome={clubNome} /> : <IntroDoScript clubNome={clubNome} versao={versao} ajustes={ajustes} />}
 
-      {cabecalho.length > 0 && (
-        <dl className="script-cabecalho grid gap-x-6 gap-y-3 sm:grid-cols-2">
-          {cabecalho.map((c, i) => (
-            <div key={i}>
-              <dt className="script-nota-rotulo">{c.rotulo}</dt>
-              <dd className="text-[0.95rem] leading-relaxed text-prosperus-neutral-black">{comTags(c.valor)}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <div className="script-inicio-botoes">
+        <button type="button" onClick={() => onTela(NAV_PASSO_1)} className="script-acao script-acao-forte" data-testid="inicio-passo-1">
+          Ir para o Passo 1
+        </button>
+        {temPreparacao && (
+          <button type="button" onClick={() => onTela(NAV_PREPARACAO)} className="script-acao" data-testid="inicio-preparacao">
+            Ver a preparação
+          </button>
+        )}
+      </div>
 
-      <section aria-label="Os 3 blocos da conversa">
-        <p className="script-nota-rotulo">Os 3 blocos da conversa</p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {BLOCOS.map((b) => (
-            <button key={b.nome} type="button" onClick={() => onTela(b.telas[0])} className="script-bloco-card">
-              <span className="font-serif text-xl text-prosperus-navy-panel">{b.nome}</span>
-              <span className="text-xs text-prosperus-navy-panel/60">{b.passos}</span>
-            </button>
-          ))}
+      <section aria-label="O script, em resumo" className="space-y-6">
+        <div>
+          <p className="script-nota-rotulo">O script, em resumo</p>
+          <h3 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">Script dos 7 passos da venda</h3>
+          {doc.oferta && <p className="font-serif text-lg text-prosperus-navy-panel/80 mt-1">{doc.oferta}</p>}
         </div>
-      </section>
 
-      {passos.length > 0 && (
-        <section aria-label="Os 7 passos">
-          <p className="script-nota-rotulo">Os 7 passos, um por tela</p>
-          <ol className="space-y-1.5">
-            {passos.map((p) => {
-              const objetivo = p.blocos.find((b) => b.tipo === 'objetivo');
-              return (
-                <li key={p.n}>
-                  <button type="button" onClick={() => onTela(p.n + 1)} className="script-passo-linha" aria-label={`Ir para o passo ${p.n}: ${p.nome}`}>
-                    <span className="script-num" aria-hidden="true">{p.n}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-serif text-[1.1rem] leading-snug text-prosperus-navy-panel">{p.nome}</span>
-                      {objetivo && <span className="block text-sm text-prosperus-navy-panel/70 leading-snug">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>}
-                    </span>
-                    {!amostra && <ChipTarefas passo={p.n} concluidas={tarefasConcluidas} />}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      )}
+        {cabecalho.length > 0 && (
+          <dl className="script-cabecalho grid gap-x-6 gap-y-3 sm:grid-cols-2">
+            {cabecalho.map((c, i) => (
+              <div key={i}>
+                <dt className="script-nota-rotulo">{c.rotulo}</dt>
+                <dd className="text-[0.95rem] leading-relaxed text-prosperus-neutral-black">{comTags(c.valor)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
-      <AulaDani aula={AULA_7_PASSOS} />
-
-      {doc.premissa && <PremissaBox premissa={doc.premissa} />}
-
-      <section aria-label="Como usar este script" className="script-como-usar">
-        <p className="script-nota-rotulo">Como usar este script</p>
-        {multiplos ? (
-          <div className="grid gap-3 sm:grid-cols-2 mb-2">
-            <div>
-              <p className="font-serif text-lg text-prosperus-navy-panel">Treinamento</p>
-              <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leia antes da reunião. Em cada passo: objetivo, estado do cliente, princípio, falas com a anatomia, perguntas, o que observar, objeções, erro a evitar, critério de sucesso e as gravações recomendadas.</p>
-            </div>
-            <div>
-              <p className="font-serif text-lg text-prosperus-navy-panel">Campo</p>
-              <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leve aberto durante a conversa. Em cada passo: falas numeradas, perguntas, transição, alerta e próximo passo obrigatório.</p>
-            </div>
+        <section aria-label="Os 3 blocos da conversa">
+          <p className="script-nota-rotulo">Os 3 blocos da conversa</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {BLOCOS.map((b) => (
+              <button key={b.nome} type="button" onClick={() => onTela(b.nav)} className="script-bloco-card">
+                <span className="font-serif text-xl text-prosperus-navy-panel">{b.nome}</span>
+                <span className="text-xs text-prosperus-navy-panel/60">{b.passos}</span>
+              </button>
+            ))}
           </div>
-        ) : (
-          <p className="text-sm leading-relaxed text-prosperus-neutral-black mb-2">Um passo por tela; as falas em cartões com "copiar".</p>
+        </section>
+
+        {passos.length > 0 && (
+          <section aria-label="Os 7 passos">
+            <p className="script-nota-rotulo">Os 7 passos, um por tela</p>
+            <ol className="space-y-1.5">
+              {passos.map((p) => {
+                const objetivo = p.blocos.find((b) => b.tipo === 'objetivo');
+                return (
+                  <li key={p.n}>
+                    <button type="button" onClick={() => onTela(p.n)} className="script-passo-linha" aria-label={`Ir para o passo ${p.n}: ${p.nome}`}>
+                      <span className="script-num" aria-hidden="true">{p.n}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-serif text-[1.1rem] leading-snug text-prosperus-navy-panel">{p.nome}</span>
+                        {objetivo && <span className="block text-sm text-prosperus-navy-panel/70 leading-snug">{comTags(objetivo.inline || objetivo.itens.join(' '))}</span>}
+                      </span>
+                      {!amostra && <ChipTarefas passo={p.n} concluidas={tarefasConcluidas} />}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
         )}
-        {doc.comoUsar.length > 0 && (
-          <ol className="space-y-1">
-            {doc.comoUsar.map((l, i) => <li key={i} className="flex items-start leading-relaxed"><span className="script-num" aria-hidden="true">{i + 1}</span><span className="min-w-0 flex-1">{comTags(l)}</span></li>)}
-          </ol>
-        )}
+
+        <AulaDani aula={AULA_7_PASSOS} />
       </section>
+
+      <details className="script-como-usar script-recolhido" data-testid="como-usar">
+        <summary className="script-recolhido-titulo">Como usar este script</summary>
+        <div className="mt-3">
+          {multiplos ? (
+            <div className="grid gap-3 sm:grid-cols-2 mb-2">
+              <div>
+                <p className="font-serif text-lg text-prosperus-navy-panel">Treinamento</p>
+                <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leia antes da reunião. Em cada passo: objetivo, estado do cliente, princípio, falas com a anatomia, perguntas, o que observar, objeções, erro a evitar, critério de sucesso e as gravações recomendadas.</p>
+              </div>
+              <div>
+                <p className="font-serif text-lg text-prosperus-navy-panel">Campo</p>
+                <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leve aberto durante a conversa. Em cada passo: falas numeradas, perguntas, transição, alerta e próximo passo obrigatório.</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm leading-relaxed text-prosperus-neutral-black mb-2">Um passo por tela; as falas em cartões com "copiar".</p>
+          )}
+          {doc.comoUsar.length > 0 && (
+            <ol className="space-y-1">
+              {doc.comoUsar.map((l, i) => <li key={i} className="flex items-start leading-relaxed"><span className="script-num" aria-hidden="true">{i + 1}</span><span className="min-w-0 flex-1">{comTags(l)}</span></li>)}
+            </ol>
+          )}
+        </div>
+      </details>
 
       {doc.extras.map((e) => (
         <div key={e.slug} className="script-md" dangerouslySetInnerHTML={{ __html: e.html }} />
@@ -478,6 +473,10 @@ interface TelaPassoProps {
   amostra?: boolean;
 }
 
+/**
+ * A tela de um passo. O corpo inteiro (cabeçalho, tabela de perfis no Passo 1, premissa REP no Passo 2, falas,
+ * perguntas e callouts) é do `PassoSecoes`: aqui ficam só as tarefas, os treinamentos e os comentários.
+ */
 const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios, tarefasConcluidas, onTarefa, amostra = false }) => {
   const n = passoNaTela(tela);
   const multiplos = doc.documentos.length > 1;
@@ -487,25 +486,22 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios
   const nome = (p || p1)?.nome || nomeDoPassoEm(doc, n) || `Passo ${n}`;
   const objetivo = p1?.blocos.find((b) => b.tipo === 'objetivo') || null;
   const docAtivo: DocumentoId = multiplos ? documento : 'treinamento';
-  // Vista Campo: so o que o vendedor usa na reuniao (sem treinamentos e sem "Por que funciona")
+  // Vista Campo (item 25): so o que o vendedor usa na reuniao, com tudo aberto e nada atras de clique
   const campo = docAtivo === 'campo';
-  // "Quem esta do outro lado" vira tabela de verdade depois do corpo; o bloco sai do corpo para nao repetir.
-  const perfis = extrairPerfis(p) || extrairPerfis(p1);
-  const corpo = p && perfis && p.blocos.includes(perfis.bloco)
-    ? { ...p, blocos: p.blocos.filter((b) => b !== perfis.bloco) }
-    : p;
   return (
     <div data-tela={tela} data-documento={docAtivo} className="script-passo-tela">
       <div key={`${docAtivo}-${n}`}>
         <PassoSecoes
-          passo={corpo}
+          passo={p}
+          passoAlternativo={p1}
+          premissa={doc.premissa}
           n={n}
           nome={nome}
           objetivoAlternativo={objetivo ? (objetivo.inline || objetivo.itens.join(' ')) : ''}
           campo={campo}
+          todosVisiveis={campo}
         />
       </div>
-      {perfis && <PerfisTabela tabela={perfis.tabela} />}
       {!amostra && <TarefasPasso passo={n} concluidas={tarefasConcluidas} onTarefa={onTarefa} />}
       {!campo && <TreinamentosPasso passo={n} />}
       {comentarios}
@@ -513,29 +509,30 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios
   );
 };
 
-const TelaPreparacao: React.FC<{ doc: ScriptDoc; acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao }> = ({ doc, acoes, apresentacao }) => {
-  const extras = doc.documentos.flatMap((d) => d.extras.filter((e) => e.titulo !== 'Abertura'));
-  return (
-    <div data-tela={TELA_PREPARACAO} data-documento="treinamento" className="space-y-6">
-      <header>
-        <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">Antes e depois da reunião</p>
-        <h2 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">Preparação e métricas</h2>
-      </header>
-      {doc.mapa && <MapaSection mapa={doc.mapa} />}
-      {extras.map((e) => (
-        <section key={e.slug} className="script-extra">
-          <h3 className="script-h2 font-serif text-2xl text-prosperus-navy-panel mb-3">{e.titulo}</h3>
-          <div className="script-md" dangerouslySetInnerHTML={{ __html: e.html }} />
-        </section>
-      ))}
-      {!doc.mapa && extras.length === 0 && <p className="text-sm text-prosperus-navy-panel/70">Esta versão veio sem mapa de preparação e sem métricas.</p>}
-      <BlocoAcoes acoes={acoes} apresentacao={apresentacao} />
-    </div>
-  );
-};
+/**
+ * A Preparação (onda J, item 23): o cartão que a pessoa baixa e leva para a reunião, desenhado pelo
+ * `PreparacaoCartao` (mapa, métricas e o checklist de performance da venda) num nó só, o do download.
+ */
+const TelaPreparacao: React.FC<{ doc: ScriptDoc; campo?: boolean; acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao; onBaixar?: () => void }> = ({ doc, campo, acoes, apresentacao, onBaixar }) => (
+  <div data-tela={TELA_PREPARACAO} data-documento="treinamento" className="space-y-6">
+    <PreparacaoCartao doc={doc} campo={campo} />
+    {onBaixar && (
+      <button
+        type="button"
+        onClick={onBaixar}
+        className="script-no-print script-copiar script-copiar-claro"
+        data-testid="baixar-preparacao-tela"
+        aria-label="Baixar a preparação como imagem"
+      >
+        {COPY_BAIXAR_PREPARACAO}
+      </button>
+    )}
+    <BlocoAcoes acoes={acoes} apresentacao={apresentacao} />
+  </div>
+);
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
-  doc, clubNome, tela, onTela, versao, ajustes, documento, marcadas, comentariosDo, ficha, onBaixarCartao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
+  doc, clubNome, tela, onTela, versao, ajustes, documento, marcadas, comentariosDo, ficha, onBaixarPreparacao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
   tarefasConcluidas = SEM_TAREFAS, onTarefa, amostra = false,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -557,26 +554,37 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   }, [tela, rootRef]);
 
   const nomeDoPasso = (n: number) => nomeDoPassoEm(doc, n);
-  // A tela que a pessoa ve e de NAVEGACAO; o conteudo (cartao, sumario, passos, preparacao) vive uma casa atras.
+  // A tela que a pessoa ve e de NAVEGACAO; o conteudo (sumario, passos, preparacao) tem a sua propria coordenada.
   const c = conteudoDaNav(tela);
-  const irParaSumario = (t: number) => onTela(t + 1);
 
   let conteudo: React.ReactNode;
-  if (ehTelaDeInicio(tela)) conteudo = amostra
-    ? <TelaInicioAmostra clubNome={clubNome} onTela={onTela} />
-    : <TelaInicio clubNome={clubNome} versao={versao} ajustes={ajustes} onTela={onTela} />;
-  else if (c === TELA_CARTAO) conteudo = <TelaCartao doc={doc} onBaixar={onBaixarCartao} />;
-  else if (c === TELA_SUMARIO) conteudo = <TelaSumario doc={doc} clubNome={clubNome} ficha={ficha} onTela={irParaSumario} comentarios={comentariosDo(0)} tarefasConcluidas={tarefasConcluidas} amostra={amostra} />;
-  else if (ehTelaDePasso(c)) conteudo = <TelaPasso doc={doc} tela={c} documento={documento} comentarios={comentariosDo(passoNaTela(c))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} amostra={amostra} />;
-  else conteudo = <TelaPreparacao doc={doc} acoes={acoes} apresentacao={apresentacao} />;
+  if (ehTelaDeInicio(tela)) {
+    conteudo = (
+      <TelaInicio
+        doc={doc}
+        clubNome={clubNome}
+        versao={versao}
+        ajustes={ajustes}
+        ficha={ficha}
+        onTela={onTela}
+        comentarios={comentariosDo(0)}
+        tarefasConcluidas={tarefasConcluidas}
+        amostra={amostra}
+      />
+    );
+  } else if (ehTelaDePasso(c)) {
+    conteudo = <TelaPasso doc={doc} tela={c} documento={documento} comentarios={comentariosDo(passoNaTela(c))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} amostra={amostra} />;
+  } else {
+    conteudo = <TelaPreparacao doc={doc} campo={documento === 'campo' && doc.documentos.length > 1} acoes={acoes} apresentacao={apresentacao} onBaixar={amostra ? undefined : onBaixarPreparacao} />;
+  }
 
   // No celular (< 640px) a barra vira duas linhas: o mapa em cima, inteiro; os botoes embaixo, com menos respiro.
   // As classes com `!` vencem o CSS de .script-barra-btn / .script-mapa-strip (styles/globals.css, fora de @layer).
   const btnMovel = 'max-sm:!flex-1 max-sm:!px-2';
 
-  // A capa nao tem o que grifar (grifo e dos passos, do cartao, do sumario e da preparacao) e a pastilha
-  // flutuante cobria o fim do paragrafo de abertura em 390 px: ali ela nao aparece.
-  const pastilhaDeGrifos = onAbrirGrifos && !ehTelaDeInicio(tela);
+  // Onda J (item 7): a pastilha flutuante e o unico caminho para a lista de grifos, no celular e no desktop.
+  // Toda tela tem o que grifar (a tela 0 carrega o sumario), entao ela aparece em todas.
+  const pastilhaDeGrifos = !!onAbrirGrifos;
 
   return (
     <div
@@ -628,14 +636,13 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
         <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} amostra={amostra} />
       </div>
 
-      {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso). Quando ele existe,
-          o papel ganha um rodape vazio no celular (`script-reader-com-grifos`): a pastilha cobria o texto.
-          Na capa ela nao entra: la o conteudo cabe na janela, nao ha rolagem para tirar a ultima linha de baixo dela. */}
+      {/* Lista de grifos: pastilha flutuante em todos os tamanhos (onda J, item 7). O papel ganha um rodape
+          vazio (`script-reader-com-grifos`) para a pastilha nunca cobrir a ultima linha do texto. */}
       {pastilhaDeGrifos && (
         <button
           type="button"
           onClick={onAbrirGrifos}
-          className="script-grifos-flutuante script-no-print lg:hidden"
+          className="script-grifos-flutuante script-no-print"
           aria-label="Abrir a lista de grifos"
           data-testid="grifos-flutuante"
         >

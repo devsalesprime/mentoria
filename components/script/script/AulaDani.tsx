@@ -16,10 +16,15 @@ import { BUNNY_CDN } from './TreinamentosPasso';
 /** Permissões que o player da Bunny pede (as mesmas do RecommendationCard). */
 export const AULA_ALLOW = 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;';
 
-/** Pôster da aula: o `preview.webp` público da Bunny, tirado do GUID do próprio embed. */
+/**
+ * Capa da aula: o `thumbnail.jpg` público da Bunny, tirado do GUID do próprio embed. Onda J (item 10): a capa
+ * é ESTÁTICA, o mesmo padrão das capas dos treinamentos por passo (`thumbDoTreinamento`). O `preview.webp`
+ * saiu daqui porque é uma prévia animada do vídeo, e a animação no resumo parecia um player tocando sozinho.
+ * Se a imagem não carregar, o cartão cai na placa navy com o botão de tocar (o `onError` de quem usa).
+ */
 export function thumbDaAula(aula: AulaReferencia): string | null {
   const m = /\/embed\/\d+\/([0-9a-f-]+)/i.exec(aula.embedUrl);
-  return m ? `${BUNNY_CDN}/${m[1]}/preview.webp` : null;
+  return m ? `${BUNNY_CDN}/${m[1]}/thumbnail.jpg` : null;
 }
 
 export const FRASE_AULA = 'Assista à aula da Dani antes da primeira reunião: o script é o que dizer; a aula é por que funciona.';

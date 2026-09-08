@@ -12,8 +12,8 @@ import { Button } from '../ui/Button';
  *
  * Aparece sozinha na PRIMEIRA entrada (o servidor guarda `visto_como_funciona` por pessoa) e, depois
  * disso, vive no menu, como primeiro item do Script 7 Passos. A marca e gravada quando a tela ABRE, nao
- * so no clique do botao: quem leu e seguiu pelo menu nao merece ver "Como funciona" como etapa pendente
- * no trilho pelo resto do caminho. Gravar de novo nao muda nada (o servidor mantem a primeira data).
+ * so no clique do botao: quem leu e seguiu pelo menu nao merece reencontrar "Como funciona"
+ * como etapa pendente pelo resto do caminho. Gravar de novo nao muda nada (o servidor mantem a primeira data).
  *
  * Os tempos das etapas vem do historico real (GET /api/script/tempos, item I3). Sem historico, a linha
  * da etapa sai sem numero nenhum: nada de prazo inventado.
@@ -32,8 +32,8 @@ export const COPY_NADA_SE_PERDE = 'Você pode fechar e voltar quando quiser. Nad
 /** (a) O que você recebe. */
 export const RECEBE: Array<{ titulo: string; texto: string }> = [
   {
-    titulo: 'Cartão de bolso',
-    texto: 'A folha que vai com você para a reunião: as falas-chave dos 7 passos, o investimento total e a pergunta de recomendação.',
+    titulo: 'Preparação para baixar',
+    texto: 'A folha que vai com você para a reunião: o que preparar antes, o que conferir depois e as métricas da conversa.',
   },
   {
     titulo: 'Script completo',
@@ -48,21 +48,22 @@ export const VALE_MAIS: string[] = [
   'Apostila ou desenho do seu método',
 ];
 
-/** (b) As 4 etapas. `tempo` diz de qual trabalho sai o número; sem número, fica a frase de apoio. */
+/**
+ * (b) As 3 etapas (onda J, item 4: Materiais e Ficha viraram uma tela só, com duas etapas internas).
+ * `tempo` diz de qual trabalho sai o número; sem número, fica a frase de apoio.
+ */
 type EtapaTempo = 'prefill' | 'script' | null;
-export const ETAPAS: Array<{ nome: string; linha: string; tempo: EtapaTempo }> = [
-  { nome: 'Escolha', linha: 'Você decide começar pelo essencial ou pelo script completo.', tempo: null },
-  { nome: 'Materiais', linha: 'Você manda o que já usa para vender, ou segue sem material.', tempo: 'prefill' },
-  { nome: 'Ficha', linha: 'As respostas chegam prontas, com a fonte ao lado: você confirma, ajusta ou preenche.', tempo: null },
-  { nome: 'Script', linha: 'O script sai na sua voz, para ler, grifar, baixar e levar para a reunião.', tempo: 'script' },
+export const ETAPAS: Array<{ id: string; nome: string; linha: string; tempo: EtapaTempo }> = [
+  { id: 'escolha', nome: 'Escolha', linha: 'Você decide começar pelo essencial ou pelo script completo.', tempo: null },
+  { id: 'materiais-ficha', nome: 'Materiais e ficha', linha: 'Você manda o que já usa para vender e, na etapa seguinte, confere as respostas que vieram deles.', tempo: 'prefill' },
+  { id: 'script', nome: 'Script', linha: 'O script sai na sua voz, para ler, grifar, baixar e levar para a reunião.', tempo: 'script' },
 ];
 
 /** Frase de apoio de cada etapa quando ainda não há histórico para citar um número. */
 const SEM_NUMERO: Record<string, string> = {
-  Escolha: 'Leva um minuto.',
-  Materiais: 'A leitura começa assim que você envia. Você não precisa esperar na tela.',
-  Ficha: 'No seu ritmo, com o que já veio preenchido.',
-  Script: 'Avisamos no seu WhatsApp quando ficar pronto.',
+  'escolha': 'Leva um minuto.',
+  'materiais-ficha': 'A leitura começa assim que você envia. Você não precisa esperar na tela.',
+  'script': 'Avisamos no seu WhatsApp quando ficar pronto.',
 };
 
 /**
@@ -70,7 +71,7 @@ const SEM_NUMERO: Record<string, string> = {
  * porque o número solto era lido como esforço de quem está na tela.
  */
 const DEPOIS_DO_NUMERO: Record<string, string> = {
-  Materiais: ' Você não precisa esperar na tela.',
+  'materiais-ficha': ' Você não precisa esperar na tela.',
 };
 
 interface ComoFuncionaScreenProps {
@@ -125,10 +126,10 @@ export const ComoFuncionaScreen: React.FC<ComoFuncionaScreenProps> = ({ ficha, t
     onNavigate?.(rotaDepoisDaEntrada());
   };
 
-  const tempoDaEtapa = (nome: string, tipo: EtapaTempo): string => {
+  const tempoDaEtapa = (id: string, tipo: EtapaTempo): string => {
     const frase = tipo ? fraseDoTempoMaiuscula(tipo, medianaDe(tipo)) : null;
-    if (frase) return `${frase}.${DEPOIS_DO_NUMERO[nome] || ''}`;
-    return SEM_NUMERO[nome] || '';
+    if (frase) return `${frase}.${DEPOIS_DO_NUMERO[id] || ''}`;
+    return SEM_NUMERO[id] || '';
   };
 
   return (
@@ -163,18 +164,18 @@ export const ComoFuncionaScreen: React.FC<ComoFuncionaScreenProps> = ({ ficha, t
         )}
       </section>
 
-      {/* (b) As 4 etapas */}
-      <section className="rounded-lg bg-prosperus-neutral-white text-prosperus-navy p-4 sm:p-6 space-y-3" aria-label="As 4 etapas">
-        <h3 className="font-serif text-xl sm:text-2xl text-prosperus-navy">As 4 etapas</h3>
+      {/* (b) As 3 etapas */}
+      <section className="rounded-lg bg-prosperus-neutral-white text-prosperus-navy p-4 sm:p-6 space-y-3" aria-label="As 3 etapas">
+        <h3 className="font-serif text-xl sm:text-2xl text-prosperus-navy">As 3 etapas</h3>
         <ol className="space-y-3">
           {ETAPAS.map((e, i) => (
-            <li key={e.nome} className="flex gap-3" data-testid={`etapa-${e.nome.toLowerCase()}`}>
+            <li key={e.id} className="flex gap-3" data-testid={`etapa-${e.id}`}>
               <span className="font-serif text-lg text-prosperus-gold-dark flex-shrink-0" aria-hidden="true">{i + 1}</span>
               <span className="min-w-0">
                 <span className="block font-serif text-lg text-prosperus-navy leading-snug">{e.nome}</span>
                 <span className="block text-sm text-prosperus-navy/75 font-sans leading-relaxed">{e.linha}</span>
-                <span className="block text-xs text-prosperus-navy/55 font-sans" data-testid={`etapa-tempo-${e.nome.toLowerCase()}`}>
-                  {tempoDaEtapa(e.nome, e.tempo)}
+                <span className="block text-xs text-prosperus-navy/55 font-sans" data-testid={`etapa-tempo-${e.id}`}>
+                  {tempoDaEtapa(e.id, e.tempo)}
                 </span>
               </span>
             </li>

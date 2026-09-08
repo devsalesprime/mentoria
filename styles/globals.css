@@ -211,7 +211,40 @@ body {
   border-radius: 0.75rem;
   font-size: 0.92rem;
 }
+.script-como-usar[open] { padding-bottom: 1.1rem; }
+/* Bloco recolhido (onda J, item 11): "Como usar este script" fecha a tela 0 sem competir com a introducao. */
+.script-recolhido-titulo {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(10, 37, 64, 0.75);
+}
+.script-recolhido-titulo::-webkit-details-marker { display: none; }
+.script-recolhido-titulo::before { content: "B8"; margin-right: 0.45rem; font-size: 0.9em; }
+.script-recolhido[open] > .script-recolhido-titulo::before { content: "BE"; }
 .script-checklist { padding: 0.25rem 0; }
+/* Seletor das duas etapas de "Materiais e ficha" (onda J, item 4): curto, no alto do conteudo. */
+.script-etapas {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0.8rem; background: rgba(255, 255, 255, 0.06);
+}
+.script-etapas-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  min-height: 40px; padding: 0 0.85rem; border-radius: 0.6rem; background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-family: var(--font-sans); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.script-etapas-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.script-etapas-btn-ativa, .script-etapas-btn-ativa:hover { background: #CA9A43; color: #080808; }
+.script-etapas-num { font-family: var(--font-serif); font-size: 0.95rem; opacity: 0.8; }
 .script-nota {
   padding: 0.85rem 1rem;
   border: 1px solid rgba(10, 37, 64, 0.1);
@@ -607,32 +640,33 @@ body {
 .script-topo-btn:hover { background: rgba(255, 255, 255, 0.1); }
 .script-topo-btn-forte { background: #CA9A43; border-color: #CA9A43; color: #080808; font-weight: 700; }
 .script-topo-btn-forte:hover { background: #D4B050; }
-/* Chave Treinamento | Campo: mesma altura do "Baixar" */
-.script-modo {
-  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 0.8rem; background: rgba(255, 255, 255, 0.06);
+/* Escolha Treinamento ou Campo (onda J, item 24): duas opcoes so, em largura cheia, no lugar do trilho.
+   Alta o bastante para ser alvo de toque, baixa o bastante para nao virar faixa. */
+.script-modo-barra {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 1rem; background: rgba(255, 255, 255, 0.06);
 }
-.script-modo-btn {
-  min-height: 38px; padding: 0 0.9rem; border-radius: 0.6rem; background: transparent;
-  color: rgba(255, 255, 255, 0.75);
-  font-family: var(--font-sans); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; cursor: pointer;
+.script-modo-barra-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem;
+  min-height: 64px; padding: 0.6rem 0.75rem; border-radius: 0.8rem; background: transparent;
+  color: rgba(255, 255, 255, 0.75); text-align: center; cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
-.script-modo-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-.script-modo-btn-ativo, .script-modo-btn-ativo:hover { background: #FCF7F0; color: #0A2540; }
-.script-modo-legenda { font-size: 0.8rem; line-height: 1.4; color: rgba(255, 255, 255, 0.6); }
+.script-modo-barra-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.script-modo-barra-btn-ativo, .script-modo-barra-btn-ativo:hover { background: #FCF7F0; color: #0A2540; }
+.script-modo-barra-nome {
+  font-family: var(--font-sans); font-size: 0.9rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.script-modo-barra-linha { font-family: var(--font-sans); font-size: 0.72rem; line-height: 1.3; opacity: 0.72; }
 @media (max-width: 639.98px) {
   .script-topo { gap: 0.5rem; }
   .script-topo-lado { width: 100%; }
   .script-topo-direita { margin-left: 0; }
   .script-mais { flex: 1 1 8rem; min-width: 0; }
   .script-topo-btn { width: 100%; padding: 0 0.6rem; }
-  /* A chave manda na propria largura: dividir a linha ao meio cortava "Treinamento" em 390 px */
-  .script-modo { flex: 0 1 auto; min-width: 0; }
-  .script-modo-btn {
-    flex: 0 1 auto; min-width: 0; padding: 0 0.45rem; font-size: 0.68rem; letter-spacing: 0;
-    white-space: nowrap;
-  }
+  .script-modo-barra-btn { min-height: 58px; padding: 0.5rem 0.4rem; }
+  .script-modo-barra-nome { font-size: 0.78rem; letter-spacing: 0.02em; }
+  .script-modo-barra-linha { font-size: 0.66rem; }
 }
 
 /* "Por que funciona": a anatomia da fala fica fechada por padrao */
@@ -876,12 +910,14 @@ body {
   .script-rodape-btn { width: 100%; }
 }
 
-/* Lista de grifos no celular: botão flutuante (a barra do mapa não carrega mais esse peso) */
-/* O botao flutuante de grifos paira sobre o papel no celular: o papel ganha um rodape vazio do tamanho
-   da pastilha mais a barra de baixo, para nenhuma linha de texto terminar embaixo dele. */
+/* Lista de grifos: botão flutuante em todos os tamanhos (onda J, item 7) */
+/* A pastilha paira sobre o papel: o papel ganha um rodape vazio do tamanho da pastilha mais a barra de baixo,
+   para nenhuma linha de texto terminar embaixo dela. */
+.script-reader-com-grifos .script-paper { padding-bottom: 5rem; }
+.script-reader-com-grifos { padding-bottom: 4rem; }
 @media (max-width: 639.98px) {
-  /* A pastilha paira a 5.5rem do fim da janela e mede 2.75rem de altura: o rodape do papel cobre as duas
-     medidas, senao a ultima linha do texto termina embaixo dela. */
+  /* No celular a pastilha paira a 5.5rem do fim da janela (acima da barra de navegacao) e mede 2.75rem de
+     altura: o rodape cobre as duas medidas, senao a ultima linha do texto termina embaixo dela. */
   .script-reader-com-grifos .script-paper { padding-bottom: 7rem; }
   /* Quando a tela inteira cabe na janela nao ha rolagem, e o rodape de dentro do papel nao tem para onde
      empurrar: o bloco do leitor reserva o mesmo espaco embaixo, entao sempre sobra rolagem para tirar a
@@ -891,7 +927,7 @@ body {
 .script-grifos-flutuante {
   position: fixed;
   right: 0.9rem;
-  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   z-index: 30;
   min-height: 44px;
   padding: 0 1rem;
@@ -908,15 +944,20 @@ body {
   cursor: pointer;
 }
 .script-grifos-flutuante:hover { background: #0A2540; }
+@media (max-width: 639.98px) {
+  /* No celular a barra de navegacao mora no rodape: a pastilha sobe para nao cobri-la. */
+  .script-grifos-flutuante { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
+}
 
-/* Cartão de bolso que vira imagem ("Baixar cartão"): fica fora da tela, em creme com texto navy */
-.script-cartao-export-fora { position: fixed; left: -12000px; top: 0; width: 620px; pointer-events: none; }
-.script-cartao-export { background: #FCF7F0; color: #0A2540; border-color: #CA9A43; }
-.script-cartao-export h2,
-.script-cartao-export .script-cartao-corpo h3,
-.script-cartao-export .script-cartao-corpo strong { color: #0A2540; }
-.script-cartao-export .script-cartao-corpo li::marker { color: #CA9A43; }
-.script-cartao-export .script-cartao-valor { background: rgba(202, 154, 67, 0.18); color: #8a6516; }
+/* Preparação que vira imagem ("Baixar a preparação"): fica fora da tela, em creme com texto navy */
+.script-export-fora { position: fixed; left: -12000px; top: 0; width: 720px; pointer-events: none; }
+.script-preparacao-export {
+  background: #FCF7F0; color: #0A2540; padding: 2rem 2.25rem; border: 1px solid #CA9A43; border-radius: 1rem;
+}
+.script-preparacao-export h2,
+.script-preparacao-export h3,
+.script-preparacao-export strong { color: #0A2540; }
+.script-preparacao-export li::marker { color: #CA9A43; }
 
 /* Grifos: pintura sem mexer no DOM (CSS Custom Highlight API) */
 ::highlight(script-grifo-dourado) { background-color: rgba(255, 218, 113, 0.55); }
@@ -1017,6 +1058,7 @@ body {
   background: #FCF7F0;
   color: #080808;
   max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
   overflow-y: auto;
 }
 .script-grifo-item {
@@ -1112,22 +1154,40 @@ body {
   z-index: 55;
   background: rgba(2, 15, 25, 0.7);
 }
+/* A folha e `fixed`, nao `absolute` dentro do fundo: no iOS a barra do Safari encolhe a area visivel e o
+   `inset: 0` do pai deixava a lista terminando embaixo da barra. Com `fixed` mais `dvh` ela acompanha a janela
+   de verdade, e o `env(safe-area-inset-bottom)` guarda o espaco da faixa de gestos. */
 .script-grifos-folha {
-  position: absolute;
+  position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   max-height: 80vh;
+  max-height: 80dvh;
   overflow-y: auto;
   border-radius: 1rem 1rem 0 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: #FCF7F0;
 }
 .script-grifos-folha .script-grifos-painel { max-height: none; border-radius: 1rem 1rem 0 0; }
+/* Desktop (lg+): a mesma lista entra como gaveta pela direita, no lugar da coluna fixa que existia antes. */
+@media (min-width: 1024px) {
+  .script-grifos-folha {
+    left: auto;
+    top: 0;
+    bottom: 0;
+    width: 380px;
+    max-width: 92vw;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 1rem 0 0 1rem;
+  }
+  .script-grifos-folha .script-grifos-painel { border-radius: 1rem 0 0 1rem; }
+}
 
 @media print {
-  /* O cartão de bolso agora sai em imagem ("Baixar cartão"); o cartão escondido do export nunca é impresso */
-  .script-cartao-export-fora { display: none !important; }
+  /* A preparação também sai em imagem ("Baixar a preparação"); a cópia escondida nunca é impressa */
+  .script-export-fora { display: none !important; }
   .script-slot { border-color: #999; background: #fff; color: #111; }
   .script-proibido { border-color: #b91c1c; background: #fff; }
   .script-premissa { background: #fff; border-color: #CA9A43; }

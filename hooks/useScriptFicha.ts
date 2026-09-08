@@ -197,7 +197,10 @@ export interface Suficiencia {
 /** Origem do fechamento da ficha: os materiais bastaram ('automatica'), o mentor fechou ('mentor'), o admin forcou ('admin:<quem>'). */
 export const ORIGEM_AUTOMATICA = 'automatica';
 
-export type RotaScript = 'script_como_funciona' | 'script_escolha' | 'script_materiais' | 'script_espera' | 'script_ficha' | 'script_script';
+export type RotaScript = 'script_como_funciona' | 'script_escolha' | 'script_materiais_ficha' | 'script_script';
+
+/** Etapa interna da tela "Materiais e ficha" (onda J, item 4): as duas etapas e a espera entre elas. */
+export type EtapaMateriaisFicha = 'materiais' | 'espera' | 'ficha';
 
 /** O que `rotaInicialDoClube` precisa saber; tudo além de `ficha_status` e `suficiencia` é opcional. */
 export type DadosDaRota =
@@ -219,28 +222,38 @@ export function esperandoPrimeiraSugestao(d: DadosDaRota | null | undefined): bo
 }
 
 /**
+ * Em qual das duas etapas de "Materiais e ficha" a pessoa entra (onda J, item 4). As regras são as mesmas
+ * que decidiam entre as três telas antigas (Materiais, espera da leitura e Ficha):
+ * a leitura rodando sem nenhuma sugestão -> a espera (item I5);
+ * a ficha vazia -> Materiais, a não ser que a pessoa já tenha enviado ou pulado os materiais;
+ * nos outros casos -> Ficha (parcial abre só o que falta).
+ */
+export function etapaInicialMateriaisFicha(d: DadosDaRota | null | undefined): EtapaMateriaisFicha {
+  if (!d) return 'materiais';
+  if (esperandoPrimeiraSugestao(d)) return 'espera';
+  if (d.ficha_status === 'vazia') {
+    return d.materials_status === 'submitted' || d.materials_status === 'skipped' ? 'ficha' : 'materiais';
+  }
+  return 'ficha';
+}
+
+/**
  * Onde o membro do Exclusive cai ao abrir o app:
  * nunca viu a tela inicial -> "Como funciona" (decisão D1: só na primeira entrada; depois ela vive no menu);
  * sem `modo` -> a tela de escolha (essencial ou completo);
- * materiais enviados com a leitura rodando e nenhuma sugestão ainda -> a espera (item I5);
- * com modo e a ficha vazia -> Materiais, a nao ser que a pessoa ja tenha enviado ou pulado os materiais;
- * "Seu script" quando a ficha esta fechada ou os materiais bastaram (suficiente);
- * a Ficha nos outros casos (parcial abre so o que falta).
+ * "Seu script" quando a ficha está fechada ou os materiais bastaram (suficiente);
+ * nos outros casos -> "Materiais e ficha", que abre na etapa dada por `etapaInicialMateriaisFicha`.
  *
  * `visto_como_funciona` vem sempre do servidor (data ISO ou `null`). `undefined` = quem chamou não
  * carregou esse dado, e aí a tela inicial não entra na frente de nada.
  */
 export function rotaInicialDoClube(d: DadosDaRota | null | undefined): RotaScript {
-  if (!d) return 'script_materiais';
+  if (!d) return 'script_materiais_ficha';
   if (d.visto_como_funciona === null) return 'script_como_funciona';
   if (!d.modo) return 'script_escolha';
   if (d.ficha_status === 'confirmada') return 'script_script';
   if (d.suficiencia?.resultado === 'suficiente' && d.ficha_status !== 'em_revisao') return 'script_script';
-  if (esperandoPrimeiraSugestao(d)) return 'script_espera';
-  if (d.ficha_status === 'vazia') {
-    return d.materials_status === 'submitted' || d.materials_status === 'skipped' ? 'script_ficha' : 'script_materiais';
-  }
-  return 'script_ficha';
+  return 'script_materiais_ficha';
 }
 
 /** "Ficha" vira item secundario do menu (nao uma etapa) quando os materiais bastaram e o script segue sozinho. */
