@@ -127,8 +127,11 @@ describe('o catalogo manda em quais tarefas existem', () => {
       ...ST.TAREFAS_FIXAS,
     ]);
     expect(ST.tarefasDoPasso(1)).toHaveLength(5);
-    // Passo 6 e 7 tem um recomendado so: 4 tarefas
-    expect(ST.tarefasDoPasso(6)).toHaveLength(4);
+    // depois de 08/09 o Passo 6 tem dois recomendados (follow up + fechamento): 5 tarefas
+    expect(ST.tarefasDoPasso(6)).toHaveLength(5);
+    // Passos 2, 4, 5 e 7 tem um recomendado so: 4 tarefas
+    expect(ST.tarefasDoPasso(5)).toHaveLength(4);
+    expect(ST.tarefasDoPasso(7)).toHaveLength(4);
     expect(ST.ehDoCatalogo(1, ST.TAREFAS_FIXAS[0])).toBe(true);
     expect(ST.ehDoCatalogo(1, ORFA)).toBe(false);
     // tarefa de um passo nao vale no outro

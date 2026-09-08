@@ -23,7 +23,15 @@
  * - Passo 7: "Palestra Dani Martins · Técnicas avançadas de venda" saiu. Fica só "Recomendação", com
  *   Pâmela Ferrari. A outra "Recomendação", com Luã Paiva (`da4cdba9-...`, 57,2 min medidos), segue fora
  *   pelo corte de 1 hora.
- * - Passo 6 tem um recomendado só desde o começo: é o único acima de 1 hora no tema (60,6 min medidos).
+ * - Passo 6 tinha um recomendado só: era o único acima de 1 hora no tema (60,6 min medidos).
+ *
+ * Decisões do Danilo em 08/09/2026:
+ * - Passo 4: "Objeções - Com Pâmela Ferrari" (`6690f16c-...`) saiu da tela e o passo fica só com "Use o
+ *   Não e Melhore a Conversão", do Luã Paiva. A gravação da Pâmela continua nas alternativas do MAPA.
+ * - Passo 5: fica só com "Os Seis Porquês da Decisão", da Dani Martins.
+ * - Passo 6: "Fechamento - Com Pâmela Ferrari" (`b58ceaf3-...`) saiu do Passo 5 e entrou aqui, depois do
+ *   "Follow Up", com o "por que ver agora" reescrito para o compromisso. O passo passa a ter dois.
+ * - Contagem no ar por passo: 2, 1, 2, 1, 1, 2, 1 (10 gravações).
  *
  * Nenhum texto desta base usa travessão, nem os escritos por nós nem os títulos literais do catálogo.
  *

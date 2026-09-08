@@ -69,18 +69,6 @@
     ],
     "4": [
       {
-        "id": "corporate.objecoes-com-pamela-ferrari",
-        "titulo": "Objeções - Com Pâmela Ferrari",
-        "palestrante": "Pâmela Ferrari",
-        "tipo": "Corporate",
-        "duracaoMin": 71.1,
-        "bunnyGuid": "6690f16c-da9d-4f36-9400-3cfae11d9f77",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/6690f16c-da9d-4f36-9400-3cfae11d9f77",
-        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/6690f16c-da9d-4f36-9400-3cfae11d9f77/playlist.m3u8",
-        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/6690f16c-da9d-4f36-9400-3cfae11d9f77/thumbnail_ebc7a44c.jpg",
-        "porQueAgora": "A tese da gravação é a deste passo: objeção se antecipa ao longo da venda e nunca chega de surpresa no fechamento."
-      },
-      {
         "id": "corporate.use-o-nao-e-melhore-a-conversao-com-lua-paiva",
         "titulo": "Use o Não e Melhore a Conversão",
         "palestrante": "Luã Paiva",
@@ -94,18 +82,6 @@
       }
     ],
     "5": [
-      {
-        "id": "corporate.fechamento-com-pamela-ferrari",
-        "titulo": "Fechamento - Com Pâmela Ferrari",
-        "palestrante": "Pâmela Ferrari",
-        "tipo": "Corporate",
-        "duracaoMin": 72.3,
-        "bunnyGuid": "b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd",
-        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/playlist.m3u8",
-        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/thumbnail_5fe78eb3.jpg",
-        "porQueAgora": "Sinais de compra, microcompromissos, equação de valor e a pergunta que abre o fechamento."
-      },
       {
         "id": "corporate.os-seis-porques-da-decisao-com-dani-martins",
         "titulo": "Os Seis Porquês da Decisão - Com Dani Martins",
@@ -131,6 +107,18 @@
         "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/playlist.m3u8",
         "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/thumbnail_a2333183.jpg",
         "porQueAgora": "Ciclo de reforço em cinco etapas e sequências de sete contatos, que é o movimento do compromisso."
+      },
+      {
+        "id": "corporate.fechamento-com-pamela-ferrari",
+        "titulo": "Fechamento - Com Pâmela Ferrari",
+        "palestrante": "Pâmela Ferrari",
+        "tipo": "Corporate",
+        "duracaoMin": 72.3,
+        "bunnyGuid": "b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd",
+        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/thumbnail_5fe78eb3.jpg",
+        "porQueAgora": "Ensina o microcompromisso ao longo da venda e a pergunta que abre o fechamento, para o compromisso continuar de pé depois do sim."
       }
     ],
     "7": [

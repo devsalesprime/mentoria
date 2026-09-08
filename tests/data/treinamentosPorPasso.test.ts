@@ -8,6 +8,11 @@
  * Atualizado com as decisões de 07/09/2026: no Passo 1 o perfil do cliente passou a ser o da Pâmela
  * Ferrari, o Passo 2 perdeu o "Spin Selling" e o Passo 7 ficou só com a "Recomendação" da Pâmela.
  * Toda gravação agora carrega também a capa (`thumbUrl`) e o HLS (`hlsUrl`) do manifesto da Bunny.
+ *
+ * Decisões de 08/09/2026: o Passo 4 ficou só com o "Use o Não" do Luã Paiva (as "Objeções" da Pâmela
+ * saíram da tela), o Passo 5 ficou só com "Os Seis Porquês da Decisão" da Dani Martins e o "Fechamento"
+ * da Pâmela desceu para o Passo 6, depois do "Follow Up", com o "por que ver agora" refeito para o
+ * compromisso. A contagem no ar passa a ser 2, 1, 2, 1, 1, 2, 1.
  */
 import {
   BUNNY_LIBRARY,
@@ -34,8 +39,8 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
       expect(lista.length, `passo ${p}`).toBeLessThanOrEqual(2);
       expect(new Set(lista.map((t) => t.id)).size).toBe(lista.length);
     }
-    // contagem por passo depois das decisões de 07/09: 2, 1, 2, 2, 2, 1, 1
-    expect(PASSOS.map((p) => treinamentosDoPasso(p).length)).toEqual([2, 1, 2, 2, 2, 1, 1]);
+    // contagem por passo depois das decisões de 08/09: 2, 1, 2, 1, 1, 2, 1
+    expect(PASSOS.map((p) => treinamentosDoPasso(p).length)).toEqual([2, 1, 2, 1, 1, 2, 1]);
     expect(treinamentosDoPasso(0)).toEqual([]);
     expect(treinamentosDoPasso(8)).toEqual([]);
     expect(treinamentosDoPasso(null)).toEqual([]);
@@ -90,6 +95,9 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
     // as duas tiradas em 07/09: "Spin Selling" (Passo 2) e a palestra do Prospere 2023 (Passo 7)
     expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('0d4089d0-3d20-46cd-8345-ee4566f8492b');
     expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('a88d0d5f-73da-43a9-aa73-b63aa1f46618');
+    // a tirada em 08/09: "Objeções - Com Pâmela Ferrari" saiu do Passo 4 e não ficou em passo nenhum
+    expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('6690f16c-da9d-4f36-9400-3cfae11d9f77');
+    expect(todosOsTreinamentos().map((t) => t.id)).not.toContain('corporate.objecoes-com-pamela-ferrari');
   });
 
   it('Passo 1: o perfil de quem vende vem primeiro, o perfil do cliente depois', () => {
@@ -107,6 +115,21 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
     expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('b5f9555c-0e88-43b4-8834-b18aec327076');
   });
 
+  it('Passos 4, 5 e 6 depois de 08/09: o fechamento desceu para o compromisso, atrás do follow up', () => {
+    expect(treinamentosDoPasso(4).map((t) => t.id)).toEqual(['corporate.use-o-nao-e-melhore-a-conversao-com-lua-paiva']);
+    expect(treinamentosDoPasso(5).map((t) => t.id)).toEqual(['corporate.os-seis-porques-da-decisao-com-dani-martins']);
+    expect(treinamentosDoPasso(6).map((t) => t.id)).toEqual([
+      'corporate.follow-up-com-claudio-rosa',
+      'corporate.fechamento-com-pamela-ferrari',
+    ]);
+    const fechamento = treinamentosDoPasso(6)[1];
+    expect(fechamento.palestrante).toBe('Pâmela Ferrari');
+    expect(fechamento.bunnyGuid).toBe('b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd');
+    // o "por que ver agora" fala do compromisso, que é o movimento do Passo 6
+    expect(fechamento.porQueAgora).toMatch(/compromisso/i);
+    expect(fechamento.porQueAgora).not.toContain('—');
+  });
+
   it('os títulos e os GUIDs batem com o MAPA, um por um', () => {
     const esperado: Record<number, Array<[string, string, number]>> = {
       1: [
@@ -121,14 +144,15 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
         ['Storytelling', '4bded213-9729-48d4-bdf0-ec5bde22e187', 74.2],
       ],
       4: [
-        ['Objeções - Com Pâmela Ferrari', '6690f16c-da9d-4f36-9400-3cfae11d9f77', 71.1],
         ['Use o Não e Melhore a Conversão', '76c8ab9d-104c-47be-bed5-d948317d4fd2', 62.9],
       ],
       5: [
-        ['Fechamento - Com Pâmela Ferrari', 'b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd', 72.3],
         ['Os Seis Porquês da Decisão - Com Dani Martins', '351d4990-e6ae-4a22-be99-e37cf9daec30', 61.2],
       ],
-      6: [['Follow Up - Com Cláudio Rosa', '2b21162d-5d92-4bb1-91e9-08d1fe344c38', 60.6]],
+      6: [
+        ['Follow Up - Com Cláudio Rosa', '2b21162d-5d92-4bb1-91e9-08d1fe344c38', 60.6],
+        ['Fechamento - Com Pâmela Ferrari', 'b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd', 72.3],
+      ],
       7: [['Recomendação', '8a8cc7d2-7b67-4d09-8352-13df7625bf4e', 63.9]],
     };
     for (const p of PASSOS) {
@@ -189,15 +213,15 @@ describe('tarefas do movimento (components/script/script/tarefas.ts)', () => {
       for (const t of tarefas.slice(-3)) expect(t.texto).not.toContain('—');
     }
     expect(tarefasDoPasso(1)[0].texto).toContain('Assistir a "Palestra Dani Martins');
-    // 2 treinamentos viram 5 tarefas; 1 treinamento vira 4 (Passos 2, 6 e 7)
-    expect(PASSOS.map((p) => tarefasDoPasso(p).length)).toEqual([5, 4, 5, 5, 5, 4, 4]);
+    // 2 treinamentos viram 5 tarefas; 1 treinamento vira 4 (Passos 2, 4, 5 e 7)
+    expect(PASSOS.map((p) => tarefasDoPasso(p).length)).toEqual([5, 4, 5, 4, 4, 5, 4]);
   });
 
   it('contagem por passo em cima das chaves concluídas', () => {
     const feitas = new Set([chaveTarefa(2, 'treinar-falas'), chaveTarefa(2, 'aplicar-reuniao'), chaveTarefa(3, 'treinar-falas')]);
     expect(contagemDoPasso(2, feitas)).toEqual({ feitas: 2, total: 4 });
     expect(contagemDoPasso(3, feitas)).toEqual({ feitas: 1, total: 5 });
-    expect(contagemDoPasso(6, feitas)).toEqual({ feitas: 0, total: 4 });
+    expect(contagemDoPasso(6, feitas)).toEqual({ feitas: 0, total: 5 });
     const todas = new Set(tarefasDoPasso(7).map((t) => chaveTarefa(7, t.id)));
     expect(contagemDoPasso(7, todas)).toEqual({ feitas: 4, total: 4 });
     expect(chaveTarefa(4, 'aplicar-reuniao')).toBe('4:aplicar-reuniao');
