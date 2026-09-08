@@ -258,7 +258,9 @@ describe('ScriptScreen', () => {
     expect(d2.querySelectorAll('section.script-passo')).toHaveLength(7);
     expect(d1.querySelectorAll('.script-medalha')[6].textContent).toBe('7');
     expect(paper.querySelectorAll('.script-fala').length).toBeGreaterThanOrEqual(20);
-    expect(paper.querySelector('#script-cartao')).not.toBeNull();
+    // onda J (item 23, decisao A6): o cartao de bolso saiu da folha; quem fecha e a Preparacao
+    expect(paper.querySelector('#script-cartao')).toBeNull();
+    expect(paper.querySelector('[data-testid="preparacao-cartao"]')).not.toBeNull();
 
     // limpeza defensiva: nada de marca de fonte, nota editorial ou placeholder no que o leitor ve
     const texto = container.textContent || '';

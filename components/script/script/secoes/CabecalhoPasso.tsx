@@ -25,12 +25,14 @@ export const CabecalhoPasso: React.FC<{
   rotuloObjetivo?: string;
   estado: string;
   principio: string;
-}> = ({ n, nome, objetivo, rotuloObjetivo, estado, principio }) => (
+  /** A linha de ordem acima do nome. Na tela é "Passo N de 7"; na folha impressa, só "Passo N". */
+  ordem?: string;
+}> = ({ n, nome, objetivo, rotuloObjetivo, estado, principio, ordem }) => (
   <header className="script-passo-cabecalho" data-testid="passo-cabecalho">
     <div className="flex items-center gap-4">
       <span className="script-medalha" aria-hidden="true">{n}</span>
       <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">Passo {n} de 7</p>
+        <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">{ordem || `Passo ${n} de 7`}</p>
         <h2 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">{nome}</h2>
       </div>
     </div>

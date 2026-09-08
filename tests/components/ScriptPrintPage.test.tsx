@@ -50,7 +50,7 @@ describe('ScriptPrintPage (pagina de impressao, fora do Dashboard)', () => {
     expect(docDaQuery(null)).toBe('ambos');
   });
 
-  it('doc=campo: so o Documento 2, com os 7 "## Passo", mapa e cartao; titulo vira o nome do PDF', async () => {
+  it('doc=campo: so o Documento 2, com os 7 "## Passo" e a Preparacao no fim; titulo vira o nome do PDF', async () => {
     mockApi(FIXTURE);
     const { container } = abrir('?doc=campo');
     await screen.findByText('Script dos 7 passos da venda');
@@ -63,7 +63,9 @@ describe('ScriptPrintPage (pagina de impressao, fora do Dashboard)', () => {
       'Negociação e Fechamento', 'Compromisso', 'Recomendação (Método EVPC)',
     ]);
     expect(container.querySelector('.script-mapa')).not.toBeNull();
-    expect(container.querySelector('#script-cartao')).not.toBeNull();
+    // onda F (item 23, decisao A6): o cartao de bolso saiu da folha; quem fecha e a Preparacao
+    expect(container.querySelector('#script-cartao')).toBeNull();
+    expect(container.querySelector('[data-testid="preparacao-cartao"]')).not.toBeNull();
     expect(container.querySelector('.script-premissa')).toBeNull();
     await waitFor(() => expect(document.title).toBe('Script-de-campo-Elos-Club'));
     expect(screen.getByText('Script de campo')).toBeInTheDocument();
@@ -73,7 +75,7 @@ describe('ScriptPrintPage (pagina de impressao, fora do Dashboard)', () => {
     expect(container.querySelector('[data-testid="script-reader"]')).toBeNull();
   });
 
-  it('doc=treinamento: so o Documento 1 (7 passos, performance e metricas), sem mapa nem cartao; versao pedida na query', async () => {
+  it('doc=treinamento: so o Documento 1 (7 passos, performance e metricas), sem a Preparacao; versao pedida na query', async () => {
     mockApi(FIXTURE);
     const { container } = abrir('?doc=treinamento&versao=1');
     await screen.findByText('Script dos 7 passos da venda');
@@ -81,6 +83,7 @@ describe('ScriptPrintPage (pagina de impressao, fora do Dashboard)', () => {
     expect(passosDe(container, 'd2')).toBe(0);
     expect(container.querySelector('.script-mapa')).toBeNull();
     expect(container.querySelector('#script-cartao')).toBeNull();
+    expect(container.querySelector('[data-testid="preparacao-cartao"]')).toBeNull();
     expect(screen.getByText('Performance e métricas')).toBeInTheDocument();
     expect(screen.getByText(/versão 1/)).toBeInTheDocument();
     expect(screen.getByText(/aprovado em/)).toBeInTheDocument();

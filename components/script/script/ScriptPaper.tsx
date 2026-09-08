@@ -4,6 +4,8 @@ import { falaParaCopiar, segmentar, tituloDaFala } from './parseScript';
 import { AnatomiaLegenda, textoComAnatomia } from './AnatomiaFala';
 import { renderMarkdown as renderMd } from '../../../utils/markdown';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
+import { PassoSecoes } from './secoes/PassoSecoes';
+import { PreparacaoCartao } from './secoes/PreparacaoCartao';
 
 /**
  * A folha do script: papel creme, bloco de titulo, cabecalho, "Como usar", os documentos (treinamento e campo),
@@ -288,6 +290,12 @@ export const PassoCorpo: React.FC<{ passo: PassoDoc; semAnatomia?: boolean; abri
   </div>
 );
 
+/**
+ * Um passo na folha. O corpo e o MESMO componente da tela (`PassoSecoes`): um renderizador para as duas
+ * superficies, que e o que garante que o papel nao volte a mostrar o que a tela ja tirou
+ * (SPEC-workflow-v4-decisoes-08-09 §2, itens 14, 15, 18, 19 e 25). `abrirTudo` deixa tudo aberto: nada de
+ * acordeao, folha ou botao numa folha impressa.
+ */
 export const PassoSection: React.FC<{
   passo: PassoDoc;
   docId: string;
@@ -295,16 +303,25 @@ export const PassoSection: React.FC<{
   comentarios?: React.ReactNode;
   /** Folha impressa: nada de acordeao fechado, a anatomia ja vem aberta. */
   abrirTudo?: boolean;
-}> = ({ passo, docId, refCb, comentarios, abrirTudo }) => (
+  /** Passo do Documento 1: tabela de perfis e decisao quando o de campo nao os traz. */
+  passoAlternativo?: PassoDoc | null;
+  objetivoAlternativo?: string;
+  /** Premissa REP: desenhada dentro do Passo 2, e so uma vez na folha. */
+  premissa?: Premissa | null;
+  campo?: boolean;
+}> = ({ passo, docId, refCb, comentarios, abrirTudo, passoAlternativo = null, objetivoAlternativo = '', premissa = null, campo }) => (
   <section id={`${docId}-p${passo.n}`} data-passo={passo.n} data-doc={docId} ref={refCb} className="script-passo scroll-mt-20 lg:scroll-mt-4">
-    <header className="flex items-center gap-4 mb-4">
-      <span className="script-medalha" aria-hidden="true">{passo.n}</span>
-      <div>
-        <p className="text-[10px] uppercase tracking-[0.22em] text-prosperus-gold-dark font-semibold">Passo {passo.n}</p>
-        <h2 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">{passo.nome}</h2>
-      </div>
-    </header>
-    <PassoCorpo passo={passo} abrirTudo={abrirTudo} />
+    <PassoSecoes
+      passo={passo}
+      n={passo.n}
+      nome={passo.nome}
+      passoAlternativo={passoAlternativo}
+      objetivoAlternativo={objetivoAlternativo}
+      premissa={premissa}
+      campo={campo}
+      todosVisiveis={abrirTudo}
+      ordem={`Passo ${passo.n}`}
+    />
     {comentarios}
   </section>
 );
@@ -317,7 +334,10 @@ export const DocumentoView: React.FC<{
   comentariosDo: (passo: number) => React.ReactNode;
   premissa?: Premissa | null;
   abrirTudo?: boolean;
-}> = ({ documento, ativo, multiplos, refFor, comentariosDo, premissa, abrirTudo }) => (
+  /** Passos do Documento 1, para o Documento 2 herdar perfis, objetivo e decisao. */
+  passosBase?: PassoDoc[];
+  campo?: boolean;
+}> = ({ documento, ativo, multiplos, refFor, comentariosDo, premissa, abrirTudo, passosBase, campo }) => (
   <section data-doc={documento.id} className={`script-doc ${ativo ? 'block' : 'hidden'} print:block`} aria-hidden={!ativo}>
     {multiplos && (
       <header className="script-doc-titulo mb-6 pb-3 border-b border-prosperus-gold-dark/50">
@@ -328,11 +348,25 @@ export const DocumentoView: React.FC<{
     {documento.extras.filter((e) => e.titulo === 'Abertura').map((e) => (
       <div key={e.slug} className="script-md mb-6" dangerouslySetInnerHTML={{ __html: e.html }} />
     ))}
-    {premissa && <div className="mb-8"><PremissaBox premissa={premissa} /></div>}
     <div className="space-y-10">
-      {documento.passos.map((p) => (
-        <PassoSection key={`${documento.id}-${p.n}`} passo={p} docId={documento.id} refCb={refFor(`${documento.id}-p${p.n}`)} comentarios={comentariosDo(p.n)} abrirTudo={abrirTudo} />
-      ))}
+      {documento.passos.map((p) => {
+        const base = (passosBase || []).find((b) => b.n === p.n) || null;
+        const objetivo = base?.blocos.find((b) => b.tipo === 'objetivo');
+        return (
+          <PassoSection
+            key={`${documento.id}-${p.n}`}
+            passo={p}
+            docId={documento.id}
+            refCb={refFor(`${documento.id}-p${p.n}`)}
+            comentarios={comentariosDo(p.n)}
+            abrirTudo={abrirTudo}
+            passoAlternativo={base}
+            objetivoAlternativo={objetivo ? (objetivo.inline || objetivo.itens.join(' ')) : ''}
+            premissa={premissa}
+            campo={campo}
+          />
+        );
+      })}
     </div>
     {documento.extras.filter((e) => e.titulo !== 'Abertura').map((e) => (
       <section key={e.slug} className="script-extra mt-10">
@@ -403,12 +437,23 @@ export const ScriptPaper: React.FC<{
       ))}
 
       {documentos.map((d) => (
-        <DocumentoView key={d.id} documento={d} ativo={todosVisiveis || d.id === docAtivo} multiplos={multiplos} refFor={refFor} comentariosDo={comentariosDo} premissa={d.id === doc.documentos[0]?.id ? doc.premissa : null} abrirTudo={todosVisiveis} />
+        <DocumentoView
+          key={d.id}
+          documento={d}
+          ativo={todosVisiveis || d.id === docAtivo}
+          multiplos={multiplos}
+          refFor={refFor}
+          comentariosDo={comentariosDo}
+          premissa={d.id === doc.documentos[0]?.id ? doc.premissa : null}
+          abrirTudo={todosVisiveis}
+          passosBase={d.id === doc.documentos[0]?.id ? undefined : doc.documentos[0]?.passos}
+          campo={d.id === 'd2'}
+        />
       ))}
 
-      {comCampo && doc.mapa && <MapaSection mapa={doc.mapa} />}
-
-      {comCampo && doc.cartao && <div className="mt-8"><CartaoView cartao={doc.cartao} montado={doc.cartaoMontado} id="script-cartao" /></div>}
+      {/* O cartao de bolso saiu da folha (item 9, decisao A6): quem fecha o script agora e a Preparacao,
+          que e o cartao que a pessoa leva para a reuniao. O conteudo continua no `.md`. */}
+      {comCampo && <PreparacaoCartao doc={doc} campo comId={false} />}
     </article>
   );
 };

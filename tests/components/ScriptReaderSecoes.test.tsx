@@ -8,6 +8,7 @@ import {
   montarSecoes, montarPerguntas, separarDecisao, separarObjecao, rotuloCurtoGrupo,
   gruposDasFalas, gruposDeFalas, modoDasFalas, ehPerguntasRecomendadas,
 } from '../../components/script/script/secoes/modelo';
+import { ScriptPaper } from '../../components/script/script/ScriptPaper';
 import { PassoSecoes } from '../../components/script/script/secoes/PassoSecoes';
 import { CabecalhoPasso } from '../../components/script/script/secoes/CabecalhoPasso';
 import { ObservarSecao } from '../../components/script/script/secoes/ObservarSecao';
@@ -420,6 +421,98 @@ describe('item 25 · vista Campo e folha impressa com tudo aberto', () => {
     expect(corpo.textContent).not.toContain('apresenta a pessoa antes da estrutura');
     fireEvent.click(within(anatomias[0]).getByRole('button', { name: 'Por que funciona' }));
     expect(corpo.textContent).toContain('apresenta a pessoa antes da estrutura');
+  });
+});
+
+describe('a folha e a tela desenham a mesma coisa', () => {
+  function abrirFolha() {
+    const { container } = render(
+      <ScriptPaper
+        doc={DOC}
+        clubNome="Prosperus Club"
+        versao={1}
+        escritoEm="08/09/2026"
+        docAtivo="d1"
+        todosVisiveis
+        refFor={() => () => undefined}
+        comentariosDo={() => null}
+      />
+    );
+    return container.querySelector('#script-print-root') as HTMLElement;
+  }
+
+  it('a folha usa o mesmo corpo de passo da tela: sem "Perguntas recomendadas" e sem cartão de bolso', () => {
+    fingirLargura(false);
+    const folha = abrirFolha();
+    expect(within(folha).queryByText('Perguntas recomendadas')).toBeNull();
+    expect(folha.textContent).not.toContain('você está em qual cidade?');
+    expect(folha.textContent).not.toContain('O que hoje só anda quando você está presente?');
+    // o `**Perguntas:**` do Documento 2 continua, que é a lista curta de alternativas
+    expect(within(folha).getAllByTestId('perguntas-checklist').length).toBeGreaterThan(0);
+    expect(folha.querySelector('#script-cartao')).toBeNull();
+    expect(within(folha).queryByText('Cartão de bolso')).toBeNull();
+    // o corpo do passo veio do PassoSecoes: cabeçalho canônico e sequência ligada
+    expect(within(folha).getAllByTestId('passo-cabecalho').length).toBe(DOC.documentos.flatMap((d) => d.passos).length);
+    expect(within(folha).getAllByTestId('falas-sequencia').length).toBeGreaterThan(0);
+  });
+
+  it('a premissa REP aparece uma vez só, dentro do Passo 2, e não no alto do Documento 1', () => {
+    fingirLargura(false);
+    const folha = abrirFolha();
+    const premissas = within(folha).getAllByTestId('premissa');
+    expect(premissas).toHaveLength(1);
+    const passo2 = folha.querySelector('#d1-p2')!;
+    expect(passo2.contains(premissas[0])).toBe(true);
+  });
+
+  it('na folha a decisão é a mesma dos dois lados e nada fica atrás de clique', () => {
+    fingirLargura(false);
+    const folha = abrirFolha();
+    expect(within(folha).queryByRole('button', { name: 'Por que funciona' })).toBeNull();
+    expect(within(folha).queryByTestId('perguntas-botao')).toBeNull();
+    expect(within(folha).getAllByTestId('grupo-aberto').length).toBeGreaterThan(0);
+    expect(within(folha).queryAllByTestId('secao-sucesso')).toHaveLength(0);
+    const avances = within(folha).getAllByTestId('decisao-avance');
+    expect(avances.length).toBe(DOC.documentos.flatMap((d) => d.passos).length);
+    expect(avances[0]).toHaveTextContent('Quando avançar');
+  });
+
+  it('a Preparação fecha a folha, com o checklist da Dani', () => {
+    fingirLargura(false);
+    const folha = abrirFolha();
+    // na folha o cartão nasce sem o id do download: esse id é do nó da tela da Preparação
+    const cartao = within(folha).getByTestId('preparacao-cartao');
+    expect(folha.querySelector('#script-preparacao-export')).toBeNull();
+    expect(within(cartao as HTMLElement).getByTestId('preparacao-checklist')).toHaveTextContent('Deixei o cliente falar mais do que eu?');
+  });
+});
+
+describe('item 2 do retrabalho · a decisão do Campo vem do Documento 1', () => {
+  it('nenhum passo do Documento 2 escreve "Avançar ou voltar" nem "Critério de sucesso"', () => {
+    for (const p of D2.passos) {
+      expect(montarSecoes(p).avancar).toBeNull();
+      expect(montarSecoes(p).sucesso).toBeNull();
+    }
+  });
+
+  it('sem o bloco no passo de campo, o molde usa o texto do passo correspondente do Documento 1', () => {
+    const { corpo } = abrirPasso(C1, { campo: true, passoAlternativo: P1 });
+    const avance = within(corpo).getByTestId('decisao-avance');
+    expect(avance).toHaveTextContent('Quando avançar');
+    expect(avance).toHaveTextContent('avance quando ele responder à sua última pergunta');
+    expect(within(corpo).getByTestId('decisao-volte')).toHaveTextContent('refaça a entrega de controle');
+    // o critério de sucesso continua fora da vista Campo (CAMPO_ESCONDE)
+    expect(within(corpo).queryByTestId('decisao-criterio')).toBeNull();
+  });
+
+  it('sem passo do Documento 1 para herdar, o Campo simplesmente não desenha a decisão', () => {
+    const { corpo } = abrirPasso(C1, { campo: true });
+    expect(within(corpo).queryByTestId('secao-avancar')).toBeNull();
+  });
+
+  it('no Treinamento nada é herdado: o passo usa o próprio texto', () => {
+    const { corpo } = abrirPasso(P2, { passoAlternativo: P1 });
+    expect(within(corpo).getByTestId('decisao-avance')).toHaveTextContent('avance quando você tiver escritos a dor principal');
   });
 });
 

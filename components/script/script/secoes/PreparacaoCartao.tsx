@@ -16,6 +16,8 @@ import { CHECKLIST_PERFORMANCE } from './doutrina';
  * o checklist da Dani, que é doutrina fixa do leitor e igual para todo clube. Nada é reescrito.
  *
  * `campo` deixa o cartão no essencial da reunião: mapa e checklist, sem as métricas de acompanhamento.
+ * `comId` desliga o `id` do download: a folha impressa também fecha com a Preparação, e o id do nó
+ * exportado precisa ser único na página.
  */
 
 export const ID_EXPORT = 'script-preparacao-export';
@@ -24,7 +26,7 @@ export const TITULO_CARTAO = 'Preparação e métricas';
 const MapaCartao: React.FC<{ titulo: string; md: string; html: string }> = ({ titulo, md, html }) => {
   const tabela = tabelaDeCanos(md);
   return (
-    <section className="script-prep-bloco" data-testid="preparacao-mapa">
+    <section className="script-prep-bloco script-mapa" data-testid="preparacao-mapa">
       <h3 className="script-prep-titulo">{titulo}</h3>
       {tabela
         ? <TabelaSecao tabela={tabela} />
@@ -33,10 +35,10 @@ const MapaCartao: React.FC<{ titulo: string; md: string; html: string }> = ({ ti
   );
 };
 
-export const PreparacaoCartao: React.FC<{ doc: ScriptDoc; campo?: boolean }> = ({ doc, campo }) => {
+export const PreparacaoCartao: React.FC<{ doc: ScriptDoc; campo?: boolean; comId?: boolean }> = ({ doc, campo, comId = true }) => {
   const extras = campo ? [] : doc.documentos.flatMap((d) => d.extras.filter((e) => e.titulo !== 'Abertura'));
   return (
-    <div id={ID_EXPORT} className="script-prep-cartao" data-testid="preparacao-cartao">
+    <div id={comId ? ID_EXPORT : undefined} className="script-prep-cartao" data-testid="preparacao-cartao">
       <header className="script-prep-cabecalho">
         <p className="script-nota-rotulo">Antes e depois da reunião</p>
         <h2 className="script-prep-h2">{TITULO_CARTAO}</h2>

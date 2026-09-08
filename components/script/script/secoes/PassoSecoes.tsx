@@ -48,7 +48,9 @@ export const PassoSecoes: React.FC<{
   campo?: boolean;
   /** Folha impressa: tudo aberto, nada atrás de clique. */
   todosVisiveis?: boolean;
-}> = ({ passo, n, nome, objetivoAlternativo = '', passoAlternativo = null, premissa = null, campo, todosVisiveis }) => {
+  /** A linha de ordem do cabeçalho. Na tela é "Passo N de 7"; a folha impressa pede só "Passo N". */
+  ordem?: string;
+}> = ({ passo, n, nome, objetivoAlternativo = '', passoAlternativo = null, premissa = null, campo, todosVisiveis, ordem }) => {
   // "Quem está do outro lado" sai do corpo e vira tabela de verdade logo abaixo do princípio de condução.
   const perfis = extrairPerfis(passo) || extrairPerfis(passoAlternativo);
   const corpo = passo && perfis && passo.blocos.includes(perfis.bloco)
@@ -58,6 +60,14 @@ export const PassoSecoes: React.FC<{
   const abrirTudo = !!todosVisiveis;
   const gruposAbertos = !!campo || abrirTudo;
   const criterio = campo ? '' : textoDoBloco(s.sucesso);
+  // O Documento 2 nao escreve "Avancar ou voltar" nem "Criterio de sucesso": para o molde de decisao ser o
+  // mesmo nas duas vistas, a vista Campo usa o texto do passo correspondente do Documento 1. E so
+  // apresentacao: o texto continua sendo o que o script escreveu, no passo certo.
+  const base = campo && !s.avancar && passoAlternativo && passoAlternativo !== passo
+    ? montarSecoes(passoAlternativo)
+    : null;
+  const avancar = s.avancar || base?.avancar || null;
+  const decisao = s.avancar ? s.decisao : (base?.decisao || null);
   return (
     <>
       <CabecalhoPasso
@@ -66,6 +76,7 @@ export const PassoSecoes: React.FC<{
         objetivo={s.objetivo}
         estado={campo ? '' : s.estado}
         principio={campo ? '' : s.principio}
+        ordem={ordem}
       />
       {!passo && (
         <p className="text-sm text-prosperus-navy-panel/70 mt-4">
@@ -93,7 +104,7 @@ export const PassoSecoes: React.FC<{
       )}
       {s.perguntas && <PerguntasSecao secao={s.perguntas} aberto={gruposAbertos} />}
       {!campo && s.observar && <ObservarSecao bloco={s.observar} />}
-      {(s.avancar || criterio) && <AvancarSecao bloco={s.avancar} decisao={s.decisao} criterio={criterio} />}
+      {(avancar || criterio) && <AvancarSecao bloco={avancar} decisao={decisao} criterio={criterio} />}
       {!campo && s.silencio && <CalloutSecao bloco={s.silencio} tom="silencio" />}
       {s.objecoes && <ObjecoesSecao bloco={s.objecoes} itens={s.objecoesItens} aberto={gruposAbertos} />}
       {!campo && s.erro && <CalloutSecao bloco={s.erro} tom="erro" />}
