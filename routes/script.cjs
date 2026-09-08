@@ -689,8 +689,19 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
 
   // POST /api/script/ficha/gerar-script  -> "Gerar do zero": job `script` (ignora versoes e comentarios); so com a ficha confirmada.
   // "Pedir nova versao" a partir dos comentarios e POST /api/script/versoes/:versao/revisar.
+  // Item 26: gerar do zero e a mesma chance de fechar a ficha (o job entra na mesma conta), entao passa pela mesma trava.
   router.post('/api/script/ficha/gerar-script', authMiddleware, cohortGuard, async (req, res) => {
     try {
+      const conta = await contarAtualizacoesFicha(req.cohort.club_slug);
+      if (fichaNoLimite(conta)) {
+        return res.status(409).json({
+          success: false,
+          motivo: 'limite_ficha',
+          message: COPY_LIMITE_FICHA,
+          ficha_atualizacoes_usadas: conta.usados,
+          ficha_limite: conta.limite,
+        });
+      }
       if (req.ficha.ficha_status !== 'confirmada') {
         const missing = SF.missingPorModo(safeJsonParse(req.ficha.fields, {}), req.ficha.modo);
         return res.status(400).json({

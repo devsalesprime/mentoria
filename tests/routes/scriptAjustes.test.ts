@@ -363,6 +363,33 @@ describe('uma atualização da ficha depois do primeiro script', () => {
     await dbRun(`DELETE FROM cohort_config WHERE key = 'ficha_limite'`);
   });
 
+  it('"Gerar do zero" é a mesma chance: a primeira passa e a segunda devolve 409 limite_ficha', async () => {
+    // clube proprio, com a v1 antiga e a ficha confirmada (o `gerar-script` so abre assim)
+    await dbRun(`INSERT INTO cohort_clubs (slug, nome, ativo) VALUES ('clube-zero', 'Clube do Zero', 1)`);
+    await dbRun(`INSERT INTO cohort_members (email, club_slug, nome) VALUES ('z@x.com', 'clube-zero', 'Zeca')`);
+    await dbRun(`INSERT INTO users (id, email, name, role, cohort, club_slug) VALUES ('userZ', 'z@x.com', 'Zeca', 'member', 'exclusive', 'clube-zero')`);
+    await dbRun(`INSERT INTO script_fichas (id, club_slug, fields, materials, ficha_status) VALUES ('ficha-z', 'clube-zero', ?, '{"por_pessoa":{}}', 'confirmada')`, [fichaCheia()]);
+    await dbRun(`INSERT INTO script_versions (id, club_slug, versao, content_md, resumo, status, created_at)
+      VALUES ('sv-z-1', 'clube-zero', 1, ?, 'primeira', 'rascunho', '2026-01-01 00:00:00')`, [MD_V1]);
+
+    expect(await conta('userZ')).toEqual({ usadas: 0, limite: 1 });
+    await esvaziarFila();
+    const primeiro = await api('POST', '/api/script/ficha/gerar-script', 'userZ');
+    expect(primeiro.status).toBe(200);
+    expect(primeiro.data.job.tipo).toBe('script');
+    expect(await conta('userZ')).toEqual({ usadas: 1, limite: 1 });
+
+    await esvaziarFila();
+    const segundo = await api('POST', '/api/script/ficha/gerar-script', 'userZ');
+    expect(segundo.status).toBe(409);
+    expect(segundo.data.motivo).toBe('limite_ficha');
+    expect(segundo.data.message).toBe(COPY_LIMITE_FICHA);
+    // e fechar a ficha de novo também está travado: a chance é uma só, dos dois jeitos
+    expect((await api('POST', '/api/script/ficha/complete', 'userZ')).status).toBe(409);
+    const n = await dbGet(`SELECT COUNT(*) AS n FROM cohort_jobs WHERE tipo = 'script' AND club_slug = 'clube-zero'`);
+    expect(n.n).toBe(1);
+  });
+
   it('a trava da ficha não mexe na rodada de grifos do outro clube', async () => {
     const r = await api('GET', '/api/script/ficha', 'userA');
     expect(r.data.data.script.ajustes_usados).toBeGreaterThanOrEqual(1);
