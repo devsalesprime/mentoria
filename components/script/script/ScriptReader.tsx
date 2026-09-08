@@ -21,7 +21,8 @@ import {
  *
  * Onda J (SPEC-workflow-v4-decisoes-08-09, itens 9, 10, 11 e 23):
  * - tela 0 unica: "O seu script está pronto", como navegar, como grifar, como pedir ajustes, o que vem depois
- *   e, na sequencia, o sumario inteiro (os 3 blocos, os 7 passos, a aula da Dani e a premissa);
+ *   e, na sequencia, o resumo inteiro (os 3 blocos, os 7 passos e a aula da Dani; a premissa REP mudou para o
+ *   Passo 2, item 19);
  * - "Como usar este script" fecha a tela 0 como bloco recolhido;
  * - o Cartao de bolso deixou de ter tela; "Baixar a preparação" toma o lugar de "Baixar cartão".
  *

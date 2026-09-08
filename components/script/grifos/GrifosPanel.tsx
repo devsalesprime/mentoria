@@ -6,8 +6,9 @@ import { nomeTela, TOTAL_TELAS } from '../script/telas';
 
 /**
  * "Seus grifos": lista agrupada por tela (cor, trecho, nota, autor, "ir para", "editar nota", "apagar" so do autor).
- * No desktop fica ao lado do leitor; no celular, numa folha no rodape. O grifo cujo trecho nao existe mais nesta versao
- * aparece com "trecho não encontrado nesta versão".
+ * Onda J (item 7): a lista abre so pela pastilha flutuante do leitor, como gaveta a direita no desktop e folha no
+ * rodape do celular; nao ha mais coluna fixa. O grifo cujo trecho nao existe mais nesta versao aparece com
+ * "trecho não encontrado nesta versão".
  * Onda E3: cada cartao tem a linha "Anexar" (áudio, foto, vídeo, link, nota) e os chips do que já foi anexado, com
  * remover para quem anexou. Sem `onAnexar`, o cartao e o de antes.
  */

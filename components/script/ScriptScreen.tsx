@@ -49,10 +49,11 @@ export { splitScript };
  * Setas do teclado; a tela fica lembrada por versao (localStorage); a versao nova abre na mesma tela. Ctrl+P imprime
  * o script inteiro (ScriptPaper escondido, so na impressao).
  * Grifos (components/script/grifos/*): selecionar texto -> balao "Grifar" (dourado ajustar, verde manter, vermelho tirar,
- * nota opcional); painel "Seus grifos" ao lado (desktop) ou em folha (celular, pelo botao flutuante do leitor); "Pedir
- * nova versao com os grifos" converte cada grifo em comentario da revisao ("[GRIFO ajustar] «trecho» → nota") e chama
- * POST /api/script/versoes/:v/revisar. Comentarios por passo continuam (recolhidos em cada tela de passo; o geral fica
- * no sumario). Classes .script-* e a folha de impressao vivem em styles/globals.css.
+ * nota opcional); a lista "Seus grifos" abre so pela pastilha flutuante, em qualquer tamanho: gaveta a direita no
+ * desktop (lg+) e folha de baixo no celular, as duas com o mesmo GrifosPanel; "Pedir nova versao com os grifos"
+ * converte cada grifo em comentario da revisao ("[GRIFO ajustar] «trecho» → nota") e chama
+ * POST /api/script/versoes/:v/revisar. Comentarios por passo continuam (recolhidos em cada tela de passo; o geral
+ * fica na tela de Inicio). Classes .script-* e a folha de impressao vivem em styles/globals.css.
  * Movimentos: cada tela de passo traz o script, a tabela de perfis quando o markdown tem a secao, as tarefas com
  * checkbox e, no fim, os treinamentos recomendados (ocultos na vista Campo). Esta tela e quem guarda o estado das
  * tarefas: le em GET /api/script/versoes/:v/tarefas quando a versao abre, marca na hora (otimista) e grava em
@@ -181,7 +182,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const [aviso, setAviso] = useState<string | null>(null);
   // Vista Treinamento | Campo: global (a barra de cima manda) e lembrada na sessao
   const [docAtivo, setDocAtivo] = useState<DocumentoId>(() => lerModoDaSessao() || 'treinamento');
-  // leitor em telas (indice de NAVEGACAO: 0 Inicio, 1 Cartao, 2 Sumario, 3..9 Passos, 10 Preparacao)
+  // leitor em telas (indice de NAVEGACAO: 0 Inicio, 1..7 Passos, 8 Preparacao)
   const [tela, setTelaState] = useState<number>(NAV_INICIO);
   // grifos
   const [captura, setCaptura] = useState<Captura | null>(null);
@@ -618,7 +619,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   };
 
   /**
-   * Bloco da apresentacao no "Ações", no fim do leitor (onda E1, item 1: ele saiu do Cartao de bolso).
+   * Bloco da apresentacao no "Ações", no fim do leitor (onda E1, item 1: ele saiu da tela de abertura).
    * "Gerar apresentação" abre a confirmação em duas etapas (onda E4); o POST
    * /api/script/versoes/:versao/slides só sai depois do "Confirmar".
    */
@@ -1066,7 +1067,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       </div>
 
       {/* "Seus grifos" (onda J, item 7): a mesma folha nos dois tamanhos, aberta pela pastilha flutuante.
-          No celular ela sobe do rodapé; a partir de 1024 px ela entra como gaveta pela direita (o CSS decide). */}
+          No celular ela sobe do rodapé; a partir de 1024 px entra como gaveta pela direita (quem decide é o CSS). */}
       {parsed && painelAberto && (
         <div className="script-no-print script-grifos-folha-fundo" onClick={() => setPainelAberto(false)}>
           <div className="script-grifos-folha" data-testid="grifos-folha" onClick={(e) => e.stopPropagation()}>

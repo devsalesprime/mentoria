@@ -352,7 +352,7 @@ body {
 .script-comentarios-titulo::-webkit-details-marker { display: none; }
 .script-comentarios[open] .script-comentarios-titulo { background: rgba(10, 37, 64, 0.06); }
 
-/* ── Leitor em telas (ScriptReader): cartao, sumario, um passo por tela, preparacao ──
+/* ── Leitor em telas (ScriptReader): inicio com o resumo, um passo por tela, preparacao ──
    A barra de navegacao vem antes do papel no HTML e o CSS decide onde ela aparece: grudada no ALTO no
    desktop, no RODAPE no celular (`order`). Assim existe uma barra so, com um mapa so. */
 .script-reader { display: flex; flex-direction: column; max-width: 760px; margin: 0 auto; min-width: 0; }
@@ -704,7 +704,7 @@ body {
 }
 .script-dica-fechar:hover { color: #0A2540; }
 
-/* Cartao de bolso: legivel de relance */
+/* Cartao de bolso: deixou de ter tela (onda J, item 9); o molde fica de pe para a folha de impressao */
 .script-cartao { padding: 1.35rem 1.4rem 1.5rem; }
 .script-cartao-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%; margin-top: 0.9rem; }
 @media (min-width: 640px) { .script-cartao-acoes { width: auto; margin-top: 0; grid-template-columns: auto auto; } }
