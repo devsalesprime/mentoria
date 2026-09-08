@@ -574,9 +574,13 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   // As classes com `!` vencem o CSS de .script-barra-btn / .script-mapa-strip (styles/globals.css, fora de @layer).
   const btnMovel = 'max-sm:!flex-1 max-sm:!px-2';
 
+  // A capa nao tem o que grifar (grifo e dos passos, do cartao, do sumario e da preparacao) e a pastilha
+  // flutuante cobria o fim do paragrafo de abertura em 390 px: ali ela nao aparece.
+  const pastilhaDeGrifos = onAbrirGrifos && !ehTelaDeInicio(tela);
+
   return (
     <div
-      className={`script-reader script-no-print${onAbrirGrifos ? ' script-reader-com-grifos' : ''}`}
+      className={`script-reader script-no-print${pastilhaDeGrifos ? ' script-reader-com-grifos' : ''}`}
       data-testid="script-reader"
     >
       {/* Uma barra so: grudada no alto no desktop, no rodape no celular (a ordem visual vem do CSS) */}
@@ -625,8 +629,9 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
       </div>
 
       {/* Lista de grifos no celular: botao flutuante (a barra nao carrega mais esse peso). Quando ele existe,
-          o papel ganha um rodape vazio no celular (`script-reader-com-grifos`): a pastilha cobria o texto. */}
-      {onAbrirGrifos && (
+          o papel ganha um rodape vazio no celular (`script-reader-com-grifos`): a pastilha cobria o texto.
+          Na capa ela nao entra: la o conteudo cabe na janela, nao ha rolagem para tirar a ultima linha de baixo dela. */}
+      {pastilhaDeGrifos && (
         <button
           type="button"
           onClick={onAbrirGrifos}

@@ -5,7 +5,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScriptReader } from '../../components/script/script/ScriptReader';
 import { ScriptPaper } from '../../components/script/script/ScriptPaper';
 import { parseScript } from '../../components/script/script/parseScript';
-import { TOTAL_NAV, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO, navDoConteudo } from '../../components/script/script/telas';
+import { TOTAL_NAV, TELA_CARTAO, TELA_SUMARIO, TELA_PREPARACAO, NAV_INICIO, navDoConteudo } from '../../components/script/script/telas';
 import { AULA_7_PASSOS } from '../../data/aula-7-passos';
 
 /**
@@ -122,5 +122,38 @@ describe('ScriptReader · aula da Dani', () => {
     expect(texto).not.toContain('Abrir em tela cheia');
     expect(nav.textContent).not.toContain('—');
     expect(nav.textContent).not.toMatch(/diagn/i);
+  });
+});
+
+/**
+ * A pastilha de grifos paira sobre o papel no celular. Na capa ("O seu script está pronto") ela cobria o fim
+ * do paragrafo de abertura em 390 px, e ali nao ha o que grifar nem rolagem para escapar dela: some.
+ * Nas demais telas ela continua, com o rodape vazio no papel.
+ */
+describe('ScriptReader · pastilha de grifos', () => {
+  const abrirNav = (telaNav: number) => render(
+    <ScriptReader
+      doc={DOC}
+      clubNome="Elos Club"
+      tela={telaNav}
+      onTela={vi.fn()}
+      documento="treinamento"
+      marcadas={new Set()}
+      comentariosDo={() => null}
+      totalGrifos={2}
+      onAbrirGrifos={vi.fn()}
+      rootRef={React.createRef<HTMLDivElement>()}
+    />
+  );
+
+  it('não aparece na capa e volta na tela seguinte', () => {
+    const capa = abrirNav(NAV_INICIO);
+    expect(screen.queryByTestId('grifos-flutuante')).toBeNull();
+    expect(screen.getByTestId('script-reader').className).not.toContain('script-reader-com-grifos');
+    capa.unmount();
+
+    abrirNav(NAV_INICIO + 1);
+    expect(screen.getByTestId('grifos-flutuante')).toBeInTheDocument();
+    expect(screen.getByTestId('script-reader').className).toContain('script-reader-com-grifos');
   });
 });
