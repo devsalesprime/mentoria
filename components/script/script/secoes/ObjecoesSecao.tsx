@@ -7,10 +7,27 @@ import { Secao } from './base';
 /**
  * "Objeções possíveis e resposta": uma objecao por item, fechada; tocar abre a resposta.
  * A lista fica curta na tela e a resposta aparece so quando ela for necessaria.
+ *
+ * Com `aberto` (vista Campo e folha impressa, SPEC-workflow-v4-decisoes-08-09 §2 item 25) todas as
+ * respostas ja nascem visiveis e nao existe nada para clicar.
  */
-export const ObjecoesSecao: React.FC<{ bloco: Bloco; itens: ObjecaoItem[] }> = ({ bloco, itens }) => {
+export const ObjecoesSecao: React.FC<{ bloco: Bloco; itens: ObjecaoItem[]; aberto?: boolean }> = ({ bloco, itens, aberto: tudoAberto }) => {
   const [aberto, setAberto] = useState<number | null>(null);
   if (!itens.length) return null;
+  if (tudoAberto) {
+    return (
+      <Secao rotulo={bloco.rotulo || 'Objeções possíveis e resposta'} icone="conversa" testId="secao-objecoes">
+        <ul className="script-objecoes">
+          {itens.map((o, i) => (
+            <li key={i} className="script-objecao" data-testid="objecao">
+              <p className="script-objecao-titulo script-objecao-titulo-fixo">{comTags(o.objecao)}</p>
+              {o.resposta && <p className="script-objecao-resposta" data-testid="objecao-resposta">{comTags(o.resposta)}</p>}
+            </li>
+          ))}
+        </ul>
+      </Secao>
+    );
+  }
   return (
     <Secao rotulo={bloco.rotulo || 'Objeções possíveis e resposta'} icone="conversa" testId="secao-objecoes">
       <ul className="script-objecoes">

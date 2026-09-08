@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Bloco, Documento, Fala, PassoDoc, Premissa, ScriptDoc } from './parseScript';
-import { falaParaCopiar, segmentar } from './parseScript';
+import { falaParaCopiar, segmentar, tituloDaFala } from './parseScript';
 import { AnatomiaLegenda, textoComAnatomia } from './AnatomiaFala';
 import { renderMarkdown as renderMd } from '../../../utils/markdown';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
@@ -83,36 +83,49 @@ export function comTags(texto: string): React.ReactNode {
 }
 
 /**
- * Cartao de uma fala: a citacao grande e legivel; a "Anatomia da fala" (treinamento) fica fechada atras de
- * "Por que funciona" (sao dezenas de anatomias por script; abertas, atrapalham a leitura).
+ * Cartao de uma fala: o titulo curto como rotulo principal e o numero como marca secundaria
+ * (SPEC-workflow-v4-decisoes-08-09 §2 item 12); a citacao grande e legivel; a "Anatomia da fala"
+ * (treinamento) fica fechada atras de "Por que funciona" (sao dezenas de anatomias por script; abertas,
+ * atrapalham a leitura). Com `abrirTudo` a anatomia ja nasce aberta: e o que a folha impressa pede
+ * (item 25), onde ninguem pode clicar.
  */
-export const FalaCard: React.FC<{ fala: Fala; passo: number; semAnatomia?: boolean }> = ({ fala, passo, semAnatomia }) => {
+export const FalaCard: React.FC<{ fala: Fala; passo: number; semAnatomia?: boolean; abrirTudo?: boolean }> = ({ fala, passo, semAnatomia, abrirTudo }) => {
   const [ativo, setAtivo] = useState<number | null>(null);
-  const [porque, setPorque] = useState(false);
+  const [porque, setPorque] = useState(!!abrirTudo);
   const temAnatomia = !semAnatomia && (fala.anatomia.length > 0 || fala.anatomiaBruta.length > 0);
+  const aberto = porque || !!abrirTudo;
+  const titulo = tituloDaFala(fala);
   return (
     <figure className="script-fala">
       <div className="flex items-start justify-between gap-3">
-        <figcaption className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] font-semibold text-prosperus-gold-dark">
-          {fala.n != null && <span className="inline-flex items-center"><span className="script-fala-num" aria-hidden="true">{fala.n}</span>Fala {fala.n}</span>}
-          {fala.voz && <span className={`script-tag${fala.voz === 'mentor' ? ' script-tag-acionar' : ''}`}>{fala.vozRotulo || (fala.voz === 'mentor' ? 'Mentor' : 'Vendedor')}</span>}
+        <figcaption className="script-fala-cabeca min-w-0">
+          {fala.n != null && <span className="script-fala-num" aria-hidden="true">{fala.n}</span>}
+          <span className="min-w-0">
+            {titulo && <span className="script-fala-titulo" data-testid="fala-titulo">{titulo}</span>}
+            <span className="script-fala-marca">
+              {fala.n != null && <span data-testid="fala-ordem">Fala {fala.n}</span>}
+              {fala.voz && <span className={`script-tag${fala.voz === 'mentor' ? ' script-tag-acionar' : ''}`}>{fala.vozRotulo || (fala.voz === 'mentor' ? 'Mentor' : 'Vendedor')}</span>}
+            </span>
+          </span>
         </figcaption>
         <CopyButton texto={falaParaCopiar(fala)} rotulo="copiar" ariaLabel={`Copiar fala${fala.n != null ? ` ${fala.n}` : ''} do passo ${passo}`} />
       </div>
-      <blockquote className="script-fala-texto mt-1">{temAnatomia && porque ? textoComAnatomia(fala, ativo, comTags) : comTags(fala.texto)}</blockquote>
+      <blockquote className="script-fala-texto mt-1">{temAnatomia && aberto ? textoComAnatomia(fala, ativo, comTags) : comTags(fala.texto)}</blockquote>
       {fala.direcao && <p className="script-fala-direcao">{comTags(fala.direcao)}</p>}
       {temAnatomia && (
         <div data-testid="anatomia">
-          <button
-            type="button"
-            className="script-porque script-no-print"
-            aria-expanded={porque}
-            onClick={() => { setPorque((v) => !v); if (porque) setAtivo(null); }}
-          >
-            <span className="script-porque-seta" aria-hidden="true">&#x25B6;</span>
-            {porque ? 'Fechar a anatomia' : 'Por que funciona'}
-          </button>
-          {porque && <AnatomiaLegenda fala={fala} ativo={ativo} onAtivo={setAtivo} />}
+          {!abrirTudo && (
+            <button
+              type="button"
+              className="script-porque script-no-print"
+              aria-expanded={porque}
+              onClick={() => { setPorque((v) => !v); if (porque) setAtivo(null); }}
+            >
+              <span className="script-porque-seta" aria-hidden="true">&#x25B6;</span>
+              {porque ? 'Fechar a anatomia' : 'Por que funciona'}
+            </button>
+          )}
+          {aberto && <AnatomiaLegenda fala={fala} ativo={ativo} onAtivo={setAtivo} />}
         </div>
       )}
     </figure>
@@ -209,12 +222,12 @@ const Objecoes: React.FC<{ bloco: Bloco }> = ({ bloco }) => (
   </div>
 );
 
-const Dizer: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean }> = ({ bloco, passo, semAnatomia }) => (
+const Dizer: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean; abrirTudo?: boolean }> = ({ bloco, passo, semAnatomia, abrirTudo }) => (
   <div className="script-dizer space-y-3">
     <Rotulo>{bloco.rotulo}</Rotulo>
     {bloco.dizer.map((node, i) => node.kind === 'sub'
       ? <h3 key={i} className="script-h3 font-serif text-lg text-prosperus-navy-panel pt-2">{node.titulo}</h3>
-      : <FalaCard key={i} fala={node} passo={passo} semAnatomia={semAnatomia} />)}
+      : <FalaCard key={i} fala={node} passo={passo} semAnatomia={semAnatomia} abrirTudo={abrirTudo} />)}
   </div>
 );
 
@@ -246,7 +259,7 @@ export function agrupa(blocos: Bloco[]): (Bloco | Bloco[])[] {
   return out;
 }
 
-const BlocoView: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean }> = ({ bloco, passo, semAnatomia }) => {
+const BlocoView: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean; abrirTudo?: boolean }> = ({ bloco, passo, semAnatomia, abrirTudo }) => {
   switch (bloco.tipo) {
     case 'objetivo':
       return (
@@ -255,7 +268,7 @@ const BlocoView: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean }
           <span className="font-serif text-[1.15rem] leading-snug text-prosperus-navy-panel">{comTags(bloco.inline || bloco.itens.join(' '))}</span>
         </p>
       );
-    case 'dizer': return <Dizer bloco={bloco} passo={passo} semAnatomia={semAnatomia} />;
+    case 'dizer': return <Dizer bloco={bloco} passo={passo} semAnatomia={semAnatomia} abrirTudo={abrirTudo} />;
     case 'perguntas': return <Checklist bloco={bloco} />;
     case 'objecoes': return <Objecoes bloco={bloco} />;
     case 'outro': return <Generico bloco={bloco} />;
@@ -267,11 +280,11 @@ const BlocoView: React.FC<{ bloco: Bloco; passo: number; semAnatomia?: boolean }
  * So os blocos de um passo (o leitor em telas poe o proprio cabecalho).
  * `semAnatomia` esconde o "Por que funciona" das falas: e o que a vista Campo pede (onda E1, item 2).
  */
-export const PassoCorpo: React.FC<{ passo: PassoDoc; semAnatomia?: boolean }> = ({ passo, semAnatomia }) => (
+export const PassoCorpo: React.FC<{ passo: PassoDoc; semAnatomia?: boolean; abrirTudo?: boolean }> = ({ passo, semAnatomia, abrirTudo }) => (
   <div className="space-y-4">
     {agrupa(passo.blocos).map((item, i) => Array.isArray(item)
-      ? <div key={i} className="grid gap-3 sm:grid-cols-2">{item.map((b, j) => <BlocoView key={j} bloco={b} passo={passo.n} semAnatomia={semAnatomia} />)}</div>
-      : <BlocoView key={i} bloco={item} passo={passo.n} semAnatomia={semAnatomia} />)}
+      ? <div key={i} className="grid gap-3 sm:grid-cols-2">{item.map((b, j) => <BlocoView key={j} bloco={b} passo={passo.n} semAnatomia={semAnatomia} abrirTudo={abrirTudo} />)}</div>
+      : <BlocoView key={i} bloco={item} passo={passo.n} semAnatomia={semAnatomia} abrirTudo={abrirTudo} />)}
   </div>
 );
 
@@ -280,7 +293,9 @@ export const PassoSection: React.FC<{
   docId: string;
   refCb: (el: HTMLElement | null) => void;
   comentarios?: React.ReactNode;
-}> = ({ passo, docId, refCb, comentarios }) => (
+  /** Folha impressa: nada de acordeao fechado, a anatomia ja vem aberta. */
+  abrirTudo?: boolean;
+}> = ({ passo, docId, refCb, comentarios, abrirTudo }) => (
   <section id={`${docId}-p${passo.n}`} data-passo={passo.n} data-doc={docId} ref={refCb} className="script-passo scroll-mt-20 lg:scroll-mt-4">
     <header className="flex items-center gap-4 mb-4">
       <span className="script-medalha" aria-hidden="true">{passo.n}</span>
@@ -289,7 +304,7 @@ export const PassoSection: React.FC<{
         <h2 className="script-h2 font-serif text-2xl sm:text-[1.7rem] leading-tight text-prosperus-navy-panel">{passo.nome}</h2>
       </div>
     </header>
-    <PassoCorpo passo={passo} />
+    <PassoCorpo passo={passo} abrirTudo={abrirTudo} />
     {comentarios}
   </section>
 );
@@ -301,7 +316,8 @@ export const DocumentoView: React.FC<{
   refFor: (key: string) => (el: HTMLElement | null) => void;
   comentariosDo: (passo: number) => React.ReactNode;
   premissa?: Premissa | null;
-}> = ({ documento, ativo, multiplos, refFor, comentariosDo, premissa }) => (
+  abrirTudo?: boolean;
+}> = ({ documento, ativo, multiplos, refFor, comentariosDo, premissa, abrirTudo }) => (
   <section data-doc={documento.id} className={`script-doc ${ativo ? 'block' : 'hidden'} print:block`} aria-hidden={!ativo}>
     {multiplos && (
       <header className="script-doc-titulo mb-6 pb-3 border-b border-prosperus-gold-dark/50">
@@ -315,7 +331,7 @@ export const DocumentoView: React.FC<{
     {premissa && <div className="mb-8"><PremissaBox premissa={premissa} /></div>}
     <div className="space-y-10">
       {documento.passos.map((p) => (
-        <PassoSection key={`${documento.id}-${p.n}`} passo={p} docId={documento.id} refCb={refFor(`${documento.id}-p${p.n}`)} comentarios={comentariosDo(p.n)} />
+        <PassoSection key={`${documento.id}-${p.n}`} passo={p} docId={documento.id} refCb={refFor(`${documento.id}-p${p.n}`)} comentarios={comentariosDo(p.n)} abrirTudo={abrirTudo} />
       ))}
     </div>
     {documento.extras.filter((e) => e.titulo !== 'Abertura').map((e) => (
@@ -387,7 +403,7 @@ export const ScriptPaper: React.FC<{
       ))}
 
       {documentos.map((d) => (
-        <DocumentoView key={d.id} documento={d} ativo={todosVisiveis || d.id === docAtivo} multiplos={multiplos} refFor={refFor} comentariosDo={comentariosDo} premissa={d.id === doc.documentos[0]?.id ? doc.premissa : null} />
+        <DocumentoView key={d.id} documento={d} ativo={todosVisiveis || d.id === docAtivo} multiplos={multiplos} refFor={refFor} comentariosDo={comentariosDo} premissa={d.id === doc.documentos[0]?.id ? doc.premissa : null} abrirTudo={todosVisiveis} />
       ))}
 
       {comCampo && doc.mapa && <MapaSection mapa={doc.mapa} />}

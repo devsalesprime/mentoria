@@ -28,6 +28,11 @@ export interface Fala {
   kind: 'fala';
   /** Numero da fala como escrito no markdown; null para nota solta. */
   n: number | null;
+  /**
+   * Titulo curto escrito no markdown (`**Fala 3 · Entrega de controle**`, regra 19 do runner).
+   * Vazio nos scripts anteriores: nesse caso o leitor usa `tituloDaFala`, que deduz um titulo do texto.
+   */
+  titulo: string;
   /** O que se diz (sem as aspas, sem o marcador de voz). */
   texto: string;
   /** Direcao ao redor da fala: quando usar, o que anotar, instrucoes entre colchetes. */
@@ -95,6 +100,9 @@ export interface ScriptDoc {
   extras: SecaoExtra[];
 }
 
+/** O passo em que a premissa REP aparece no corpo (SPEC-workflow-v4-decisoes-08-09 §2 item 19). */
+export const PASSO_DA_PREMISSA = 2;
+
 /** Secao por "## " (compatibilidade com a primeira versao da tela). */
 export interface Section { passo: number; titulo: string; md: string; html: string; }
 
@@ -107,6 +115,9 @@ const BULLET_RE = /^\s*[-*•]\s+(.*)$/;
 const H3_RE = /^###\s+(.+?)\s*#*\s*$/;
 const H2_RE = /^##\s+(.+?)\s*$/;
 const H1_RE = /^#\s+(.+?)\s*$/;
+/** `**Fala 3 · Entrega de controle**` (regra 19 do runner): o titulo curto que vem antes da fala. */
+const FALA_TITULO_RE = /^Fala\s+(\d+)\s*[·•:\-]\s*(.+?)\s*:?\s*$/i;
+const FALA_TITULO_LINHA_RE = /^\s*\*\*([^*\n]{1,80}?)\*\*\s*:?\s*$/;
 const ANATOMIA_TITULO_RE = /^>\s*\**\s*Anatomia da fala\s*\**\s*:?\s*$/i;
 const ANATOMIA_ITEM_RE = /^>\s*(?:[-*•]\s*)?\[([^\]]+)\]\s*[«"“]([^»"”]+)[»"”]\s*(?:[·:\-]\s*)?(?:por\s*qu[eê]\s*:?\s*)?(.*)$/i;
 const PERFIS_H3_RE = /^quem esta do outro lado\b/;
@@ -211,7 +222,7 @@ function collectItems(lines: string[], inline: string): string[] {
   return itens;
 }
 
-function parseFala(n: number | null, raw: string): Fala {
+function parseFala(n: number | null, raw: string, titulo = ''): Fala {
   let t = raw.trim();
   let voz: Fala['voz'] = null;
   let vozRotulo = '';
@@ -224,14 +235,71 @@ function parseFala(n: number | null, raw: string): Fala {
     t = t.replace(vozRe, '').replace(/["“]\s+/, '"').trim();
   }
   const abre = t.search(/["“]/);
-  if (abre < 0) return { kind: 'fala', n, texto: t, direcao: '', voz, vozRotulo, anatomia: [], anatomiaBruta: [] };
+  if (abre < 0) return { kind: 'fala', n, titulo, texto: t, direcao: '', voz, vozRotulo, anatomia: [], anatomiaBruta: [] };
   const resto = t.slice(abre + 1);
   const fechaRel = Math.max(resto.lastIndexOf('"'), resto.lastIndexOf('”'));
   const texto = (fechaRel < 0 ? resto : resto.slice(0, fechaRel)).trim();
   const antes = t.slice(0, abre).trim();
   const depois = fechaRel < 0 ? '' : resto.slice(fechaRel + 1).trim();
   const direcao = [antes, depois].filter(Boolean).join(' ').replace(/^[\s:;,.\-]+|[\s:;,]+$/g, '').trim();
-  return { kind: 'fala', n, texto, direcao, voz, vozRotulo, anatomia: [], anatomiaBruta: [] };
+  return { kind: 'fala', n, titulo, texto, direcao, voz, vozRotulo, anatomia: [], anatomiaBruta: [] };
+}
+
+/* ── Titulo curto de cada fala (SPEC-workflow-v4-decisoes-08-09 §2 item 12) ───────────────────────
+ * O leitor mostra um titulo como rotulo principal da fala e o numero como marca secundaria. Nos
+ * proximos runs o titulo vem escrito (`**Fala N · Titulo**`); na v5 ele sai daqui, sem inventar
+ * palavra: e a primeira oracao da propria fala, cortada na primeira pontuacao e com no maximo seis
+ * palavras. Quando essa oracao e curta demais para identificar a fala (uma saudacao, por exemplo),
+ * cai no rotulo do primeiro componente da anatomia, que tambem foi escrito no documento.
+ */
+
+const MAX_PALAVRAS_TITULO = 6;
+const PONTUACAO_DE_CORTE = /[,;:.!?…]/;
+
+function capitalizaTitulo(s: string): string {
+  const t = (s || '').trim().replace(/[\s.,;:!?…]+$/, '').trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+}
+
+function ateSeisPalavras(s: string): string {
+  return (s || '').trim().split(/\s+/).filter(Boolean).slice(0, MAX_PALAVRAS_TITULO).join(' ');
+}
+
+/** Texto da fala sem colchetes, aspas e sobras de pontuacao: a base do titulo deduzido. */
+function textoLimpoDaFala(texto: string): string {
+  return (texto || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[«»"“”]/g, ' ')
+    .replace(/\s+([,;:.!?])/g, '$1')
+    .replace(/([,;:])\s*(?=[,;:])/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,;:.!?…]+/, '')
+    .trim();
+}
+
+function mesmaFrase(a: string, b: string): string {
+  const so = (t: string) => t.toLowerCase().replace(/[\s.,;:!?…]+$/, '').trim();
+  return so(a) === so(b) ? '' : a;
+}
+
+/**
+ * O titulo deduzido de uma fala (sem titulo escrito): primeira oracao, no maximo seis palavras.
+ * Fala curta, em que a primeira oracao ja e a fala inteira, fica sem titulo: repetir a fala em cima
+ * dela nao identifica nada.
+ */
+export function tituloHeuristico(f: Fala): string {
+  const limpo = textoLimpoDaFala(f.texto);
+  const corte = limpo.search(PONTUACAO_DE_CORTE);
+  const primeira = ateSeisPalavras(corte > 0 ? limpo.slice(0, corte) : limpo);
+  if (primeira.split(/\s+/).filter(Boolean).length >= 2) return mesmaFrase(capitalizaTitulo(primeira), limpo);
+  const componente = f.anatomia[0]?.componente?.trim();
+  if (componente) return capitalizaTitulo(componente);
+  return mesmaFrase(capitalizaTitulo(ateSeisPalavras(limpo)), limpo);
+}
+
+/** O titulo que o leitor mostra: o escrito no markdown quando existir, senao o deduzido. */
+export function tituloDaFala(f: Fala): string {
+  return (f.titulo || '').trim() || tituloHeuristico(f);
 }
 
 /** Uma linha `> - [Componente] «trecho» · por que: ...` do bloco de anatomia; null quando nao esta no formato. */
@@ -245,15 +313,31 @@ export function parseAnatomiaLinha(line: string): AnatomiaItem | null {
   return { componente, trecho, porque };
 }
 
-interface FalaBruta { n: number | null; raw: string; anatomia: AnatomiaItem[]; anatomiaBruta: string[]; emAnatomia: boolean; }
+interface FalaBruta { n: number | null; titulo: string; raw: string; anatomia: AnatomiaItem[]; anatomiaBruta: string[]; emAnatomia: boolean; }
+
+/** `**Fala 3 · Entrega de controle**` numa linha sozinha: o numero e o titulo da fala que vem logo abaixo. */
+export function tituloEscritoDaLinha(line: string): { n: number; titulo: string } | null {
+  const negrito = FALA_TITULO_LINHA_RE.exec(line);
+  if (!negrito) return null;
+  const m = FALA_TITULO_RE.exec(negrito[1].trim());
+  if (!m || !m[2].trim()) return null;
+  return { n: Number(m[1]), titulo: m[2].trim() };
+}
 
 function parseDizer(lines: string[], inline: string): DizerNode[] {
   const nodes: DizerNode[] = [];
   let cur: FalaBruta | null = null;
-  const nova = (n: number | null, raw: string): FalaBruta => ({ n, raw, anatomia: [], anatomiaBruta: [], emAnatomia: false });
+  // titulo escrito que ainda espera a fala dele
+  let pendente: { n: number; titulo: string } | null = null;
+  const nova = (n: number | null, raw: string): FalaBruta => {
+    const titulo = pendente ? pendente.titulo : '';
+    const numero = n != null ? n : (pendente ? pendente.n : null);
+    pendente = null;
+    return { n: numero, titulo, raw, anatomia: [], anatomiaBruta: [], emAnatomia: false };
+  };
   const flush = () => {
     if (cur && cur.raw.trim()) {
-      const f = parseFala(cur.n, cur.raw);
+      const f = parseFala(cur.n, cur.raw, cur.titulo);
       f.anatomia = cur.anatomia;
       f.anatomiaBruta = cur.anatomiaBruta;
       nodes.push(f);
@@ -262,8 +346,10 @@ function parseDizer(lines: string[], inline: string): DizerNode[] {
   };
   if (inline.trim()) cur = nova(null, inline);
   for (const line of lines) {
+    const escrito = tituloEscritoDaLinha(line);
+    if (escrito) { flush(); pendente = escrito; continue; }
     const h3 = H3_RE.exec(line);
-    if (h3) { flush(); nodes.push({ kind: 'sub', titulo: h3[1].trim() }); continue; }
+    if (h3) { flush(); pendente = null; nodes.push({ kind: 'sub', titulo: h3[1].trim() }); continue; }
     // "Anatomia da fala": bloco de citacao logo depois da fala
     if (/^\s*>/.test(line)) {
       if (ANATOMIA_TITULO_RE.test(line.trim())) { if (cur) cur.emAnatomia = true; continue; }
@@ -382,6 +468,13 @@ function parsePasso(titulo: string, bodyLines: string[]): PassoDoc {
   // nao ser lida como fala e para o leitor poder tirar so ela do corpo do passo.
   let emPerfis = false;
   for (const line of bodyLines) {
+    // `**Fala 3 · Entrega de controle**` nao abre bloco novo: e o titulo da fala dentro do bloco de falas
+    if (tituloEscritoDaLinha(line)) {
+      emPerfis = false;
+      if (!cur || cur.tipo !== 'dizer') cur = abre('dizer', 'Fala sugerida', '');
+      cur.lines.push(line);
+      continue;
+    }
     const lm = LABEL_RE.exec(line);
     if (lm) { emPerfis = false; cur = abre(tipoDoRotulo(lm[1]), lm[1].replace(/:\s*$/, '').trim(), lm[2].trim()); continue; }
     const h3m = H3_RE.exec(line);
@@ -531,6 +624,12 @@ export function parseScript(mdBruto: string): ScriptDoc {
     for (const s of [...(t === trechos[0] ? secoesSoltas : []), ...secoes]) {
       const n = norm(s.titulo);
       if (PASSO_TITULO_RE.test(s.titulo)) { d.passos.push(parsePasso(s.titulo, s.lines)); continue; }
+      // "## Premissa REP: Repetir, Elogiar, Perguntar" como secao (v5): vira `doc.premissa` e sai dos extras,
+      // que e o que tira o bloco da Preparacao e o leva para o corpo do Passo 2 (SPEC v4 §2 item 19).
+      if (PREMISSA_RE.test(s.titulo)) {
+        const achada = extrairPremissa([`## ${s.titulo}`, ...s.lines]);
+        if (achada.premissa) { if (!doc.premissa) doc.premissa = achada.premissa; continue; }
+      }
       if (n.startsWith('como usar')) { doc.comoUsar = collectItems(s.lines, ''); continue; }
       if (n.startsWith('mapa de prepara')) { doc.mapa = secaoExtra(s.titulo, s.lines); continue; }
       if (n.startsWith('cartao de bolso')) {
@@ -585,11 +684,12 @@ export function textoDaTela(doc: ScriptDoc, tela: number, documento: 'treinament
   } else if (tela >= 2 && tela <= 8) {
     const d = documentoDe(doc, documento);
     const p = d?.passos.find((x) => x.n === tela - 1);
+    if (doc.premissa && tela - 1 === PASSO_DA_PREMISSA) partes.push(doc.premissa.titulo, markdownToPlainText(doc.premissa.md));
     if (p) {
       partes.push(p.nome);
       for (const b of p.blocos) {
         partes.push(b.rotulo, markdownToPlainText(b.md));
-        for (const n of b.dizer) if (n.kind === 'fala') { partes.push(n.texto, n.direcao); for (const a of n.anatomia) partes.push(a.componente, a.trecho, a.porque); }
+        for (const n of b.dizer) if (n.kind === 'fala') { partes.push(n.titulo, n.texto, n.direcao); for (const a of n.anatomia) partes.push(a.componente, a.trecho, a.porque); }
       }
     }
   } else if (tela === 9) {

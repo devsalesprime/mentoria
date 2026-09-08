@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import '../../../../styles/script-secoes.css';
 
 /**
  * Pecas comuns dos moldes de secao (onda E2): o casulo com o rotulo em maiusculas, os icones de linha e a

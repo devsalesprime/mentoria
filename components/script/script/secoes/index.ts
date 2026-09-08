@@ -1,8 +1,11 @@
 export * from './modelo';
 export * from './base';
+export * from './doutrina';
 export { ModalSecao } from './ModalSecao';
 export { CabecalhoPasso } from './CabecalhoPasso';
 export { FalasSecao } from './FalasSecao';
+export { FalasSequencia } from './FalasSequencia';
+export { GruposFalasSecao, ROTULO_ABRIR, ROTULO_COPIAR_GRUPO } from './GruposFalasSecao';
 export { PerguntasSecao, ROTULO_COPIAR_TUDO } from './PerguntasSecao';
 export { ObservarSecao } from './ObservarSecao';
 export { AvancarSecao } from './AvancarSecao';
@@ -10,4 +13,5 @@ export { ObjecoesSecao } from './ObjecoesSecao';
 export { CalloutSecao } from './CalloutSecao';
 export { TabelaSecao } from './TabelaSecao';
 export { BlocoSolto } from './BlocoSolto';
+export { PreparacaoCartao, ID_EXPORT as ID_PREPARACAO_EXPORT } from './PreparacaoCartao';
 export { PassoSecoes, CAMPO_ESCONDE } from './PassoSecoes';

@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Bloco, PassoDoc } from './parseScript';
 import { TabelaSecao } from './secoes/TabelaSecao';
+import { NOTA_PERFIS, ROTULO_NOTA_PERFIS } from './secoes/doutrina';
 
 /**
  * Tabela "Quem está do outro lado": o guia prático de perfis que o script traz no passo (no Passo 1 são o
@@ -96,11 +97,21 @@ export function extrairPerfis(passo: PassoDoc | null | undefined): { bloco: Bloc
 /**
  * A tabela de verdade no desktop e um cartão por perfil abaixo de 768 px (onda E2, item 14 da SPEC):
  * o desenho responsivo mora no `TabelaSecao`, que também serve qualquer outra tabela do passo.
+ *
+ * Abaixo da tabela vem a conclusão fixa sobre perfis (SPEC-workflow-v4-decisoes-08-09 §2 item 16,
+ * decisão A5): ela é igual para todo clube, então é doutrina do leitor (`secoes/doutrina.ts`) e não
+ * texto gerado. `semNota` desliga esse trecho para quem quiser só a tabela.
  */
-export const PerfisTabela: React.FC<{ tabela: TabelaPerfis }> = ({ tabela }) => (
+export const PerfisTabela: React.FC<{ tabela: TabelaPerfis; semNota?: boolean }> = ({ tabela, semNota }) => (
   <section className="script-secao min-w-0" aria-label={tabela.titulo} data-testid="perfis-tabela">
     <p className="script-nota-rotulo">{tabela.titulo}</p>
     <TabelaSecao tabela={tabela} rolagemClassName="script-perfis-rolagem" tabelaClassName="script-perfis" />
+    {!semNota && (
+      <aside className="script-perfis-nota" data-testid="perfis-nota">
+        <p className="script-nota-rotulo">{ROTULO_NOTA_PERFIS}</p>
+        <p className="leading-relaxed">{NOTA_PERFIS}</p>
+      </aside>
+    )}
   </section>
 );
 
