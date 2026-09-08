@@ -242,13 +242,16 @@ async function scriptSummary({ dbGet }, club_slug) {
 }
 
 /**
- * Quando a PRIMEIRA versao do clube foi gravada (created_at cru do sqlite) ou null quando ainda nao ha script.
- * A trava de "uma atualizacao da ficha" (SPEC-workflow-v4 item 26) so conta o que aconteceu depois disso:
- * antes do primeiro script, fechar a ficha e o fluxo normal e nao gasta nada.
+ * A PRIMEIRA versao do clube: { versao, created_at, job_id } ou null quando ainda nao ha script.
+ * A trava de "uma atualizacao da ficha" (SPEC-workflow-v4 item 26) so conta o que aconteceu depois dela;
+ * o `job_id` e o marco exato, porque e o job que escreveu essa versao (e ele nao gasta a chance de ninguem).
  */
-async function primeiraVersaoEm({ dbGet }, club_slug) {
-  const r = await dbGet(`SELECT MIN(created_at) AS em FROM script_versions WHERE club_slug = ?`, [club_slug]);
-  return r && r.em ? r.em : null;
+async function primeiraVersao({ dbGet }, club_slug) {
+  const r = await dbGet(
+    `SELECT versao, created_at, job_id FROM script_versions WHERE club_slug = ? ORDER BY versao ASC LIMIT 1`,
+    [club_slug]
+  );
+  return r ? { versao: r.versao, created_at: r.created_at, job_id: r.job_id || null } : null;
 }
 
 // ─── Entregaveis de uma versao (script_entregaveis) ──────────────────────────
@@ -530,7 +533,7 @@ module.exports = {
   listComments,
   insertComment,
   scriptSummary,
-  primeiraVersaoEm,
+  primeiraVersao,
   resolveGrifosDoJob,
   herdarTarefas,
   entregavelDir,

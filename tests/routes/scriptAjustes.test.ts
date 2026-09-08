@@ -16,6 +16,8 @@
  * - o segundo devolve 409 { motivo: 'limite_ficha' } com a copy da casa
  * - job `script` forcado pelo admin (`origem: 'admin'`, `motivo: 'forcado'`) nao entra na conta
  * - clube sem versao nenhuma fecha a ficha quantas vezes quiser
+ * - o job `script` que ESCREVEU a primeira versao nao entra na conta (o corte e o rowid dele, nao o relogio)
+ * - com trabalho ativo na fila, "Gerar do zero" devolve o job existente em vez da trava
  * - GET /api/script/ficha traz `ficha_atualizacoes_usadas` e `ficha_limite` dentro de `script`
  */
 import fs from 'fs';
@@ -303,9 +305,13 @@ describe('uma atualização da ficha depois do primeiro script', () => {
     await dbRun(`INSERT INTO script_fichas (id, club_slug, fields, materials, ficha_status) VALUES
       ('ficha-f', 'clube-ficha', ?, '{"por_pessoa":{}}', 'em_revisao'),
       ('ficha-n', 'clube-novo', ?, '{"por_pessoa":{}}', 'em_revisao')`, [fichaCheia(), fichaCheia()]);
-    // v1 do clube-ficha com data antiga: so os jobs nascidos DEPOIS dela entram na conta
-    await dbRun(`INSERT INTO script_versions (id, club_slug, versao, content_md, resumo, status, created_at)
-      VALUES ('sv-f-1', 'clube-ficha', 1, ?, 'primeira', 'rascunho', '2026-01-01 00:00:00')`, [MD_V1]);
+    // O job do membro que ESCREVEU a v1: e o marco do corte (rowid), entao ele mesmo nunca entra na conta.
+    // A data da versao fica atras da do job de proposito: so o `job_id` desfaz essa armadilha.
+    await dbRun(`INSERT INTO cohort_jobs (id, tipo, club_slug, email, status, payload)
+      VALUES ('job-script-f1', 'script', 'clube-ficha', 'f@x.com', 'done', ?)`,
+      [JSON.stringify({ motivo: 'complete', pedido_em: '2026-01-01T00:00:00.000Z' })]);
+    await dbRun(`INSERT INTO script_versions (id, club_slug, versao, content_md, resumo, status, job_id, created_at)
+      VALUES ('sv-f-1', 'clube-ficha', 1, ?, 'primeira', 'rascunho', 'job-script-f1', '2026-01-01 00:00:00')`, [MD_V1]);
   });
 
   it('sem script escrito, fechar a ficha não gasta nada e não trava', async () => {
@@ -319,7 +325,8 @@ describe('uma atualização da ficha depois do primeiro script', () => {
     expect(await conta('userN')).toEqual({ usadas: 0, limite: 1 });
   });
 
-  it('com a v1 escrita, a primeira atualização passa e enfileira o job `script`', async () => {
+  it('o job que escreveu a v1 não conta; a primeira atualização passa e enfileira o job `script`', async () => {
+    // o `job-script-f1` (do membro, motivo complete) e o marco: a chance nasce inteira mesmo com ele na tabela
     expect(await conta('userF')).toEqual({ usadas: 0, limite: 1 });
     await esvaziarFila();
     const r = await api('POST', '/api/script/ficha/complete', 'userF');
@@ -388,6 +395,19 @@ describe('uma atualização da ficha depois do primeiro script', () => {
     expect((await api('POST', '/api/script/ficha/complete', 'userZ')).status).toBe(409);
     const n = await dbGet(`SELECT COUNT(*) AS n FROM cohort_jobs WHERE tipo = 'script' AND club_slug = 'clube-zero'`);
     expect(n.n).toBe(1);
+  });
+
+  it('com trabalho ativo na fila, "Gerar do zero" devolve o job existente em vez da trava', async () => {
+    // clube-zero esta no limite; um `revisar` do admin ocupa a vaga do clube (script e revisar dividem a fila)
+    await dbRun(`INSERT INTO cohort_jobs (id, tipo, club_slug, email, status, payload)
+      VALUES ('job-ativo-zero', 'revisar', 'clube-zero', 'z@x.com', 'queued', ?)`,
+      [JSON.stringify({ versao: 1, origem: 'admin' })]);
+    const r = await api('POST', '/api/script/ficha/gerar-script', 'userZ');
+    expect(r.status).toBe(200);
+    expect(r.data.job).toMatchObject({ id: 'job-ativo-zero', tipo: 'revisar', existing: true });
+    // o job ativo nao gastou nada: com a fila vazia a trava volta a valer
+    await esvaziarFila();
+    expect((await api('POST', '/api/script/ficha/gerar-script', 'userZ')).status).toBe(409);
   });
 
   it('a trava da ficha não mexe na rodada de grifos do outro clube', async () => {

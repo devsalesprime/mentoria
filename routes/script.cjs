@@ -594,22 +594,43 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   }
 
   /**
+   * Marco de corte da conta: o `rowid` do job que escreveu a PRIMEIRA versao. Tudo que entrou na tabela
+   * depois dele e pedido novo. O corte e por ordem de insercao, nao por relogio: `created_at` e
+   * CURRENT_TIMESTAMP com resolucao de 1 segundo, entao o job e a versao que ele gerou caem no mesmo
+   * segundo quando o worker e rapido e a conta viraria moeda no ar. Sem `job_id` gravado (versao escrita
+   * na mao ou historico antigo), o marco e o ultimo job `script` do clube que ja existia quando a versao
+   * nasceu; na duvida o corte fica mais tarde, e a chance do membro continua inteira.
+   */
+  async function marcoDaPrimeiraVersao(clubSlug, primeira) {
+    if (primeira.job_id) {
+      const j = await dbGet(`SELECT rowid AS rid FROM cohort_jobs WHERE id = ?`, [primeira.job_id]);
+      if (j) return Number(j.rid) || 0;
+    }
+    const r = await dbGet(
+      `SELECT MAX(rowid) AS rid FROM cohort_jobs WHERE tipo = 'script' AND club_slug = ? AND created_at <= ?`,
+      [clubSlug, primeira.created_at]
+    );
+    return r && r.rid ? Number(r.rid) || 0 : 0;
+  }
+
+  /**
    * { usados, limite, com_versao } do clube. `usados` = jobs `script` pedidos pelo membro (fechar a ficha ou
-   * "Gerar do zero"), em qualquer status, nascidos DEPOIS da primeira versao. Sem versao nenhuma, `usados` e 0
-   * e a trava nao vale.
+   * "Gerar do zero"), em qualquer status, que nasceram DEPOIS do job que escreveu a primeira versao.
+   * Sem versao nenhuma, `usados` e 0 e a trava nao vale.
    */
   async function contarAtualizacoesFicha(clubSlug) {
     const limite = await limiteDeFicha();
     try {
-      const desde = await SV.primeiraVersaoEm({ dbGet }, clubSlug);
-      if (!desde) return { usados: 0, limite, com_versao: false };
+      const primeira = await SV.primeiraVersao({ dbGet }, clubSlug);
+      if (!primeira) return { usados: 0, limite, com_versao: false };
+      const marco = await marcoDaPrimeiraVersao(clubSlug, primeira);
       const row = await dbGet(
         `SELECT COUNT(*) AS n FROM cohort_jobs
           WHERE tipo = 'script' AND club_slug = ?
             AND COALESCE(json_extract(payload, '$.origem'), ?) = ?
             AND COALESCE(json_extract(payload, '$.motivo'), '') IN ('complete', 'gerar-script')
-            AND created_at > ?`,
-        [clubSlug, SV.ORIGEM_MEMBRO, SV.ORIGEM_MEMBRO, desde]
+            AND rowid > ?`,
+        [clubSlug, SV.ORIGEM_MEMBRO, SV.ORIGEM_MEMBRO, marco]
       );
       return { usados: row ? Number(row.n) || 0 : 0, limite, com_versao: true };
     } catch {
@@ -692,15 +713,20 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   // Item 26: gerar do zero e a mesma chance de fechar a ficha (o job entra na mesma conta), entao passa pela mesma trava.
   router.post('/api/script/ficha/gerar-script', authMiddleware, cohortGuard, async (req, res) => {
     try {
-      const conta = await contarAtualizacoesFicha(req.cohort.club_slug);
-      if (fichaNoLimite(conta)) {
-        return res.status(409).json({
-          success: false,
-          motivo: 'limite_ficha',
-          message: COPY_LIMITE_FICHA,
-          ficha_atualizacoes_usadas: conta.usados,
-          ficha_limite: conta.limite,
-        });
+      // Trabalho ativo do clube (`script` ou `revisar`) vem antes da trava: quem ja tem job na fila recebe
+      // o proprio job de volta (`existing: true`), sem gastar a chance nem esbarrar nela.
+      const ativo = await JOBS.findActiveJob({ dbGet }, { tipo: 'script', club_slug: req.cohort.club_slug, email: req.cohort.email });
+      if (!ativo) {
+        const conta = await contarAtualizacoesFicha(req.cohort.club_slug);
+        if (fichaNoLimite(conta)) {
+          return res.status(409).json({
+            success: false,
+            motivo: 'limite_ficha',
+            message: COPY_LIMITE_FICHA,
+            ficha_atualizacoes_usadas: conta.usados,
+            ficha_limite: conta.limite,
+          });
+        }
       }
       if (req.ficha.ficha_status !== 'confirmada') {
         const missing = SF.missingPorModo(safeJsonParse(req.ficha.fields, {}), req.ficha.modo);
