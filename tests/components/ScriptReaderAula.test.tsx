@@ -10,8 +10,8 @@ import { AULA_7_PASSOS } from '../../data/aula-7-passos';
 
 /**
  * A aula da Dani dentro do leitor "Seu script" (components/script/script/ScriptReader.tsx), depois da onda E1:
- * - tela 0 (Inicio): o cartao vem logo depois da lista dos 7 passos e antes de "Como usar este script". E o
- *   UNICO lugar dela no leitor
+ * - tela 0 (Inicio): o cartao fecha o resumo, logo depois da lista dos 7 passos (o bloco "Como usar este
+ *   script" saiu da tela em 09/09). E o UNICO lugar dela no leitor
  * - o cartao nasce com a CAPA ESTATICA da Bunny e o botao de tocar: nenhum player carrega sozinho e nada de
  *   previa animada (onda J, item 10)
  * - a barra do mapa perdeu os itens "Aula" e "Grifos"; a lista de grifos abre no botao flutuante
@@ -45,19 +45,21 @@ function abrir(tela: number, onAbrirGrifos = vi.fn()) {
 }
 
 describe('ScriptReader · aula da Dani', () => {
-  it('Início: o cartao da aula vem depois da lista dos 7 passos e antes de "Como usar"; capa, sem player', () => {
+  it('Início: o cartao da aula fecha o resumo, depois da lista dos 7 passos; capa estatica, sem player', () => {
     const { reader } = abrir(TELA_SUMARIO);
     const cartao = within(reader).getByTestId('aula-dani');
     expect(within(cartao).getByText('Aprenda a lógica por trás do script')).toBeInTheDocument();
     expect(within(cartao).getByText(AULA_7_PASSOS.titulo)).toBeInTheDocument();
     expect(within(cartao).getByRole('button', { name: /^Assistir:/ })).toBeInTheDocument();
     expect(reader.querySelector('iframe')).toBeNull();
+    // a capa vem do catalogo da aula e nao e previa animada (09/09, item 3d)
+    expect(within(cartao).getByTestId('aula-thumb').getAttribute('src')).toBe(AULA_7_PASSOS.thumbUrl);
     const passos = reader.querySelector('section[aria-label="Os 7 passos"]')!;
-    const comoUsar = reader.querySelector('[data-testid="como-usar"]')!;
     expect(passos).not.toBeNull();
-    expect(comoUsar).not.toBeNull();
     expect(passos.compareDocumentPosition(cartao) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(cartao.compareDocumentPosition(comoUsar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // o bloco recolhido "Como usar este script" saiu da tela 0 em 09/09 (item 3c)
+    expect(reader.querySelector('[data-testid="como-usar"]')).toBeNull();
+    expect(reader.textContent).not.toContain('Como usar este script');
   });
 
   it('Preparacao: nenhuma aula fora do Início, e nenhum player em lugar nenhum', () => {
@@ -98,9 +100,10 @@ describe('ScriptReader · aula da Dani', () => {
     const { reader } = abrir(TELA_SUMARIO);
     const cartao = within(reader).getByTestId('aula-dani');
     expect(cartao.querySelector('iframe')).toBeNull();
-    // onda J (item 10): capa estática da Bunny, o mesmo padrão dos treinamentos por passo
+    // onda J (item 10) e 09/09 (item 3d): capa estática da Bunny, o mesmo `thumbnail_<hash>.jpg` que os
+    // treinamentos por passo usam. O `thumbnail.jpg` sem hash respondia 404 e sumia com a capa
     const capa = within(cartao).getByTestId('aula-thumb').getAttribute('src') || '';
-    expect(capa).toContain('thumbnail.jpg');
+    expect(capa).toMatch(/\/thumbnail_[0-9a-f]+\.jpg$/);
     expect(capa).not.toContain('preview.webp');
     fireEvent.click(within(cartao).getByRole('button', { name: `Assistir: ${AULA_7_PASSOS.titulo}` }));
     expect(cartao.querySelector('iframe')!.getAttribute('src')).toBe(`${AULA_7_PASSOS.embedUrl}?autoplay=true`);

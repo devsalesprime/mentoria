@@ -243,7 +243,7 @@ describe('item 14 e 18 · "Perguntas recomendadas" some e o CNCS vira botão', (
     expect(corpo.textContent).not.toContain('Se daqui a 12 meses tudo tivesse dado certo');
   });
 
-  it('o botão abre a folha com as falas do tipo, o "por que funciona" aberto e a nota no alto', async () => {
+  it('o botão abre a folha com as falas do tipo, a anatomia FECHADA e a nota no alto', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const { corpo } = abrirPasso(P2);
     expect(screen.queryByTestId('perguntas-folha')).toBeNull();
@@ -258,15 +258,48 @@ describe('item 14 e 18 · "Perguntas recomendadas" some e o CNCS vira botão', (
     expect(falas).toHaveLength(2);
     expect(within(folha).getAllByTestId('fala-titulo')[0]).toHaveTextContent('Então me conta com as suas');
     expect(folha).toHaveTextContent('o que te fez estar aqui hoje?');
-    // "por que funciona" já aberto dentro da folha
+    // 09/09 (item 4b): a anatomia nasce fechada, atrás do mesmo botão do resto do leitor
+    expect(within(folha).queryByText(/pergunta ampla devolve o controle ao cliente/)).toBeNull();
+    // só a fala que tem anatomia escrita ganha o botão
+    const porque = within(folha).getAllByRole('button', { name: 'Por que funciona' });
+    expect(porque).toHaveLength(1);
+    fireEvent.click(porque[0]);
     expect(within(folha).getByText(/pergunta ampla devolve o controle ao cliente/)).toBeInTheDocument();
-    expect(within(folha).queryByRole('button', { name: 'Por que funciona' })).toBeNull();
-    // a folha vai para fora do corpo do passo: o texto dela não entra no índice dos grifos
-    expect(corpo.contains(folha)).toBe(false);
+    expect(within(folha).getByRole('button', { name: 'Fechar a anatomia' })).toBeInTheDocument();
 
     fireEvent.click(within(folha).getByRole('button', { name: /Copiar as perguntas de Contexto/ }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('o que te fez estar aqui hoje?')));
 
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('perguntas-folha')).toBeNull());
+  });
+
+  it('a folha nasce DENTRO da tela do leitor, para o grifo saber a que passo ela pertence', async () => {
+    // 09/09 (item 4a): o portal procura o `[data-tela]` mais próximo. É ele que dá `tela` e `documento` ao
+    // grifo (grifos/anchor.ts) e é dentro dele que os grifos já salvos são pintados.
+    render(
+      <div data-testid="tela" data-tela={3} data-documento="treinamento">
+        <PassoSecoes passo={P2} n={2} nome="Investigação" />
+      </div>
+    );
+    const tela = screen.getByTestId('tela');
+    fireEvent.click(within(tela).getAllByTestId('perguntas-botao')[0]);
+    const folha = await screen.findByTestId('perguntas-folha');
+    expect(tela.contains(folha)).toBe(true);
+    expect(folha.closest('[data-tela]')).toBe(tela);
+    expect(folha.closest('[data-documento]')?.getAttribute('data-documento')).toBe('treinamento');
+    // e o texto da folha entra no índice de grifos daquela tela
+    expect(tela.textContent).toContain('o que te fez estar aqui hoje?');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('perguntas-folha')).toBeNull());
+  });
+
+  it('sem tela do leitor por perto, a folha cai no corpo da página como antes', async () => {
+    const { corpo } = abrirPasso(P2);
+    fireEvent.click(within(corpo).getAllByTestId('perguntas-botao')[0]);
+    const folha = await screen.findByTestId('perguntas-folha');
+    expect(corpo.contains(folha)).toBe(false);
+    expect(folha.closest('[data-tela]')).toBeNull();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByTestId('perguntas-folha')).toBeNull());
   });

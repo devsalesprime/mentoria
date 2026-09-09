@@ -116,7 +116,7 @@ describe('I1: a tela inicial só na primeira entrada (decisão D1)', () => {
     for (const nome of ['escolha', 'materiais-ficha', 'script']) {
       expect(screen.getByTestId(`etapa-${nome}`)).toBeInTheDocument();
     }
-    expect(screen.getByTestId('etapa-materiais-ficha')).toHaveTextContent('Materiais e ficha');
+    expect(screen.getByTestId('etapa-materiais-ficha')).toHaveTextContent('Base do script');
     // o cartão de bolso saiu da lista do que a pessoa recebe
     expect(screen.getByTestId('como-funciona-screen').textContent).not.toContain('Cartão de bolso');
     for (const item of VALE_MAIS) expect(screen.getByText(item)).toBeInTheDocument();

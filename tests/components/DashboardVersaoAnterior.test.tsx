@@ -95,8 +95,56 @@ const itensDoMenu = () =>
   Array.from(screen.getByRole('navigation', { name: 'Navegação do diagnóstico' }).querySelectorAll('button'))
     .map((b) => b.textContent?.trim() || '');
 
+/** Os 3 itens do grupo SCRIPT 7 PASSOS, na ordem em que o menu desenha. */
+const ITENS_DO_SCRIPT = ['Como funciona', 'Base do script', 'Seu script'];
+const botoesDoScript = () =>
+  Array.from(screen.getByRole('navigation', { name: 'Navegação do diagnóstico' }).querySelectorAll('button'))
+    .filter((b) => ITENS_DO_SCRIPT.includes(b.textContent?.trim() || ''));
+
+/**
+ * Item 1 do pedido de 09/09: os três desenham no MESMO molde. O que muda de um para o outro é só o estado
+ * (o item aberto fica dourado e sem ponto, como qualquer item do menu); tamanho, recuo, tipografia e ponto
+ * são os mesmos. Antes o "Como funciona" era `secondary`: menor, em itálico, recuado e sem ponto.
+ */
+function conferirMoldeIgual() {
+  const botoes = botoesDoScript();
+  expect(botoes.map((b) => b.textContent?.trim())).toEqual(ITENS_DO_SCRIPT);
+  for (const b of botoes) {
+    expect(b.getAttribute('data-secondary')).toBeNull();
+    expect(b.className).toContain('py-1.5 sm:py-2 text-xs sm:text-sm');
+    expect(b.className).not.toContain('italic');
+    expect(b.className).not.toContain('pl-6');
+    expect(b.className).not.toContain('text-[11px]');
+  }
+  // o ponto de estado acompanha todo item que não é o aberto, inclusive o "Como funciona"
+  const abertos = botoes.filter((b) => b.className.includes('bg-prosperus-gold-dark'));
+  expect(abertos).toHaveLength(1);
+  for (const b of botoes.filter((x) => !abertos.includes(x))) {
+    expect(b.querySelector('span.rounded-full'), b.textContent || '').not.toBeNull();
+  }
+}
+
 describe('Dashboard: versão anterior x Script 7 Passos', () => {
   beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
+
+  it('os 3 itens do script têm o mesmo molde no grupo plano (sem versão anterior)', async () => {
+    mockApi({ cohort: 'exclusive', status: 'in_progress' });
+    renderEm('/dashboard');
+    await screen.findByText('FichaScreen');
+    expect(screen.queryByText('SCRIPT 7 PASSOS')).toBeNull();
+    conferirMoldeIgual();
+  });
+
+  it('os 3 itens do script têm o mesmo molde no acordeão (com a versão anterior no menu)', async () => {
+    mockApi({ cohort: 'exclusive', status: 'submitted' });
+    renderEm('/dashboard');
+    await screen.findByText('FichaScreen');
+    await screen.findByTestId('versao-anterior');
+    expect(screen.getByText('SCRIPT 7 PASSOS')).toBeInTheDocument();
+    conferirMoldeIgual();
+    // o item de alternar a versão anterior continua secundário: ele é opção, não etapa
+    expect(screen.getByTestId('versao-anterior')).toHaveAttribute('data-secondary', 'true');
+  });
 
   it('clube sem a versão anterior concluída: só a seção do script, sem Visão Geral, sem O Mentor, sem barra de progresso', async () => {
     mockApi({ cohort: 'exclusive', status: 'in_progress' });
@@ -105,7 +153,7 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     expect(screen.getByText('FichaScreen')).toBeInTheDocument();
     // Onda J (item 3): sem versão anterior o grupo fica plano, com os 3 itens e sem o cabeçalho
     expect(screen.queryByText('SCRIPT 7 PASSOS')).toBeNull();
-    expect(itensDoMenu()).toEqual(['Como funciona', 'Materiais e ficha', 'Seu script']);
+    expect(itensDoMenu()).toEqual(['Como funciona', 'Base do script', 'Seu script']);
     expect(screen.queryByText('Visão Geral')).toBeNull();
     expect(screen.queryByText('DIAGNÓSTICO')).toBeNull();
     expect(screen.queryByText('O Mentor')).toBeNull();
@@ -122,7 +170,7 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     await screen.findByText('FichaScreen');
     expect(screen.getByText('FichaScreen')).toBeInTheDocument();
     expect(screen.queryByText('MentorModule')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Materiais e ficha' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Base do script' })).toBeInTheDocument();
     expect(screen.queryByText('O Mentor')).toBeNull();
   });
 

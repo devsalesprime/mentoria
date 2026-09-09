@@ -8,9 +8,11 @@ import { ModalSecao } from './ModalSecao';
  * Os tipos de pergunta do Passo 2 (SPEC-workflow-v4-decisoes-08-09 §2, itens 14 e 18).
  *
  * A lista extensa de falas sai do corpo do passo e no lugar dela ficam os quatro botões do CNCS. Cada botão
- * abre a folha com as falas daquele tipo, cada uma com o título curto, a fala inteira e o "por que funciona"
- * já aberto, mais a nota "Como usar estas perguntas" no alto. Os botões têm cara de botão: borda, ícone,
- * contagem e a ação escrita.
+ * abre a folha com as falas daquele tipo, cada uma com o título curto e a fala inteira, mais a nota "Como
+ * usar estas perguntas" no alto. Os botões têm cara de botão: borda, ícone, contagem e a ação escrita.
+ *
+ * Pedido do dono em 09/09 (item 4b): dentro da folha a anatomia ("Por que funciona") nasce FECHADA, com o
+ * mesmo botão do resto do leitor. Só a vista Campo e a folha impressa continuam com tudo aberto.
  *
  * Na vista Campo e na folha impressa nada é clicável (item 25): os quatro grupos aparecem abertos, um
  * embaixo do outro, com as falas na íntegra.
@@ -115,8 +117,10 @@ export const GruposFalasSecao: React.FC<{
         {grupo && (
           <ol className="script-perguntas-lista" data-testid="perguntas-lista">
             {grupo.falas.map((f, i) => (
+              // Dentro da folha a anatomia nasce FECHADA, com o mesmo "Por que funciona" do resto do leitor
+              // (pedido do dono em 09/09, item 4b). Aberta de saída, ela empurrava a fala para fora da tela.
               <li key={i} className="script-perguntas-fala" data-testid="perguntas-fala">
-                <FalaCard fala={f} passo={passo} abrirTudo />
+                <FalaCard fala={f} passo={passo} />
               </li>
             ))}
           </ol>

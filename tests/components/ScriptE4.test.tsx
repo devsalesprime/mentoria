@@ -2,14 +2,17 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import axios from 'axios';
 import { ScriptScreen } from '../../components/script/ScriptScreen';
-import { COPY_AJUSTES_SOBRANDO, COPY_AJUSTES_USADOS } from '../../components/script/script/ScriptReader';
+import fs from 'node:fs';
+import path from 'node:path';
+import { COPY_AJUSTES_SOBRANDO, COPY_AJUSTES_USADOS, ScriptReader } from '../../components/script/script/ScriptReader';
+import { parseScript } from '../../components/script/script/parseScript';
 import { guardarTela, lerTelaLembrada, clampNav, conteudoDaNav, navDoConteudo, nomeNav, rotuloNav, TOTAL_NAV } from '../../components/script/script/telas';
 
 /**
  * Onda E4 de "Seu script" (pedidos do dono em 07/09):
  * 1. rodapé de navegação no FIM de toda tela ("Anterior" e "Próximo: <nome da próxima>"; na última, "Ir para as ações")
- * 2. tela 0 "O seu script está pronto": como usar (navegar, grifar, pedir ajustes), o que vem depois, os dois
- *    botões de entrada e, na onda J, o resumo do script na mesma tela
+ * 2. tela 0 "O seu script está pronto": como usar (escolher como ler, grifar, pedir ajustes), o que vem
+ *    depois e, na onda J, o resumo do script na mesma tela (os dois botões de entrada saíram em 09/09)
  * 3. "Gerar apresentação" em duas etapas: o aviso dos ajustes e a confirmação da versão
  * 4. uma rodada de ajustes por clube: gasta, o botão dos grifos trava e explica
  * 5. o leitor perdeu "Pedir nova versão" e "Escrever do zero"; o menu "Baixar" perdeu "Os dois (PDF)"
@@ -159,9 +162,10 @@ describe('rodapé de navegação no fim de toda tela', () => {
     const proximo = within(rodape()).getByTestId('rodape-proximo');
     expect(proximo).toHaveTextContent('Ir para as ações');
     expect(proximo.textContent).not.toContain('Próximo:');
-    // clicar não muda de tela: rola até o bloco de decisão, que está na mesma tela
+    // clicar não muda de tela: rola até o bloco de decisão e pousa o foco nele (09/09, item 6)
     fireEvent.click(proximo);
     expect(within(nav).getByRole('button', { name: 'Preparação e métricas' })).toHaveAttribute('aria-current', 'page');
+    expect(document.activeElement).toBe(screen.getByTestId('acoes-fim'));
   });
 
   it('a barra do topo e as setas do teclado continuam funcionando com o rodapé no ar', async () => {
@@ -188,12 +192,20 @@ describe('tela 0 · "O seu script está pronto"', () => {
     expect(inicio.textContent).toContain('Elos Club');
     expect(inicio.textContent).toContain('v1');
 
-    // 3 cartões: Navegue, Grife, Peça ajustes
-    for (const titulo of ['Navegue', 'Grife', 'Peça ajustes']) {
+    // 3 cartões: Escolha como ler, Grife, Peça ajustes
+    for (const titulo of ['Escolha como ler', 'Grife', 'Peça ajustes']) {
       expect(within(inicio).getByRole('heading', { name: titulo })).toBeInTheDocument();
     }
-    expect(within(inicio).getByTestId('inicio-navegue').textContent).toMatch(/Anterior e Próximo/);
-    expect(within(inicio).getByTestId('inicio-navegue').textContent).toMatch(/Treinamento e Campo/);
+    // 09/09 (item 3b): o cartão explica Treinamento e Campo e as aspas e colchetes das falas
+    const comoLer = within(inicio).getByTestId('inicio-navegue').textContent || '';
+    expect(comoLer).toMatch(/Treinamento e Campo/);
+    expect(comoLer).toMatch(/ler antes da reunião/);
+    expect(comoLer).toMatch(/aberto durante a conversa/);
+    expect(comoLer).toMatch(/colchetes/);
+    // e não explica mais quantas telas existem nem como andar entre elas
+    expect(comoLer).not.toMatch(/nove telas/);
+    expect(comoLer).not.toMatch(/Anterior e Próximo/);
+    expect(comoLer).not.toMatch(/número do passo na barra/);
     expect(within(inicio).getByRole('heading', { name: 'Grife' }).parentElement?.textContent).toMatch(/áudio, uma foto, um link ou uma nota/);
 
     // os 3 chips do grifo, com a cor e para que serve
@@ -214,7 +226,7 @@ describe('tela 0 · "O seu script está pronto"', () => {
     expect(inicio.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  it('o resumo do script vem na mesma tela e os dois botões levam ao Passo 1 e à Preparação', async () => {
+  it('o resumo vem na mesma tela, sem os botões de entrada e sem o bloco "Como usar este script"', async () => {
     mockApi();
     const { reader, nav } = await abrir();
     const inicio = within(reader).getByTestId('tela-inicio');
@@ -222,17 +234,19 @@ describe('tela 0 · "O seu script está pronto"', () => {
     expect(within(inicio).getByText('Script dos 7 passos da venda')).toBeInTheDocument();
     expect(within(inicio).getByLabelText('Os 3 blocos da conversa')).toBeInTheDocument();
     expect(within(inicio).getByLabelText('Os 7 passos')).toBeInTheDocument();
-    // e "Como usar este script" fecha a tela, recolhido (item 11)
-    const comoUsar = within(inicio).getByTestId('como-usar') as HTMLDetailsElement;
-    expect(comoUsar.open).toBe(false);
-    expect(comoUsar.textContent).toContain('Como usar este script');
+    // 09/09 (itens 3a e 3c): os dois botões de entrada e o bloco recolhido saíram
+    expect(within(inicio).queryByTestId('inicio-passo-1')).toBeNull();
+    expect(within(inicio).queryByTestId('inicio-preparacao')).toBeNull();
+    expect(within(inicio).queryByTestId('como-usar')).toBeNull();
+    expect(inicio.textContent).not.toContain('Como usar este script');
 
-    fireEvent.click(within(reader).getByTestId('inicio-passo-1'));
+    // o sumário continua levando às telas: o bloco da conversa e a linha do passo
+    fireEvent.click(within(inicio).getByRole('button', { name: /Ir para o passo 1:/ }));
     await waitFor(() => expect(within(nav).getByRole('button', { name: /^Passo 1:/ })).toHaveAttribute('aria-current', 'page'));
 
     irPara(nav, 'Início');
-    fireEvent.click(await within(reader).findByTestId('inicio-preparacao'));
-    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Preparação e métricas' })).toHaveAttribute('aria-current', 'page'));
+    fireEvent.click(await within(reader).findByRole('button', { name: /Ir para o passo 3:/ }));
+    await waitFor(() => expect(within(nav).getByRole('button', { name: /^Passo 3:/ })).toHaveAttribute('aria-current', 'page'));
   });
 
   it('o cartão de bolso não é mais tela nem download', async () => {
@@ -454,5 +468,55 @@ describe('telas.ts · as duas coordenadas e a tela lembrada', () => {
     const { reader } = await abrir();
     expect(await within(reader).findByText('Script dos 7 passos da venda')).toBeInTheDocument();
     expect(localStorage.getItem('script-tela-nav2:elos:v1')).toBe('0');
+  });
+});
+
+/**
+ * Item 6 do pedido de 09/09: "Ir para as ações" só existe quando existe bloco de ações naquela tela. Aqui o
+ * leitor é montado direto, com e sem ações, porque é a prop que decide.
+ */
+describe('rodapé da última tela · "Ir para as ações"', () => {
+  const FIXTURE = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/script-exemplo.md'), 'utf8');
+  const DOC = parseScript(FIXTURE);
+
+  function abrirPreparacao(props: Record<string, unknown> = {}) {
+    const rootRef = React.createRef<HTMLDivElement>();
+    return render(
+      <ScriptReader
+        doc={DOC}
+        clubNome="Elos Club"
+        tela={TOTAL_NAV - 1}
+        onTela={vi.fn()}
+        documento="treinamento"
+        marcadas={new Set()}
+        comentariosDo={() => null}
+        totalGrifos={0}
+        rootRef={rootRef}
+        {...props}
+      />
+    );
+  }
+
+  it('com bloco de ações: o botão aparece, rola até o bloco e pousa o foco nele', () => {
+    abrirPreparacao({ acoes: <button type="button">Aprovar o script</button> });
+    const acoes = screen.getByTestId('acoes-fim');
+    const proximo = screen.getByTestId('rodape-proximo');
+    expect(proximo).toHaveTextContent('Ir para as ações');
+    fireEvent.click(proximo);
+    expect(document.activeElement).toBe(acoes);
+  });
+
+  it('sem bloco de ações na tela: o botão não é desenhado, e o "Anterior" continua', () => {
+    abrirPreparacao();
+    expect(screen.queryByTestId('acoes-fim')).toBeNull();
+    expect(screen.queryByTestId('rodape-proximo')).toBeNull();
+    expect(screen.getByTestId('rodape-anterior')).toBeInTheDocument();
+  });
+
+  it('só com a apresentação comercial o bloco existe, e o botão volta', () => {
+    abrirPreparacao({ apresentacao: { estado: 'ausente', onGerar: vi.fn() } });
+    expect(screen.getByTestId('acoes-fim')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('rodape-proximo'));
+    expect(document.activeElement).toBe(screen.getByTestId('acoes-fim'));
   });
 });

@@ -15,6 +15,7 @@ import {
   ehTelaDePasso, guardarTela, lerTelaLembrada, telaDoPasso, type DocumentoId,
 } from './script/telas';
 import { chaveTarefa } from './script/tarefas';
+import { EVENTO_FOLHA } from './script/secoes/ModalSecao';
 import { useGrifos } from './grifos/useGrifos';
 import { GrifoBubble } from './grifos/GrifoBubble';
 import { GrifosPanel } from './grifos/GrifosPanel';
@@ -448,6 +449,16 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     };
   }, [parsed]);
 
+  // A folha de perguntas do passo (CNCS) abriu ou fechou: o texto dela entra e sai do indice dos grifos
+  // junto com ela, entao a pintura precisa ser refeita nas duas horas (pedido do dono em 09/09, item 4a).
+  const [folhaAberta, setFolhaAberta] = useState(0);
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const ouvir = () => setFolhaAberta((n) => n + 1);
+    document.addEventListener(EVENTO_FOLHA, ouvir);
+    return () => document.removeEventListener(EVENTO_FOLHA, ouvir);
+  }, []);
+
   // O `passo` do grifo e a coordenada de CONTEUDO (0..9); a tela aberta e a de NAVEGACAO (0..10)
   const conteudoAtual = conteudoDaNav(tela);
   // Grifos desta tela pintados no texto (CSS Custom Highlight API); "ir para" rola ate o trecho em foco
@@ -465,7 +476,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
       rolarParaRange(enc.get(foco)!);
     }
     return () => limparPintura();
-  }, [grifosDaTela, parsed, foco, tela, docAtivo]);
+  }, [grifosDaTela, parsed, foco, tela, docAtivo, folhaAberta]);
 
   // Trecho capturado (balao "Grifar" aberto) com marca propria (`script-grifo-pendente`): sobrevive a selecao nativa recolher.
   // Some quando o balao fecha (salvar, cancelar, Esc, toque fora) ou outra selecao substitui a captura. Sem Highlight API, so o balao.

@@ -26,7 +26,7 @@ import { EducationalSuggestionsView } from './suggestions/EducationalSuggestions
 import { InsightsHub } from './insights/InsightsHub';
 import { PrioritiesScreen } from './modules/PrioritiesScreen';
 import { ModuleErrorBoundary } from './shared/ModuleErrorBoundary';
-import { MateriaisFichaScreen } from './script/MateriaisFichaScreen';
+import { MateriaisFichaScreen, ROTULO_BASE_DO_SCRIPT } from './script/MateriaisFichaScreen';
 import { ScriptScreen } from './script/ScriptScreen';
 import { EscolhaCaminho } from './script/EscolhaCaminho';
 import { ComoFuncionaScreen } from './script/ComoFuncionaScreen';
@@ -50,7 +50,8 @@ const SLUG_TO_ID: Record<string, string> = {
   // Script 7 Passos (cohort Exclusive)
   'como-funciona': 'script_como_funciona',
   'escolha': 'script_escolha',
-  // Onda J (item 4): Materiais e Ficha viraram uma tela só, com duas etapas internas
+  // Onda J (item 4): Materiais e Ficha viraram uma tela só, com duas etapas internas.
+  // Em 09/09 a tela passou a se chamar "Base do script"; o endereço continua o mesmo.
   'materiais-ficha': 'script_materiais_ficha',
   'script': 'script_script',
 };
@@ -147,23 +148,27 @@ const getSidebarMenu = (
   ];
 
   // SCRIPT 7 PASSOS — so para o cohort do Exclusive (users.cohort)
-  // Onda J (item 3): tres itens, sempre nesta ordem. "Materiais e ficha" e uma tela so (item 4).
+  // Onda J (item 3): tres itens, sempre nesta ordem. "Base do script" e uma tela so (item 4).
+  // Pedido do dono em 09/09 (item 1): os tres itens sao IGUAIS entre si (mesmo tamanho, mesmo recuo,
+  // mesma tipografia e todos com ponto). "Como funciona" deixou de ser item secundario, que o desenhava
+  // menor, em italico e recuado, do lado dos outros dois.
   if (script.enabled) {
     const scriptDot: 'green' | 'yellow' | 'gold' | 'gray' =
       script.scriptState === 'aprovado' ? 'green' :
       script.scriptState === 'rascunho' ? 'gold' :
       script.scriptState === 'escrevendo' ? 'yellow' : 'gray';
     // Verde quando a ficha fechou; dourado enquanto ela esta sendo revista; amarelo no resto do caminho
-    const materiaisFichaDot: 'green' | 'yellow' | 'gold' =
+    const baseDoScriptDot: 'green' | 'yellow' | 'gold' =
       script.fichaStatus === 'confirmada' ? 'green' :
       script.fichaStatus === 'em_revisao' ? 'gold' : 'yellow';
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
       items: [
-        // Onda I (item I1): "Como funciona" fica sempre disponível, para quem fechou a aba reencontrar a explicação
-        { id: 'script_como_funciona', label: 'Como funciona', secondary: true },
-        { id: 'script_materiais_ficha', label: 'Materiais e ficha', statusDot: materiaisFichaDot },
+        // Onda I (item I1): "Como funciona" fica sempre disponível, para quem fechou a aba reencontrar a explicação.
+        // O ponto cinza e o estado "so leitura": o item nao tem etapa para completar, mas ocupa a mesma caixa.
+        { id: 'script_como_funciona', label: 'Como funciona', statusDot: 'gray' },
+        { id: 'script_materiais_ficha', label: ROTULO_BASE_DO_SCRIPT, statusDot: baseDoScriptDot },
         { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
       ],
     });
@@ -268,7 +273,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   };
   const initialFromUrl = resolveModule(urlModule);
   const [activeItem, setActiveItem] = useState(props.initialModule || initialFromUrl);
-  // Etapa pedida dentro de "Materiais e ficha" (endereço antigo ou botão de dentro das telas)
+  // Etapa pedida dentro da "Base do script" (endereço antigo ou botão de dentro das telas)
   const [etapaMateriaisFicha, setEtapaMateriaisFicha] = useState<EtapaMateriaisFicha | undefined>(
     () => (urlModule ? SLUG_ANTIGO_ETAPA[urlModule] : undefined)
   );
@@ -747,10 +752,11 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       );
     }
 
-    // Onda J (item 4): Materiais e Ficha numa tela só, com as duas etapas internas e a espera entre elas
+    // Onda J (item 4): Materiais e Ficha numa tela só, com as duas etapas internas e a espera entre elas.
+    // O nome visível é "Base do script" desde 09/09 (item 2).
     if (activeItem === 'script_materiais_ficha') {
       return (
-        <ModuleErrorBoundary moduleName="Materiais e ficha">
+        <ModuleErrorBoundary moduleName={ROTULO_BASE_DO_SCRIPT}>
           <MateriaisFichaScreen
             ficha={scriptFicha}
             token={token}

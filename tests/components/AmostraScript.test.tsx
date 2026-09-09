@@ -83,7 +83,10 @@ describe('AmostraScript: o exemplo em modo leitura', () => {
   it('a navegação inteira funciona e nenhuma tela traz tarefa nem "Baixar a preparação"', async () => {
     render(<AmostraScript token="t" onVoltar={vi.fn()} />);
     await screen.findByTestId('script-reader');
-    fireEvent.click(screen.getByTestId('inicio-passo-1'));
+    // os botões de entrada da tela 0 saíram em 09/09 (item 3a): quem anda é o rodapé e a barra
+    expect(screen.queryByTestId('inicio-passo-1')).toBeNull();
+    expect(screen.queryByTestId('inicio-preparacao')).toBeNull();
+    fireEvent.click(screen.getByTestId('rodape-proximo'));
     await waitFor(() => expect(screen.getByTestId('script-reader').querySelector('[data-tela-atual="1"]')).toBeTruthy());
     // na amostra ninguém baixa nada, e o "baixe" do cartão saiu junto com ele
     expect(screen.queryByTestId('baixar-preparacao-tela')).toBeNull();

@@ -23,6 +23,8 @@ vi.mock('framer-motion', () => ({
 }));
 
 const FIXTURE = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/script-exemplo.md'), 'utf8');
+/** A fixture com os quatro tipos do CNCS no Passo 2, que é onde vive a folha de perguntas. */
+const FIXTURE_CNCS = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/script-secoes-v4.md'), 'utf8');
 
 function fichaMock() {
   return {
@@ -33,11 +35,11 @@ function fichaMock() {
   } as any;
 }
 
-function mockVersao(md: string) {
+function mockVersao(md: string, grifosSalvos: any[] = []) {
   (axios.get as any).mockImplementation(async (url: string) => {
     if (url === '/api/script/versoes') return { data: { success: true, versoes: [{ id: 'v1', versao: 1, status: 'rascunho', resumo: 'primeira', created_at: '2026-09-03 12:00:00', comentarios_count: 0 }], job: { id: 'j1', status: 'done' } } };
     if (url === '/api/script/versoes/1') return { data: { success: true, versao: { id: 'v1', versao: 1, status: 'rascunho', content_md: md, created_at: '2026-09-03 12:00:00' }, comentarios: [] } };
-    if (url === '/api/script/versoes/1/grifos') return { data: { success: true, grifos: [] } };
+    if (url === '/api/script/versoes/1/grifos') return { data: { success: true, grifos: grifosSalvos } };
     throw new Error('url inesperada ' + url);
   });
   (axios.post as any).mockImplementation(async (url: string, body: any) => {
@@ -60,10 +62,9 @@ function pointer(el: Element | Document, tipo: 'pointerdown' | 'pointerup', poin
   el.dispatchEvent(ev);
 }
 
-/** Seleciona de verdade (Selection + Range) o primeiro no de texto com 30+ caracteres da tela atual. */
-function selecionarTrecho(reader: HTMLElement) {
-  const tela = reader.querySelector('[data-tela]')!;
-  const walker = document.createTreeWalker(tela, NodeFilter.SHOW_TEXT);
+/** Seleciona de verdade (Selection + Range) o primeiro no de texto com 30+ caracteres de `raiz`. */
+function selecionarEm(raiz: Element) {
+  const walker = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode() as Text | null;
   while (node && node.data.trim().length < 30) node = walker.nextNode() as Text | null;
   if (!node) throw new Error('sem texto para selecionar');
@@ -74,6 +75,11 @@ function selecionarTrecho(reader: HTMLElement) {
   sel.removeAllRanges();
   sel.addRange(range);
   return { range, texto: normalizar(range.toString()), el: node.parentElement! };
+}
+
+/** O mesmo, na tela aberta do leitor. */
+function selecionarTrecho(reader: HTMLElement) {
+  return selecionarEm(reader.querySelector('[data-tela]')!);
 }
 
 async function irParaPasso(n: number) {
@@ -197,5 +203,106 @@ describe('ScriptScreen: selecao -> balao "Grifar" -> marca pendente', () => {
     // onda J (item 7): a lista abre pela pastilha flutuante, no celular e no desktop
     fireEvent.click(screen.getByTestId('grifos-flutuante'));
     expect(screen.getByTestId('grifos-painel')).toHaveTextContent(texto.slice(0, 40));
+  });
+});
+
+/**
+ * Item 4a do pedido de 09/09: grifar DENTRO da folha de perguntas do Passo 2 (o CNCS). Antes a folha ia por
+ * portal para o `document.body`, fora da raiz que escuta a selecao e sem `[data-tela]` por perto: selecionar
+ * ali nao abria balao nenhum. Agora ela nasce dentro da tela do passo, entao o grifo nasce com o passo e o
+ * documento certos, e os grifos ja salvos sao pintados la dentro.
+ */
+describe('ScriptScreen: grifo dentro da folha de perguntas (CNCS)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    highlights = { set: vi.fn(), delete: vi.fn() };
+    Object.defineProperty(globalThis, 'Highlight', { value: HighlightMock, configurable: true, writable: true });
+    Object.defineProperty(globalThis, 'CSS', { value: { highlights }, configurable: true, writable: true });
+  });
+  afterEach(() => {
+    delete (globalThis as any).Highlight;
+    delete (globalThis as any).CSS;
+    window.getSelection()?.removeAllRanges();
+  });
+
+  async function abrirFolhaDoPasso2(grifosSalvos: any[] = []) {
+    mockVersao(FIXTURE_CNCS, grifosSalvos);
+    render(<ScriptScreen ficha={fichaMock()} token="t" />);
+    const reader = await screen.findByTestId('script-reader');
+    await irParaPasso(2);
+    fireEvent.click(screen.getAllByTestId('perguntas-botao')[0]);
+    const folha = await screen.findByTestId('perguntas-folha');
+    return { reader, folha };
+  }
+
+  it('a folha abre dentro da tela do passo e a selecao la dentro abre o balao', async () => {
+    const { reader, folha } = await abrirFolhaDoPasso2();
+    // a folha esta dentro da raiz do leitor e dentro do `[data-tela]` do Passo 2 (coordenada de conteudo 3)
+    expect(reader.contains(folha)).toBe(true);
+    expect(folha.closest('[data-tela]')!.getAttribute('data-tela')).toBe('3');
+
+    const sel = selecionarEm(folha);
+    act(() => pointer(sel.el, 'pointerdown'));
+    act(() => pointer(document, 'pointerup'));
+    const balao = await screen.findByTestId('grifo-balao');
+    expect(balao).toBeInTheDocument();
+    // o trecho selecionado dentro da folha fica marcado como pendente, como em qualquer lugar da pagina
+    await waitFor(() => expect(chamadas(highlights.set, NOME).length).toBeGreaterThan(0));
+    const pendente = chamadas(highlights.set, NOME).at(-1)![1] as HighlightMock;
+    expect(normalizar(pendente.ranges[0].toString())).toBe(sel.texto);
+  });
+
+  it('salvar dentro da folha grava o grifo no passo e no documento certos, e ele e pintado la dentro', async () => {
+    const { folha } = await abrirFolhaDoPasso2();
+    const sel = selecionarEm(folha);
+    act(() => pointer(sel.el, 'pointerdown'));
+    act(() => pointer(document, 'pointerup'));
+    const balao = await screen.findByTestId('grifo-balao');
+    fireEvent.click(within(balao).getByRole('button', { name: 'Ajustar' }));
+    fireEvent.click(await within(balao).findByRole('button', { name: /Salvar grifo|^Grifar$/ }));
+    await waitFor(() => expect(screen.queryByTestId('grifo-balao')).toBeNull());
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/script/versoes/1/grifos',
+      expect.objectContaining({ texto: sel.texto, cor: 'dourado', passo: 3, documento: 'treinamento' }),
+      expect.anything()
+    );
+    // com a folha aberta, o grifo salvo e reencontrado e pintado dentro dela
+    await waitFor(() => {
+      const dourado = chamadas(highlights.set, 'script-grifo-dourado').at(-1)![1] as HighlightMock;
+      expect(dourado.ranges).toHaveLength(1);
+      expect(normalizar(dourado.ranges[0].toString())).toBe(sel.texto);
+      expect(screen.getByTestId('perguntas-folha').contains(dourado.ranges[0].startContainer)).toBe(true);
+    });
+  });
+
+  it('grifo que ja existia numa fala da folha e pintado assim que ela abre', async () => {
+    const texto = 'o que te fez estar aqui hoje?';
+    const salvo = {
+      id: 'g9', versao: 1, passo: 3, documento: 'treinamento', texto, prefixo: '', sufixo: '',
+      cor: 'verde', nota: '', autor_email: null, autor_nome: 'Ana', created_at: '2026-09-08 10:00:00', resolvido_em: null,
+    };
+    mockVersao(FIXTURE_CNCS, [salvo]);
+    render(<ScriptScreen ficha={fichaMock()} token="t" />);
+    // antes de abrir a folha o trecho nao esta na tela: nada de verde pintado
+    await screen.findByTestId('script-reader');
+    await irParaPasso(2);
+    await waitFor(() => expect(chamadas(highlights.set, 'script-grifo-verde').length).toBeGreaterThan(0));
+    expect((chamadas(highlights.set, 'script-grifo-verde').at(-1)![1] as HighlightMock).ranges).toHaveLength(0);
+    // a folha entra e o texto dela entra junto no indice: o grifo aparece marcado la dentro
+    fireEvent.click(screen.getAllByTestId('perguntas-botao')[0]);
+    const folha = await screen.findByTestId('perguntas-folha');
+    await waitFor(() => {
+      const verde = chamadas(highlights.set, 'script-grifo-verde').at(-1)![1] as HighlightMock;
+      expect(verde.ranges).toHaveLength(1);
+      expect(normalizar(verde.ranges[0].toString())).toBe(texto);
+      expect(folha.contains(verde.ranges[0].startContainer)).toBe(true);
+    });
+    // e sai do indice quando a folha fecha
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      const verde = chamadas(highlights.set, 'script-grifo-verde').at(-1)![1] as HighlightMock;
+      expect(verde.ranges).toHaveLength(0);
+    });
   });
 });

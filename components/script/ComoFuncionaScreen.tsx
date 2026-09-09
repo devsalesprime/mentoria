@@ -4,6 +4,7 @@ import { fraseDoTempoMaiuscula, useTemposScript } from '../../hooks/useEsperaScr
 import { AmostraScript } from './AmostraScript';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
+import { ROTULO_BASE_DO_SCRIPT } from './MateriaisFichaScreen';
 
 /**
  * "Como funciona" (onda I, item I1, decisao D1): a primeira tela de quem entra no Script 7 Passos,
@@ -49,13 +50,14 @@ export const VALE_MAIS: string[] = [
 ];
 
 /**
- * (b) As 3 etapas (onda J, item 4: Materiais e Ficha viraram uma tela só, com duas etapas internas).
+ * (b) As 3 etapas (onda J, item 4: Materiais e Ficha viraram uma tela só, com duas etapas internas;
+ * o nome visível dela é "Base do script" desde 09/09).
  * `tempo` diz de qual trabalho sai o número; sem número, fica a frase de apoio.
  */
 type EtapaTempo = 'prefill' | 'script' | null;
 export const ETAPAS: Array<{ id: string; nome: string; linha: string; tempo: EtapaTempo }> = [
   { id: 'escolha', nome: 'Escolha', linha: 'Você decide começar pelo essencial ou pelo script completo.', tempo: null },
-  { id: 'materiais-ficha', nome: 'Materiais e ficha', linha: 'Você manda o que já usa para vender e, na etapa seguinte, confere as respostas que vieram deles.', tempo: 'prefill' },
+  { id: 'materiais-ficha', nome: ROTULO_BASE_DO_SCRIPT, linha: 'Você manda o que já usa para vender e, na etapa seguinte, confere as respostas que vieram deles.', tempo: 'prefill' },
   { id: 'script', nome: 'Script', linha: 'O script sai na sua voz, para ler, grifar, baixar e levar para a reunião.', tempo: 'script' },
 ];
 

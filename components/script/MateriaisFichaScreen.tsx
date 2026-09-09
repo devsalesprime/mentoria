@@ -4,8 +4,9 @@ import { FichaScreen } from './FichaScreen';
 import { esperandoPrimeiraSugestao, etapaInicialMateriaisFicha, type EtapaMateriaisFicha, type UseScriptFicha } from '../../hooks/useScriptFicha';
 
 /**
- * "Materiais e ficha" (onda J, SPEC-workflow-v4-decisoes-08-09, item 4): as duas telas que antes viviam
- * separadas no menu passam a ser UMA tela com duas etapas internas, num seletor curto no alto do conteúdo.
+ * "Base do script" (onda J, SPEC-workflow-v4-decisoes-08-09, item 4; renomeada a pedido do dono em 09/09,
+ * item 2): as duas telas que antes viviam separadas no menu passam a ser UMA tela com duas etapas internas,
+ * num seletor curto no alto do conteúdo. O endereço (`materiais-ficha`) e os ids de rota continuam os mesmos.
  *
  * A etapa 1 monta a `MateriaisScreen` e a etapa 2 monta a `FichaScreen`, as duas como estavam. A espera da
  * leitura (onda I, item I5) continua sendo a `FichaScreen` em modo `espera`: ela é o rosto da etapa 2
@@ -16,6 +17,9 @@ import { esperandoPrimeiraSugestao, etapaInicialMateriaisFicha, type EtapaMateri
  * duas telas continuam pedindo "script_ficha" ou "script_materiais": aqui isso vira troca de etapa, sem sair
  * da tela; qualquer outro destino sobe para o Dashboard.
  */
+
+/** Nome visível da tela, em todo lugar: menu, título do topo, "Como funciona" e avisos. */
+export const ROTULO_BASE_DO_SCRIPT = 'Base do script';
 
 export const ROTULO_ETAPA_MATERIAIS = 'Materiais';
 export const ROTULO_ETAPA_FICHA = 'Ficha';
@@ -55,7 +59,7 @@ export const MateriaisFichaScreen: React.FC<MateriaisFichaScreenProps> = ({ fich
 
   return (
     <div className="space-y-4" data-testid="materiais-ficha-screen" data-etapa={naEspera ? 'espera' : aba}>
-      <div className="script-etapas" role="group" aria-label="Etapas de materiais e ficha" data-testid="materiais-ficha-etapas">
+      <div className="script-etapas" role="group" aria-label="Etapas da base do script" data-testid="materiais-ficha-etapas">
         {ETAPAS.map((e) => {
           const ativa = aba === e.id;
           return (

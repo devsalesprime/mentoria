@@ -3,6 +3,9 @@
  * Vídeo na Bunny Stream (biblioteca 716048, reapontamento CursEduca -> Bunny, verificado com GET 200 em 04/09/2026).
  * O embed antigo da CursEduca fica só como registro: em 04/09/2026 ele respondia 404 e não é usado na tela.
  * O player da Bunny aceita `?t=<segundos>` para abrir num ponto da aula e `autoplay=true` para tocar ao carregar.
+ * A CAPA (`thumbUrl`) foi lida do manifesto do embed e conferida com GET 200 no CDN em 09/09/2026; o
+ * `thumbnail.jpg` sem hash, que o cartão montava a partir do GUID, respondia 404 e por isso a aula aparecia
+ * sem capa em produção.
  * Os capítulos ainda não têm marcação de tempo: quando tiverem, basta preencher `inicioSegundos`.
  */
 export interface CapituloAula {
@@ -17,6 +20,13 @@ export interface AulaReferencia {
   titulo: string;
   /** Embed principal (Bunny Stream). */
   embedUrl: string;
+  /**
+   * Capa ESTÁTICA da gravação no CDN da Bunny, no mesmo padrão do `thumbUrl` de
+   * `treinamentos-por-passo.json`: `https://vz-6999111b-a97.b-cdn.net/<guid>/thumbnail_<hash>.jpg`.
+   * O nome do arquivo tem um hash por vídeo (o `thumbnail.jpg` sem hash responde 404 nesta library),
+   * então ele vem do manifesto do próprio embed, nunca montado no braço.
+   */
+  thumbUrl?: string;
   /** Embed antigo (CursEduca); registro histórico, hoje fora do ar. */
   fallbackUrl: string;
   duracaoAprox?: string;
@@ -26,6 +36,7 @@ export interface AulaReferencia {
 export const AULA_7_PASSOS: AulaReferencia = {
   titulo: 'Os 7 passos da venda, com Dani Martins',
   embedUrl: 'https://iframe.mediadelivery.net/embed/716048/fd407b65-c9c3-4f9d-bb90-3d97d01c949b',
+  thumbUrl: 'https://vz-6999111b-a97.b-cdn.net/fd407b65-c9c3-4f9d-bb90-3d97d01c949b/thumbnail_042ecab5.jpg',
   fallbackUrl: 'https://player.curseduca.com/embed/aa26c9f4-cf7d-4246-acfd-0f991cf0c7ef?api_key=514f682c8d9b37c075733fe2d123b15ad2ea4b2d',
   capitulos: [
     { passo: 1, rotulo: 'Conexão' },

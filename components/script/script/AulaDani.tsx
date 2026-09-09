@@ -17,12 +17,17 @@ import { BUNNY_CDN } from './TreinamentosPasso';
 export const AULA_ALLOW = 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;';
 
 /**
- * Capa da aula: o `thumbnail.jpg` público da Bunny, tirado do GUID do próprio embed. Onda J (item 10): a capa
- * é ESTÁTICA, o mesmo padrão das capas dos treinamentos por passo (`thumbDoTreinamento`). O `preview.webp`
- * saiu daqui porque é uma prévia animada do vídeo, e a animação no resumo parecia um player tocando sozinho.
- * Se a imagem não carregar, o cartão cai na placa navy com o botão de tocar (o `onError` de quem usa).
+ * Capa da aula, ESTÁTICA, exatamente como as capas dos treinamentos por passo (`thumbDoTreinamento`): a do
+ * catálogo primeiro (`aula.thumbUrl`, o `thumbnail_<hash>.jpg` do manifesto da Bunny) e, sem ela, o
+ * `thumbnail.jpg` montado a partir do GUID do embed.
+ *
+ * Pedido do dono em 09/09 (item 3d): em produção o cartão continuava sem capa. O motivo é que o
+ * `thumbnail.jpg` sem hash responde 404 nesta library, então o `onError` derrubava a imagem toda vez. A capa
+ * de verdade agora vem do `thumbUrl` da aula (GET 200 conferido em 09/09/2026). O `preview.webp` segue fora:
+ * é prévia animada, e animação no resumo parece player tocando sozinho (onda J, item 10).
  */
 export function thumbDaAula(aula: AulaReferencia): string | null {
+  if (typeof aula.thumbUrl === 'string' && aula.thumbUrl.trim()) return aula.thumbUrl.trim();
   const m = /\/embed\/\d+\/([0-9a-f-]+)/i.exec(aula.embedUrl);
   return m ? `${BUNNY_CDN}/${m[1]}/thumbnail.jpg` : null;
 }
@@ -96,15 +101,19 @@ export const AulaDani: React.FC<AulaDaniProps> = ({ aula = AULA_7_PASSOS, passo 
             className="absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-3 bg-[radial-gradient(ellipse_at_center,_rgba(18,63,91,0.9)_0%,_rgba(2,15,25,0.98)_75%)] text-prosperus-gold-light transition-colors hover:text-prosperus-gold"
           >
             {thumb && !semImagem && (
-              <img
-                src={thumb}
-                alt=""
-                aria-hidden="true"
-                loading="lazy"
-                data-testid="aula-thumb"
-                className="absolute inset-0 h-full w-full object-cover opacity-75"
-                onError={() => setSemImagem(true)}
-              />
+              <>
+                <img
+                  src={thumb}
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  data-testid="aula-thumb"
+                  className="absolute inset-0 h-full w-full object-cover"
+                  onError={() => setSemImagem(true)}
+                />
+                {/* véu escuro: a capa aparece inteira e o botão de tocar continua legível em cima dela */}
+                <span className="absolute inset-0 bg-prosperus-navy-dark/45" aria-hidden="true" />
+              </>
             )}
             <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-prosperus-gold-dark text-prosperus-navy-dark shadow-lg" aria-hidden="true">
               <IconePlay tamanho={30} />

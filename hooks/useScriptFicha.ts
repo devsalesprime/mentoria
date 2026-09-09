@@ -199,7 +199,7 @@ export const ORIGEM_AUTOMATICA = 'automatica';
 
 export type RotaScript = 'script_como_funciona' | 'script_escolha' | 'script_materiais_ficha' | 'script_script';
 
-/** Etapa interna da tela "Materiais e ficha" (onda J, item 4): as duas etapas e a espera entre elas. */
+/** Etapa interna da tela "Base do script" (onda J, item 4): as duas etapas e a espera entre elas. */
 export type EtapaMateriaisFicha = 'materiais' | 'espera' | 'ficha';
 
 /** O que `rotaInicialDoClube` precisa saber; tudo além de `ficha_status` e `suficiencia` é opcional. */
@@ -222,7 +222,7 @@ export function esperandoPrimeiraSugestao(d: DadosDaRota | null | undefined): bo
 }
 
 /**
- * Em qual das duas etapas de "Materiais e ficha" a pessoa entra (onda J, item 4). As regras são as mesmas
+ * Em qual das duas etapas da "Base do script" a pessoa entra (onda J, item 4). As regras são as mesmas
  * que decidiam entre as três telas antigas (Materiais, espera da leitura e Ficha):
  * a leitura rodando sem nenhuma sugestão -> a espera (item I5);
  * a ficha vazia -> Materiais, a não ser que a pessoa já tenha enviado ou pulado os materiais;
@@ -242,7 +242,7 @@ export function etapaInicialMateriaisFicha(d: DadosDaRota | null | undefined): E
  * nunca viu a tela inicial -> "Como funciona" (decisão D1: só na primeira entrada; depois ela vive no menu);
  * sem `modo` -> a tela de escolha (essencial ou completo);
  * "Seu script" quando a ficha está fechada ou os materiais bastaram (suficiente);
- * nos outros casos -> "Materiais e ficha", que abre na etapa dada por `etapaInicialMateriaisFicha`.
+ * nos outros casos -> "Base do script", que abre na etapa dada por `etapaInicialMateriaisFicha`.
  *
  * `visto_como_funciona` vem sempre do servidor (data ISO ou `null`). `undefined` = quem chamou não
  * carregou esse dado, e aí a tela inicial não entra na frente de nada.

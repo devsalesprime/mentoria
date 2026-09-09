@@ -30,12 +30,19 @@ describe('AulaDani · cartao da aula', () => {
     expect(screen.getByText('Os 7 passos da venda, com Dani Martins')).toBeInTheDocument();
     expect(screen.getByText(FRASE_AULA)).toBeInTheDocument();
     expect(container.querySelector('iframe')).toBeNull();
-    // a thumbnail é o pôster público da Bunny, tirado do GUID do embed
+    // a capa é a do catálogo da aula (thumbUrl do manifesto da Bunny), no CDN da library 716048
     const thumb = screen.getByTestId('aula-thumb');
     expect(thumb.getAttribute('src')).toBe(thumbDaAula(AULA_7_PASSOS));
-    // onda J (item 10): capa estatica, nao a previa animada
-    expect(thumb.getAttribute('src')).toContain('thumbnail.jpg');
+    expect(thumb.getAttribute('src')).toBe(AULA_7_PASSOS.thumbUrl);
+    // 09/09 (item 3d): capa ESTATICA de verdade, no mesmo padrao dos treinamentos por passo
+    // (`thumbnail_<hash>.jpg`). O `thumbnail.jpg` sem hash respondia 404 e deixava o cartao sem capa
+    expect(thumb.getAttribute('src')).toMatch(
+      /^https:\/\/vz-6999111b-a97\.b-cdn\.net\/fd407b65-c9c3-4f9d-bb90-3d97d01c949b\/thumbnail_[0-9a-f]+\.jpg$/
+    );
     expect(thumb.getAttribute('src')).not.toContain('preview.webp');
+    // sem opacidade: a capa aparece inteira, com o veu escuro por cima e o botao de tocar em cima dele
+    expect(thumb.className).toContain('object-cover');
+    expect(thumb.className).not.toContain('opacity-');
     // "Abrir em tela cheia" saiu (onda E1)
     expect(screen.queryByRole('link', { name: /tela cheia/i })).toBeNull();
 
@@ -69,6 +76,15 @@ describe('AulaDani · cartao da aula', () => {
     fireEvent.error(screen.getByTestId('aula-thumb'));
     expect(screen.queryByTestId('aula-thumb')).toBeNull();
     expect(screen.getByRole('button', { name: `Assistir: ${AULA_7_PASSOS.titulo}` })).toBeInTheDocument();
+  });
+
+  it('thumbDaAula: a capa do catálogo primeiro; sem ela, a montada a partir do GUID do embed', () => {
+    expect(thumbDaAula(AULA_7_PASSOS)).toBe(AULA_7_PASSOS.thumbUrl);
+    const semCapa: AulaReferencia = { ...AULA_7_PASSOS, thumbUrl: undefined };
+    expect(thumbDaAula(semCapa)).toBe(
+      'https://vz-6999111b-a97.b-cdn.net/fd407b65-c9c3-4f9d-bb90-3d97d01c949b/thumbnail.jpg'
+    );
+    expect(thumbDaAula({ ...semCapa, embedUrl: 'https://exemplo/sem-guid' })).toBeNull();
   });
 
   it('urlDaAula: base sem marcacao; t= com marcacao; autoplay; base com query usa &', () => {

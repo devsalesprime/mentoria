@@ -82,7 +82,7 @@ function renderDashboard() {
 }
 
 describe('rotaInicialDoClube / etapaInicialMateriaisFicha / fichaEhSecundaria', () => {
-  it('suficiente ou confirmada -> Seu script; o resto -> Materiais e ficha (onda J, item 4)', () => {
+  it('suficiente ou confirmada -> Seu script; o resto -> Base do script (onda J, item 4)', () => {
     const c = { modo: 'completo' as const };
     expect(rotaInicialDoClube({ ...c, ficha_status: 'vazia', suficiencia: null })).toBe('script_materiais_ficha');
     expect(rotaInicialDoClube({ ...c, ficha_status: 'pre_preenchida', suficiencia: null })).toBe('script_materiais_ficha');
@@ -115,12 +115,12 @@ describe('rotaInicialDoClube / etapaInicialMateriaisFicha / fichaEhSecundaria', 
     })).toBe('espera');
   });
 
-  it('sem `modo`: a tela de escolha vem antes de tudo; com modo, o fluxo segue para Materiais e ficha', () => {
+  it('sem `modo`: a tela de escolha vem antes de tudo; com modo, o fluxo segue para Base do script', () => {
     // Ninguém escolheu o caminho: a escolha vence até a ficha confirmada
     expect(rotaInicialDoClube({ ficha_status: 'vazia', suficiencia: null })).toBe('script_escolha');
     expect(rotaInicialDoClube({ ficha_status: 'confirmada', suficiencia: null })).toBe('script_escolha');
     expect(rotaInicialDoClube({ ficha_status: 'pre_preenchida', suficiencia: { resultado: 'parcial', faltam: ['3.3'], motivos: [] } })).toBe('script_escolha');
-    // Escolheu: segue o fluxo normal (materiais e ficha -> script)
+    // Escolheu: segue o fluxo normal (base do script -> script)
     expect(rotaInicialDoClube({ modo: 'essencial', ficha_status: 'vazia', suficiencia: null, materials_status: 'pending' })).toBe('script_materiais_ficha');
     expect(rotaInicialDoClube({ modo: 'essencial', ficha_status: 'vazia', suficiencia: null, materials_status: 'skipped' })).toBe('script_materiais_ficha');
     expect(rotaInicialDoClube({ modo: 'completo', ficha_status: 'vazia', suficiencia: null, materials_status: 'submitted' })).toBe('script_materiais_ficha');
@@ -138,18 +138,18 @@ describe('Dashboard: rota inicial pelo resultado da suficiência', () => {
     expect(screen.queryByText('FichaScreen')).toBeNull();
     const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
     const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(itens).toEqual(['Como funciona', 'Materiais e ficha', 'Seu script']);
+    expect(itens).toEqual(['Como funciona', 'Base do script', 'Seu script']);
   });
 
-  it('parcial: cai em "Materiais e ficha", na etapa da Ficha', async () => {
+  it('parcial: cai em "Base do script", na etapa da Ficha', async () => {
     mockApi(fichaMock({ suficiencia: { resultado: 'parcial', faltam: ['3.3', '5.3'], motivos: [] } }));
     renderDashboard();
     expect(await screen.findByText('FichaScreen')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Materiais e ficha' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Base do script' })).toBeInTheDocument();
     expect(screen.getByTestId('materiais-ficha-screen')).toHaveAttribute('data-etapa', 'ficha');
     const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
     const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(itens).toEqual(['Como funciona', 'Materiais e ficha', 'Seu script']);
+    expect(itens).toEqual(['Como funciona', 'Base do script', 'Seu script']);
     expect(screen.queryByText('ScriptScreen')).toBeNull();
   });
 
@@ -182,7 +182,7 @@ describe('Dashboard: rota inicial pelo resultado da suficiência', () => {
     expect(await screen.findByText('FichaScreen')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
     const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(itens).toEqual(['Como funciona', 'Materiais e ficha', 'Seu script']);
+    expect(itens).toEqual(['Como funciona', 'Base do script', 'Seu script']);
   });
 
   it('insuficiente: abre na etapa da Ficha; ficha vazia: abre na etapa dos Materiais', async () => {

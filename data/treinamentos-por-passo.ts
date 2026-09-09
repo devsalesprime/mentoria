@@ -29,9 +29,15 @@
  * - Passo 4: "Objeções - Com Pâmela Ferrari" (`6690f16c-...`) saiu da tela e o passo fica só com "Use o
  *   Não e Melhore a Conversão", do Luã Paiva. A gravação da Pâmela continua nas alternativas do MAPA.
  * - Passo 5: fica só com "Os Seis Porquês da Decisão", da Dani Martins.
- * - Passo 6: "Fechamento - Com Pâmela Ferrari" (`b58ceaf3-...`) saiu do Passo 5 e entrou aqui, depois do
- *   "Follow Up", com o "por que ver agora" reescrito para o compromisso. O passo passa a ter dois.
+ * - Passo 6: "Fechamento - Com Pâmela Ferrari" (`b58ceaf3-...`) saiu do Passo 5 e entrou aqui, com o "por
+ *   que ver agora" reescrito para o compromisso. O passo passa a ter dois.
  * - Contagem no ar por passo: 2, 1, 2, 1, 1, 2, 1 (10 gravações).
+ *
+ * Decisões do Danilo em 09/09/2026 (só a ORDEM dentro do passo; nenhuma gravação entrou nem saiu):
+ * - Passo 3: "Storytelling", da Juliana Medeiros, passa a ser a primeira, e a "Apresentação Cirúrgica",
+ *   do Thiago Chiovatto, vem depois. A história de bolso é o que se monta antes de apresentar.
+ * - Passo 6: "Fechamento", da Pâmela Ferrari, passa a ser o primeiro, e o "Follow Up", do Cláudio Rosa,
+ *   vem depois. Fecha-se primeiro, sustenta-se depois.
  *
  * Nenhum texto desta base usa travessão, nem os escritos por nós nem os títulos literais do catálogo.
  *

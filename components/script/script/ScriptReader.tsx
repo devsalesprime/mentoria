@@ -9,7 +9,7 @@ import { TreinamentosPasso } from './TreinamentosPasso';
 import { TarefasPasso } from './TarefasPasso';
 import { contagemDoPasso } from './tarefas';
 import {
-  TOTAL_NAV, NAV_INICIO, NAV_PASSO_1, NAV_PREPARACAO,
+  TOTAL_NAV, NAV_INICIO, NAV_PREPARACAO,
   TELA_SUMARIO, TELA_PREPARACAO,
   conteudoDaNav, ehTelaDeInicio, ehTelaDePasso, passoNaTela, rotuloNav, nomeNav, type DocumentoId,
 } from './telas';
@@ -20,11 +20,15 @@ import {
  * coordenada de CONTEUDO (0..9), que e a que os grifos e os comentarios guardam (ver telas.ts).
  *
  * Onda J (SPEC-workflow-v4-decisoes-08-09, itens 9, 10, 11 e 23):
- * - tela 0 unica: "O seu script está pronto", como navegar, como grifar, como pedir ajustes, o que vem depois
+ * - tela 0 unica: "O seu script está pronto", como ler, como grifar, como pedir ajustes, o que vem depois
  *   e, na sequencia, o resumo inteiro (os 3 blocos, os 7 passos e a aula da Dani; a premissa REP mudou para o
  *   Passo 2, item 19);
- * - "Como usar este script" fecha a tela 0 como bloco recolhido;
  * - o Cartao de bolso deixou de ter tela; "Baixar a preparação" toma o lugar de "Baixar cartão".
+ *
+ * Pedidos do dono em 09/09 (itens 3 e 6):
+ * - a tela 0 perdeu os dois botoes de entrada, a explicacao de quantas telas existem e o bloco recolhido
+ *   "Como usar este script"; o cartao "Escolha como ler" carrega o que valia dele;
+ * - "Ir para as ações" so aparece quando ha bloco de acoes, e agora rola E poe o foco nele.
  *
  * Onda E4 (pedidos do dono em 07/09):
  * - RODAPE de navegacao no fim de TODA tela ("Anterior" e "Próximo: <nome da próxima tela>"), para ninguem
@@ -179,11 +183,15 @@ const BlocoApresentacao: React.FC<{ apresentacao: ApresentacaoCartao }> = ({ apr
   </section>
 );
 
-/** "Ações": o fim de tudo, depois do Passo 7 e da Preparação. */
+/**
+ * "Ações": o fim de tudo, depois do Passo 7 e da Preparação.
+ * O `tabIndex={-1}` existe para o "Ir para as ações" do rodapé PODER pousar o foco aqui (pedido do dono em
+ * 09/09, item 6): rolar sozinho não dizia nada para quem já estava com o bloco na tela.
+ */
 const BlocoAcoes: React.FC<{ acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao }> = ({ acoes, apresentacao }) => {
   if (!acoes && !apresentacao) return null;
   return (
-    <section className="script-acoes-fim script-no-print" aria-label={ROTULO_ACOES} data-testid="acoes-fim">
+    <section className="script-acoes-fim script-no-print" aria-label={ROTULO_ACOES} data-testid="acoes-fim" tabIndex={-1}>
       <p className="script-nota-rotulo">{ROTULO_ACOES}</p>
       {acoes && <div className="script-acoes-linha">{acoes}</div>}
       {apresentacao && <BlocoApresentacao apresentacao={apresentacao} />}
@@ -218,9 +226,9 @@ const IntroDoScript: React.FC<{ clubNome: string; versao?: number | null; ajuste
         <p className="script-nota-rotulo">Como usar</p>
         <div className="script-inicio-cards">
           <article className="script-inicio-card">
-            <h3 className="font-serif text-xl text-prosperus-navy-panel">Navegue</h3>
+            <h3 className="font-serif text-xl text-prosperus-navy-panel">Escolha como ler</h3>
             <p className="text-sm leading-relaxed text-prosperus-neutral-black" data-testid="inicio-navegue">
-              São nove telas: esta, um passo por vez e a preparação no fim. Ande com Anterior e Próximo, no fim de cada tela, ou toque no número do passo na barra. Em cima você escolhe entre Treinamento e Campo.
+              Em cima você escolhe entre Treinamento e Campo. Treinamento é para ler antes da reunião: cada fala vem com o porquê dela, os perfis de cliente e as gravações recomendadas de cada passo. Campo é para deixar aberto durante a conversa: só as falas, as perguntas e o que fazer em seguida. As falas entre aspas são para dizer quase como estão, porque o ritmo delas já foi pensado; o que está entre colchetes você troca pela palavra que o cliente usou.
             </p>
           </article>
           <article className="script-inicio-card">
@@ -275,15 +283,24 @@ const IntroDaAmostra: React.FC<{ clubNome: string }> = ({ clubNome }) => (
 
 /**
  * Rodape de navegacao (onda E4): fica no FIM do conteudo de toda tela, para ninguem precisar voltar ao topo
- * para avancar. Na ultima tela o "Próximo" vira "Ir para as ações" e rola ate o bloco de decisao.
+ * para avancar. Na ultima tela o "Próximo" vira "Ir para as ações", rola ate o bloco de decisao e POUSA O
+ * FOCO nele.
+ *
+ * Pedido do dono em 09/09 (item 6): antes o botao parecia nao fazer nada. Duas causas: ele aparecia mesmo
+ * para quem nao tem bloco de acoes na tela (script ja aprovado, amostra) e, quando tinha, so rolava alguns
+ * pixels sem sinal nenhum. Agora `temAcoes` decide se o botao existe e o foco marca a chegada.
  */
-const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxima: string; amostra?: boolean }> = ({ tela, onTela, nomeProxima, amostra = false }) => {
+const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxima: string; temAcoes?: boolean }> = ({ tela, onTela, nomeProxima, temAcoes = false }) => {
   const ultima = tela >= TOTAL_NAV - 1;
   const irParaAcoes = () => {
     if (typeof document === 'undefined') return;
     const alvo = document.querySelector<HTMLElement>('[data-testid="acoes-fim"]');
-    if (alvo && typeof alvo.scrollIntoView === 'function') {
+    if (!alvo) return;
+    if (typeof alvo.scrollIntoView === 'function') {
       try { alvo.scrollIntoView({ block: 'start' }); } catch { /* jsdom */ }
+    }
+    if (typeof alvo.focus === 'function') {
+      try { alvo.focus({ preventScroll: true }); } catch { alvo.focus(); }
     }
   };
   return (
@@ -297,7 +314,7 @@ const RodapeNav: React.FC<{ tela: number; onTela: (t: number) => void; nomeProxi
       >
         Anterior
       </button>
-      {ultima && amostra ? null : ultima ? (
+      {ultima && !temAcoes ? null : ultima ? (
         <button type="button" onClick={irParaAcoes} className="script-rodape-btn script-rodape-btn-forte" data-testid="rodape-proximo">
           Ir para as ações
         </button>
@@ -341,9 +358,14 @@ interface TelaInicioProps {
 /**
  * Tela 0 (onda J, item 9): a introdução e o resumo do script na MESMA tela. Em cima, o que é e como usar;
  * embaixo, os 3 blocos da conversa, os 7 passos e a aula da Dani (a premissa REP mudou para o Passo 2, item
- * 19, e não se repete aqui). "Como usar este script" fecha
- * a tela como bloco recolhido (item 11: o conteúdo não muda, só deixa de competir com a introdução).
- * `data-tela` é o do sumário: o grifo desta tela continua nascendo com o mesmo passo de antes.
+ * 19, e não se repete aqui). `data-tela` é o do sumário: o grifo desta tela continua nascendo com o mesmo
+ * passo de antes.
+ *
+ * Pedido do dono em 09/09 (item 3): a tela 0 perdeu os dois botões de entrada ("Ir para o Passo 1" e "Ver a
+ * preparação"), perdeu a explicação de quantas telas existem e como andar entre elas (a barra e o rodapé já
+ * fazem isso sozinhos) e perdeu o bloco recolhido "Como usar este script". O que valia dele foi para o
+ * cartão "Escolha como ler": Treinamento, Campo e a regra das aspas e dos colchetes. O texto do documento
+ * (`doc.comoUsar`) continua saindo na folha impressa (ScriptPaper).
  */
 const TelaInicio: React.FC<TelaInicioProps> = ({ doc, clubNome, versao, ajustes, ficha, onTela, comentarios, tarefasConcluidas, amostra = false }) => {
   const tem = (re: RegExp) => doc.cabecalho.some((c) => re.test(c.rotulo));
@@ -355,23 +377,10 @@ const TelaInicio: React.FC<TelaInicioProps> = ({ doc, clubNome, versao, ajustes,
   const cabecalho = [...doc.cabecalho, ...extras];
   const d1 = doc.documentos[0];
   const passos = d1 ? d1.passos : [];
-  const multiplos = doc.documentos.length > 1;
-  const temPreparacao = !!doc.mapa || doc.documentos.some((d) => d.extras.some((e) => e.titulo !== 'Abertura'));
 
   return (
     <div data-tela={TELA_SUMARIO} data-documento="treinamento" className="script-inicio space-y-7" data-testid="tela-inicio">
       {amostra ? <IntroDaAmostra clubNome={clubNome} /> : <IntroDoScript clubNome={clubNome} versao={versao} ajustes={ajustes} />}
-
-      <div className="script-inicio-botoes">
-        <button type="button" onClick={() => onTela(NAV_PASSO_1)} className="script-acao script-acao-forte" data-testid="inicio-passo-1">
-          Ir para o Passo 1
-        </button>
-        {temPreparacao && (
-          <button type="button" onClick={() => onTela(NAV_PREPARACAO)} className="script-acao" data-testid="inicio-preparacao">
-            Ver a preparação
-          </button>
-        )}
-      </div>
 
       <section aria-label="O script, em resumo" className="space-y-6">
         <div>
@@ -428,31 +437,6 @@ const TelaInicio: React.FC<TelaInicioProps> = ({ doc, clubNome, versao, ajustes,
 
         <AulaDani aula={AULA_7_PASSOS} />
       </section>
-
-      <details className="script-como-usar script-recolhido" data-testid="como-usar">
-        <summary className="script-recolhido-titulo">Como usar este script</summary>
-        <div className="mt-3">
-          {multiplos ? (
-            <div className="grid gap-3 sm:grid-cols-2 mb-2">
-              <div>
-                <p className="font-serif text-lg text-prosperus-navy-panel">Treinamento</p>
-                <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leia antes da reunião. Em cada passo: objetivo, estado do cliente, princípio, falas com a anatomia, perguntas, o que observar, objeções, erro a evitar, critério de sucesso e as gravações recomendadas.</p>
-              </div>
-              <div>
-                <p className="font-serif text-lg text-prosperus-navy-panel">Campo</p>
-                <p className="text-sm leading-relaxed text-prosperus-neutral-black">Leve aberto durante a conversa. Em cada passo: falas numeradas, perguntas, transição, alerta e próximo passo obrigatório.</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm leading-relaxed text-prosperus-neutral-black mb-2">Um passo por tela; as falas em cartões com "copiar".</p>
-          )}
-          {doc.comoUsar.length > 0 && (
-            <ol className="space-y-1">
-              {doc.comoUsar.map((l, i) => <li key={i} className="flex items-start leading-relaxed"><span className="script-num" aria-hidden="true">{i + 1}</span><span className="min-w-0 flex-1">{comTags(l)}</span></li>)}
-            </ol>
-          )}
-        </div>
-      </details>
 
       {doc.extras.map((e) => (
         <div key={e.slug} className="script-md" dangerouslySetInnerHTML={{ __html: e.html }} />
@@ -583,6 +567,10 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   // As classes com `!` vencem o CSS de .script-barra-btn / .script-mapa-strip (styles/globals.css, fora de @layer).
   const btnMovel = 'max-sm:!flex-1 max-sm:!px-2';
 
+  // "Ir para as ações" so existe quando ha bloco de acoes na Preparação (item 6): sem acao nenhuma
+  // (script ja aprovado, amostra) o rodape da ultima tela fica so com "Anterior".
+  const temAcoes = !amostra && !!(acoes || apresentacao);
+
   // Onda J (item 7): a pastilha flutuante e o unico caminho para a lista de grifos, no celular e no desktop.
   // Toda tela tem o que grifar (a tela 0 carrega o sumario), entao ela aparece em todas.
   const pastilhaDeGrifos = !!onAbrirGrifos;
@@ -634,7 +622,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
         )}
         {conteudo}
         {/* Onda E4: avancar sem voltar ao topo. Fica no fim do conteudo de toda tela. */}
-        <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} amostra={amostra} />
+        <RodapeNav tela={tela} onTela={onTela} nomeProxima={nomeNav(tela + 1, nomeDoPasso(passoNaTela(conteudoDaNav(tela + 1))))} temAcoes={temAcoes} />
       </div>
 
       {/* Lista de grifos: pastilha flutuante em todos os tamanhos (onda J, item 7). O papel ganha um rodape

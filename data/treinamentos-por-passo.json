@@ -43,18 +43,6 @@
     ],
     "3": [
       {
-        "id": "corporate.apresentacao-cirurgica-com-thiago-chiovatto",
-        "titulo": "Apresentação Cirúrgica - Com Thiago Chiovatto",
-        "palestrante": "Thiago Chiovatto",
-        "tipo": "Corporate",
-        "duracaoMin": 80,
-        "bunnyGuid": "b0f2fcdd-1673-45cc-8874-ae9a3247c5d7",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7",
-        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7/playlist.m3u8",
-        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7/thumbnail_0894d9f1.jpg",
-        "porQueAgora": "As quatro fases da apresentação e a regra de vender o benefício, nunca a característica."
-      },
-      {
         "id": "corporate.storytelling-com-juliana-medeiros",
         "titulo": "Storytelling",
         "palestrante": "Juliana Medeiros",
@@ -65,6 +53,18 @@
         "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/4bded213-9729-48d4-bdf0-ec5bde22e187/playlist.m3u8",
         "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/4bded213-9729-48d4-bdf0-ec5bde22e187/thumbnail_bc2ad653.jpg",
         "porQueAgora": "Dá os quatro elementos da história de bolso (herói, desafio, caminho, transformação) que sustentam a prova social."
+      },
+      {
+        "id": "corporate.apresentacao-cirurgica-com-thiago-chiovatto",
+        "titulo": "Apresentação Cirúrgica - Com Thiago Chiovatto",
+        "palestrante": "Thiago Chiovatto",
+        "tipo": "Corporate",
+        "duracaoMin": 80,
+        "bunnyGuid": "b0f2fcdd-1673-45cc-8874-ae9a3247c5d7",
+        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b0f2fcdd-1673-45cc-8874-ae9a3247c5d7/thumbnail_0894d9f1.jpg",
+        "porQueAgora": "As quatro fases da apresentação e a regra de vender o benefício, nunca a característica."
       }
     ],
     "4": [
@@ -97,18 +97,6 @@
     ],
     "6": [
       {
-        "id": "corporate.follow-up-com-claudio-rosa",
-        "titulo": "Follow Up - Com Cláudio Rosa",
-        "palestrante": "Cláudio Rosa",
-        "tipo": "Corporate",
-        "duracaoMin": 60.6,
-        "bunnyGuid": "2b21162d-5d92-4bb1-91e9-08d1fe344c38",
-        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/2b21162d-5d92-4bb1-91e9-08d1fe344c38",
-        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/playlist.m3u8",
-        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/thumbnail_a2333183.jpg",
-        "porQueAgora": "Ciclo de reforço em cinco etapas e sequências de sete contatos, que é o movimento do compromisso."
-      },
-      {
         "id": "corporate.fechamento-com-pamela-ferrari",
         "titulo": "Fechamento - Com Pâmela Ferrari",
         "palestrante": "Pâmela Ferrari",
@@ -119,6 +107,18 @@
         "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/playlist.m3u8",
         "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd/thumbnail_5fe78eb3.jpg",
         "porQueAgora": "Ensina o microcompromisso ao longo da venda e a pergunta que abre o fechamento, para o compromisso continuar de pé depois do sim."
+      },
+      {
+        "id": "corporate.follow-up-com-claudio-rosa",
+        "titulo": "Follow Up - Com Cláudio Rosa",
+        "palestrante": "Cláudio Rosa",
+        "tipo": "Corporate",
+        "duracaoMin": 60.6,
+        "bunnyGuid": "2b21162d-5d92-4bb1-91e9-08d1fe344c38",
+        "embedUrl": "https://iframe.mediadelivery.net/embed/716048/2b21162d-5d92-4bb1-91e9-08d1fe344c38",
+        "hlsUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/playlist.m3u8",
+        "thumbUrl": "https://vz-6999111b-a97.b-cdn.net/2b21162d-5d92-4bb1-91e9-08d1fe344c38/thumbnail_a2333183.jpg",
+        "porQueAgora": "Ciclo de reforço em cinco etapas e sequências de sete contatos, que é o movimento do compromisso."
       }
     ],
     "7": [

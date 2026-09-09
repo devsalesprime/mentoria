@@ -11,8 +11,12 @@
  *
  * Decisões de 08/09/2026: o Passo 4 ficou só com o "Use o Não" do Luã Paiva (as "Objeções" da Pâmela
  * saíram da tela), o Passo 5 ficou só com "Os Seis Porquês da Decisão" da Dani Martins e o "Fechamento"
- * da Pâmela desceu para o Passo 6, depois do "Follow Up", com o "por que ver agora" refeito para o
- * compromisso. A contagem no ar passa a ser 2, 1, 2, 1, 1, 2, 1.
+ * da Pâmela desceu para o Passo 6, com o "por que ver agora" refeito para o compromisso. A contagem no ar
+ * passa a ser 2, 1, 2, 1, 1, 2, 1.
+ *
+ * Decisões de 09/09/2026 (item 5 do dia): só a ORDEM dentro de dois passos. No Passo 3 o "Storytelling"
+ * vem primeiro e a "Apresentação Cirúrgica" depois; no Passo 6 o "Fechamento" vem primeiro e o "Follow Up"
+ * depois. Nenhuma gravação entrou nem saiu, e a contagem por passo não mudou.
  */
 import {
   BUNNY_LIBRARY,
@@ -115,19 +119,31 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
     expect(todosOsTreinamentos().map((t) => t.bunnyGuid)).not.toContain('b5f9555c-0e88-43b4-8834-b18aec327076');
   });
 
-  it('Passos 4, 5 e 6 depois de 08/09: o fechamento desceu para o compromisso, atrás do follow up', () => {
+  it('Passos 4, 5 e 6 depois de 08/09: o fechamento desceu para o compromisso', () => {
     expect(treinamentosDoPasso(4).map((t) => t.id)).toEqual(['corporate.use-o-nao-e-melhore-a-conversao-com-lua-paiva']);
     expect(treinamentosDoPasso(5).map((t) => t.id)).toEqual(['corporate.os-seis-porques-da-decisao-com-dani-martins']);
-    expect(treinamentosDoPasso(6).map((t) => t.id)).toEqual([
-      'corporate.follow-up-com-claudio-rosa',
-      'corporate.fechamento-com-pamela-ferrari',
-    ]);
-    const fechamento = treinamentosDoPasso(6)[1];
+    const fechamento = treinamentosDoPasso(6)[0];
     expect(fechamento.palestrante).toBe('Pâmela Ferrari');
     expect(fechamento.bunnyGuid).toBe('b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd');
     // o "por que ver agora" fala do compromisso, que é o movimento do Passo 6
     expect(fechamento.porQueAgora).toMatch(/compromisso/i);
     expect(fechamento.porQueAgora).not.toContain('—');
+  });
+
+  it('ordem de 09/09: no Passo 3 o Storytelling abre; no Passo 6 o Fechamento abre', () => {
+    expect(treinamentosDoPasso(3).map((t) => t.id)).toEqual([
+      'corporate.storytelling-com-juliana-medeiros',
+      'corporate.apresentacao-cirurgica-com-thiago-chiovatto',
+    ]);
+    expect(treinamentosDoPasso(3).map((t) => t.palestrante)).toEqual(['Juliana Medeiros', 'Thiago Chiovatto']);
+    expect(treinamentosDoPasso(6).map((t) => t.id)).toEqual([
+      'corporate.fechamento-com-pamela-ferrari',
+      'corporate.follow-up-com-claudio-rosa',
+    ]);
+    expect(treinamentosDoPasso(6).map((t) => t.palestrante)).toEqual(['Pâmela Ferrari', 'Cláudio Rosa']);
+    // a ordem da tela é a ordem das tarefas de "assistir" do passo
+    expect(tarefasDoPasso(3)[0].texto).toContain('Storytelling');
+    expect(tarefasDoPasso(6)[0].texto).toContain('Fechamento');
   });
 
   it('os títulos e os GUIDs batem com o MAPA, um por um', () => {
@@ -140,8 +156,8 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
         ['A Arte de Fazer Perguntas - Com Pâmela Ferrari', '3fe9dfe7-a992-471b-afec-58f198ad547b', 81.0],
       ],
       3: [
-        ['Apresentação Cirúrgica - Com Thiago Chiovatto', 'b0f2fcdd-1673-45cc-8874-ae9a3247c5d7', 80.0],
         ['Storytelling', '4bded213-9729-48d4-bdf0-ec5bde22e187', 74.2],
+        ['Apresentação Cirúrgica - Com Thiago Chiovatto', 'b0f2fcdd-1673-45cc-8874-ae9a3247c5d7', 80.0],
       ],
       4: [
         ['Use o Não e Melhore a Conversão', '76c8ab9d-104c-47be-bed5-d948317d4fd2', 62.9],
@@ -150,8 +166,8 @@ describe('data/treinamentos-por-passo · forma do catálogo', () => {
         ['Os Seis Porquês da Decisão - Com Dani Martins', '351d4990-e6ae-4a22-be99-e37cf9daec30', 61.2],
       ],
       6: [
-        ['Follow Up - Com Cláudio Rosa', '2b21162d-5d92-4bb1-91e9-08d1fe344c38', 60.6],
         ['Fechamento - Com Pâmela Ferrari', 'b58ceaf3-0ab4-4bb1-9288-d961e5e0c3fd', 72.3],
+        ['Follow Up - Com Cláudio Rosa', '2b21162d-5d92-4bb1-91e9-08d1fe344c38', 60.6],
       ],
       7: [['Recomendação', '8a8cc7d2-7b67-4d09-8352-13df7625bf4e', 63.9]],
     };
