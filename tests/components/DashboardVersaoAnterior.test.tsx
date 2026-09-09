@@ -116,12 +116,19 @@ function conferirMoldeIgual() {
     expect(b.className).not.toContain('pl-6');
     expect(b.className).not.toContain('text-[11px]');
   }
-  // o ponto de estado acompanha todo item que não é o aberto, inclusive o "Como funciona"
+  // o ponto de estado acompanha TODO item, inclusive o aberto (a QA de producao pegou o ponto sumindo la)
   const abertos = botoes.filter((b) => b.className.includes('bg-prosperus-gold-dark'));
   expect(abertos).toHaveLength(1);
-  for (const b of botoes.filter((x) => !abertos.includes(x))) {
-    expect(b.querySelector('span.rounded-full'), b.textContent || '').not.toBeNull();
+  for (const b of botoes) {
+    const ponto = b.querySelector('span.rounded-full');
+    expect(ponto, b.textContent || '').not.toBeNull();
+    expect(ponto!.className, b.textContent || '').toContain('w-1.5 h-1.5');
   }
+  // no item aberto o fundo e dourado, entao o ponto usa a versao escura da mesma cor
+  const pontoAberto = abertos[0].querySelector('span.rounded-full')!;
+  expect(pontoAberto.className).toMatch(/bg-(green-900|yellow-800|black\/40|black\/70)/);
+  const pontoFechado = botoes.filter((x) => !abertos.includes(x))[0].querySelector('span.rounded-full')!;
+  expect(pontoFechado.className).toMatch(/bg-(green-400|yellow-400|white\/20|prosperus-gold-dark)/);
 }
 
 describe('Dashboard: versão anterior x Script 7 Passos', () => {

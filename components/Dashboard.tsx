@@ -244,15 +244,28 @@ const getSidebarMenu = (
 
 // ─── Dot indicator ─────────────────────────────────────────────────────────────
 
-const DotIndicator: React.FC<{ dot?: 'green' | 'yellow' | 'gray' | 'gold' }> = ({ dot }) => {
+/**
+ * O ponto de estado do item do menu. Mesmo tamanho e mesma posicao em todo item, inclusive no ABERTO
+ * (pedido do dono em 09/09, item 1): antes o ponto sumia no item aberto e a linha dele ficava mais curta que
+ * a dos outros. No aberto o fundo e dourado, entao a cor muda para a versao escura da mesma cor, senao o
+ * ponto some dentro do fundo.
+ */
+const DotIndicator: React.FC<{ dot?: 'green' | 'yellow' | 'gray' | 'gold'; ativo?: boolean }> = ({ dot, ativo = false }) => {
   if (!dot) return null;
-  const classes = {
-    green:  'bg-green-400',
-    yellow: 'bg-yellow-400',
-    gray:   'bg-white/20',
-    gold:   'bg-prosperus-gold-dark',
-  }[dot];
-  return <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${classes}`} />;
+  const classes = ativo
+    ? {
+      green:  'bg-green-900',
+      yellow: 'bg-yellow-800',
+      gray:   'bg-black/40',
+      gold:   'bg-black/70',
+    }[dot]
+    : {
+      green:  'bg-green-400',
+      yellow: 'bg-yellow-400',
+      gray:   'bg-white/20',
+      gold:   'bg-prosperus-gold-dark',
+    }[dot];
+  return <span data-dot={dot} className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${classes}`} />;
 };
 
 // ─── Dashboard component ───────────────────────────────────────────────────────
@@ -920,7 +933,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                         ) : (
                           <span className="truncate flex-1">{item.label}</span>
                         )}
-                        {!isCurrent && !item.secondary && <DotIndicator dot={item.statusDot} />}
+                        {!item.secondary && <DotIndicator dot={item.statusDot} ativo={isCurrent} />}
                       </button>
                     );
                   })}
