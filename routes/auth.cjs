@@ -79,14 +79,19 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
     return { contact, fullName, hasWonDeal };
   }
 
-  /** Cohort (Exclusive): e-mail em cohort_members de clube ativo entra sem depender da etapa do HubSpot. */
-  async function lookupCohortMember(email) {
+  /**
+   * Linha do cohort desta pessoa, com o clube ativo ou nao e o produto do clube
+   * ('exclusive' = roster do Exclusive; 'club' = clube proprio criado no login).
+   * Ter a linha, mesmo de clube desativado, e o que impede o login de criar um segundo clube para ela.
+   */
+  async function lookupCohortRow(email) {
     try {
       return await dbGet(
-        `SELECT cm.club_slug, cm.nome, cc.nome AS club_nome
+        `SELECT cm.club_slug, cm.nome, cc.nome AS club_nome, cc.ativo AS club_ativo,
+                COALESCE(cc.produto, 'exclusive') AS club_produto
            FROM cohort_members cm
            JOIN cohort_clubs cc ON cc.slug = cm.club_slug
-          WHERE cm.email = ? AND cc.ativo = 1`,
+          WHERE cm.email = ?`,
         [email.trim().toLowerCase()]
       );
     } catch (err) {
@@ -96,12 +101,63 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
     }
   }
 
-  // 1. Verify Member (HubSpot, com bypass para o cohort do Exclusive)
+  /** 'Ana Paula' / 'ana.paula+x' -> 'ana-paula'. Sem acento, so minuscula, numero e hifen. */
+  function slugify(texto) {
+    return String(texto || '')
+      // NFD separa a letra do acento; tudo o que sobra fora do ASCII (o acento solto, inclusive) cai fora
+      .normalize('NFD').replace(/[^\x00-\x7F]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24)
+      .replace(/-+$/g, '');
+  }
+
+  /** 6 caracteres derivados do e-mail: o mesmo e-mail sempre gera o mesmo slug, e dois "ana@" nao colidem. */
+  function hashCurto(email) {
+    return require('crypto').createHash('sha1').update(String(email).trim().toLowerCase()).digest('hex').slice(0, 6);
+  }
+
+  /**
+   * Clube proprio de quem entrou pelo HubSpot e nao esta no roster do Exclusive (decisao do Danilo, 10/09).
+   * Idempotente: o slug vem do e-mail, o INSERT do clube e OR IGNORE e o do membro tem a PK do e-mail,
+   * entao o segundo login reaproveita o mesmo clube e a mesma ficha. Produto 'club', nunca 'exclusive'.
+   * Falhou (coluna `produto` ainda nao criada, banco travado): devolve null e a pessoa entra sem o cohort,
+   * exatamente como entrava antes.
+   */
+  async function criarClubeProprio(email, nome) {
+    const local = String(email).split('@')[0];
+    const slug = `u-${slugify(local) || 'membro'}-${hashCurto(email)}`;
+    const clubNome = (nome || '').trim() || email;
+    try {
+      await dbRun(
+        `INSERT OR IGNORE INTO cohort_clubs (slug, nome, ativo, produto) VALUES (?, ?, 1, 'club')`,
+        [slug, clubNome]
+      );
+      await dbRun(
+        `INSERT INTO cohort_members (email, club_slug, nome) VALUES (?, ?, ?)
+         ON CONFLICT(email) DO NOTHING`,
+        [email, slug, clubNome]
+      );
+      console.log(`✅ Clube próprio criado para ${email}: ${slug}`);
+      return { club_slug: slug, club_nome: clubNome, club_produto: 'club', nome: clubNome };
+    } catch (err) {
+      console.error(`⚠️ Não deu para criar o clube próprio de ${email}:`, err.message);
+      return null;
+    }
+  }
+
+  // 1. Verify Member (HubSpot, com bypass para o roster do Exclusive)
+  // Quem entra nao mudou: roster do Exclusive OU negocio ganho no HubSpot. O que mudou (10/09) e que
+  // quem entra pelo HubSpot e nao esta no roster ganha um clube proprio (produto 'club') e passa a ver
+  // o Script 7 Passos, em vez de entrar sem cohort nenhum.
   router.post('/auth/verify-member', validateBody(verifyMemberSchema), async (req, res) => {
     try {
       const { email } = req.body;
 
-      const cohortMember = await lookupCohortMember(email);
+      // A linha do cohort existe mesmo com o clube desativado; so clube ativo dispensa a etapa do HubSpot.
+      const cohortRow = await lookupCohortRow(email);
+      const cohortMember = cohortRow && cohortRow.club_ativo === 1 ? cohortRow : null;
 
       if (!HUBSPOT_TOKEN && !cohortMember) {
         return res.status(500).json({ success: false, message: 'Token HubSpot não configurado.' });
@@ -143,13 +199,32 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
 
       // Verificar se usuário já existe (e-mail chega normalizado; contas antigas podem ter caixa diferente)
       const existingRow = await dbGet(
-        'SELECT id FROM users WHERE lower(email) = ? ORDER BY created_at ASC LIMIT 1',
+        'SELECT id, cohort, club_slug FROM users WHERE lower(email) = ? ORDER BY created_at ASC LIMIT 1',
         [email]
       );
       let userId = existingRow ? existingRow.id : null;
       const isExistingUser = !!userId;
       if (!userId) {
         userId = `user-${generateId()}`;
+      }
+
+      /**
+       * Onde esta pessoa entra (decisao do Danilo, 10/09). Nesta ordem:
+       *   1. roster do Exclusive (cohort_members de clube ativo) -> o clube dela, produto do clube;
+       *   2. conta que ja tem cohort no banco -> fica como esta (roster nunca vira clube proprio);
+       *   3. passou pelo HubSpot e nao tem linha nenhuma no cohort -> ganha o clube proprio ('club').
+       * Quem tem linha de clube DESATIVADO (cohortRow sem cohortMember) nao cria nada: o clube dela existe,
+       * so esta fechado, e criar um segundo separaria a pessoa da propria ficha.
+       */
+      let acesso = cohortMember
+        ? { club_slug: cohortMember.club_slug, produto: cohortMember.club_produto || 'exclusive' }
+        : null;
+      if (!acesso && !cohortRow && existingRow && existingRow.cohort && existingRow.club_slug) {
+        acesso = { club_slug: existingRow.club_slug, produto: existingRow.cohort };
+      }
+      if (!acesso && !cohortRow && hasWonDeal) {
+        const proprio = await criarClubeProprio(email, fullName);
+        if (proprio) acesso = { club_slug: proprio.club_slug, produto: 'club' };
       }
 
       const tokenPayload = {
@@ -159,9 +234,9 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
         hubspotId,
         name: fullName
       };
-      if (cohortMember) {
-        tokenPayload.cohort = 'exclusive';
-        tokenPayload.clubSlug = cohortMember.club_slug;
+      if (acesso) {
+        tokenPayload.cohort = acesso.produto;
+        tokenPayload.clubSlug = acesso.club_slug;
       }
       const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '24h' });
 
@@ -174,10 +249,10 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
       // o admin pode confiar nela. `updated_at` continua marcando "a linha mudou" (resync de clube,
       // troca de nome) e nunca mais e lido como login. Idempotente: entrar de novo so move a data.
       if (isExistingUser) {
-        if (cohortMember) {
+        if (acesso) {
           await dbRun(
-            `UPDATE users SET name = ?, cohort = 'exclusive', club_slug = ?, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            [fullName, cohortMember.club_slug, userId]
+            `UPDATE users SET name = ?, cohort = ?, club_slug = ?, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [fullName, acesso.produto, acesso.club_slug, userId]
           );
         } else {
           await dbRun(
@@ -185,10 +260,10 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
             [fullName, userId]
           );
         }
-      } else if (cohortMember) {
+      } else if (acesso) {
         await dbRun(
-          `INSERT INTO users (id, email, name, role, cohort, club_slug, last_login_at) VALUES (?, ?, ?, ?, 'exclusive', ?, CURRENT_TIMESTAMP)`,
-          [userId, email, fullName, 'member', cohortMember.club_slug]
+          `INSERT INTO users (id, email, name, role, cohort, club_slug, last_login_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+          [userId, email, fullName, 'member', acesso.produto, acesso.club_slug]
         );
       } else {
         await dbRun(
@@ -211,7 +286,7 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
         ]
       );
 
-      console.log(`✅ Login bem-sucedido para ${email}${cohortMember ? ` (cohort: ${cohortMember.club_slug})` : ''}`);
+      console.log(`✅ Login bem-sucedido para ${email}${acesso ? ` (${acesso.produto}: ${acesso.club_slug})` : ''}`);
 
       res.status(200).json({
         success: true,
@@ -222,8 +297,8 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
           email,
           role: 'member',
           name: fullName,
-          cohort: cohortMember ? 'exclusive' : null,
-          clubSlug: cohortMember ? cohortMember.club_slug : null
+          cohort: acesso ? acesso.produto : null,
+          clubSlug: acesso ? acesso.club_slug : null
         }
       });
 

@@ -260,6 +260,7 @@ describe('I5: a espera antes da ficha', () => {
 describe('a copy das telas novas segue as regras da casa', () => {
   const ARQUIVOS = [
     'components/script/ComoFuncionaScreen.tsx',
+    'components/script/InicioScreen.tsx',
     'components/script/MateriaisFichaScreen.tsx',
     'components/script/EtaEspera.tsx',
     'components/script/EsperaLeitura.tsx',

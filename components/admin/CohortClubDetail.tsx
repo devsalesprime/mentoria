@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/Button';
-import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, SuficienciaBadge, PendenciaLinha, formatDateTime, progressoResumo, nomesDosCampos } from './CohortOverview';
-import type { CohortJob, SuficienciaResumo, PendenciaAberta } from './CohortOverview';
+import { FichaBadge, MaterialsBadge, JobStatusBadge, JobTipoBadge, SuficienciaBadge, PendenciaLinha, ProdutoBadge, formatDateTime, progressoResumo, nomesDosCampos } from './CohortOverview';
+import type { CohortJob, SuficienciaResumo, PendenciaAberta, ProdutoClube } from './CohortOverview';
 import { renderMarkdown } from '../../utils/markdown';
 import { MATERIAL_CATEGORIA_LABEL } from '../script/materiais/categorias';
 import { maskSenha } from '../script/materiais/AcessosPlataforma';
@@ -71,7 +71,8 @@ function telaDoGrifo(passo: number): string {
 interface ContextoItem { id: string; field_key: string; tipo: string; file_name: string | null; url: string; texto: string; legenda: string; transcricao: string | null; erro_transcricao: string | null; autor_email: string | null; autor_nome: string | null; created_at: string; download_url: string | null }
 
 interface ClubDetail {
-  club: { slug: string; nome: string; ativo: boolean };
+  /** `produto`: 'exclusive' = clube do roster; 'club' = clube próprio, criado sozinho no login. */
+  club: { slug: string; nome: string; ativo: boolean; produto?: ProdutoClube };
   membros: Member[];
   files: ClubFile[];
   pessoas: Pessoa[];
@@ -431,7 +432,11 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <Button variant="ghost" size="sm" onClick={onBack} className="mb-1 !px-0">← Cohort</Button>
-          <h3 className="text-xl font-semibold text-white">{detail.club.nome} <span className="text-xs text-white/40 font-normal">{detail.club.slug}{detail.club.ativo ? '' : ' · inativo'}</span></h3>
+          <h3 className="text-xl font-semibold text-white flex flex-wrap items-center gap-2">
+            <span>{detail.club.nome}</span>
+            <ProdutoBadge produto={detail.club.produto} />
+            <span className="text-xs text-white/40 font-normal">{detail.club.slug}{detail.club.ativo ? '' : ' · inativo'}</span>
+          </h3>
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <FichaBadge status={detail.ficha_status} />
             <span className="text-xs text-white/50">{detail.progresso.obrigatorios_decididos}/{detail.progresso.obrigatorios} obrigatórios · {detail.progresso.decididos}/{detail.progresso.total} total</span>

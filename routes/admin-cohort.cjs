@@ -82,15 +82,22 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   const listFiles = (slug) => CM.listClubFiles({ dbAll }, slug);
   const buildPessoas = CM.buildPessoas;
 
-  /** Reaplica users.cohort para os membros do clube conforme cohort_clubs.ativo. */
+  /** 'exclusive' (roster) ou 'club' (clube proprio). Clube sem a coluna `produto` ainda: roster. */
+  const produtoDoClube = (club) => (club && club.produto === 'club' ? 'club' : 'exclusive');
+
+  /**
+   * Reaplica users.cohort para os membros do clube conforme cohort_clubs.ativo.
+   * O valor gravado e o PRODUTO do clube, nunca 'exclusive' fixo: reativar um clube proprio devolvia
+   * a pessoa como se ela fosse do roster do Exclusive.
+   */
   async function resyncClubUsers(slug) {
     const club = await getClub(slug);
     if (!club) return;
     if (club.ativo === 1) {
       await dbRun(
-        `UPDATE users SET cohort = 'exclusive', club_slug = ?, updated_at = CURRENT_TIMESTAMP
+        `UPDATE users SET cohort = ?, club_slug = ?, updated_at = CURRENT_TIMESTAMP
           WHERE lower(email) IN (SELECT email FROM cohort_members WHERE club_slug = ?)`,
-        [slug, slug]
+        [produtoDoClube(club), slug, slug]
       );
     } else {
       await dbRun(`UPDATE users SET cohort = NULL, updated_at = CURRENT_TIMESTAMP WHERE club_slug = ?`, [slug]);
@@ -100,7 +107,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   /** Marca users.cohort/club_slug para os e-mails informados (se ja tem conta); clube inativo so aponta o club_slug. */
   async function markUsers(emails, slug) {
     const club = await getClub(slug);
-    const cohortValue = club && club.ativo === 1 ? 'exclusive' : null;
+    const cohortValue = club && club.ativo === 1 ? produtoDoClube(club) : null;
     for (const email of emails) {
       await dbRun(
         `UPDATE users SET cohort = ?, club_slug = ?, updated_at = CURRENT_TIMESTAMP WHERE lower(email) = ?`,
@@ -113,7 +120,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   router.get('/api/admin/cohort', authMiddleware, adminMiddleware, async (req, res) => {
     try {
       const clubs = await dbAll(
-        `SELECT cc.slug, cc.nome, cc.ativo, cc.created_at,
+        `SELECT cc.slug, cc.nome, cc.ativo, cc.created_at, COALESCE(cc.produto, 'exclusive') AS produto,
                 sf.materials, sf.materials_status, sf.materials_submitted_at, sf.ficha_status, sf.fields,
                 sf.prefilled_at, sf.reviewed_at, sf.last_user_activity_at, sf.suficiencia, sf.confirmada_por
            FROM cohort_clubs cc
@@ -151,6 +158,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
           club_slug: c.slug,
           club_nome: c.nome,
           ativo: c.ativo === 1,
+          // 'exclusive' = clube do roster (a equipe criou); 'club' = clube proprio, criado no login
+          produto: produtoDoClube(c),
           membros: ms,
           materiais_count: countBySlug[c.slug] || 0, // arquivos de todos os membros
           links_count: VM.countItems(materials), // links + acessos de todos os membros
@@ -210,7 +219,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       res.json({
         success: true,
         data: {
-          club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 },
+          club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1, produto: produtoDoClube(club) },
           membros,
           files,
           // Por pessoa (arquivos, links, observacoes, acessos, resposta_ia, notify_phone, submitted_at). `legado` = forma antiga por clube.
@@ -660,7 +669,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       club = await getClub(slug);
       res.json({
         success: true,
-        club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1 },
+        club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1, produto: produtoDoClube(club) },
         added,
         removed,
         telefones_sugeridos: telefones.gravados,

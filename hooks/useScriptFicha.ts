@@ -117,12 +117,24 @@ export interface SubmitMaterialsResult {
   message?: string;
 }
 
+/** Um arquivo da apresentacao comercial publicada pelo worker (pptx, pdf, notas, contato). */
+export interface EntregavelArquivo { campo: string; nome: string; bytes: number; url: string }
+/** Apresentacao de UMA versao do script (tipo 'slides'), como o servidor publica. */
+export interface EntregavelDaVersao { tipo: string; versao: number; created_at: string; meta?: any; arquivos: EntregavelArquivo[] }
+
 /** Resumo do script escrito (GET /api/script/ficha .script): versoes do clube + ultimo job `script`. */
 export interface ScriptSummary {
   versoes: number;
   ultima: { versao: number; status: 'rascunho' | 'aprovado'; created_at: string } | null;
   aprovada: number | null;
   job: ScriptJobInfo | null;
+  /** Apresentacao publicada por versao: { "3": [{ tipo: 'slides', arquivos: [...] }] }. */
+  entregaveis?: Record<string, EntregavelDaVersao[]>;
+  /** Rodada de ajustes do clube (onda E4): quantos pedidos ja sairam e qual e o teto. */
+  ajustes_usados?: number;
+  ajustes_limite?: number;
+  ficha_atualizacoes_usadas?: number;
+  ficha_limite?: number;
 }
 
 /** Item de contexto por pergunta (GET /api/script/context). Do clube, com autor. */
@@ -197,7 +209,7 @@ export interface Suficiencia {
 /** Origem do fechamento da ficha: os materiais bastaram ('automatica'), o mentor fechou ('mentor'), o admin forcou ('admin:<quem>'). */
 export const ORIGEM_AUTOMATICA = 'automatica';
 
-export type RotaScript = 'script_como_funciona' | 'script_escolha' | 'script_materiais_ficha' | 'script_script';
+export type RotaScript = 'script_inicio' | 'script_como_funciona' | 'script_escolha' | 'script_materiais_ficha' | 'script_script';
 
 /** Etapa interna da tela "Base do script" (onda J, item 4): as duas etapas e a espera entre elas. */
 export type EtapaMateriaisFicha = 'materiais' | 'espera' | 'ficha';
@@ -984,12 +996,12 @@ export const useScriptFicha = (token: string, enabled: boolean, userEmail: strin
   const marcarComoFuncionaVisto = useCallback(() => marcarVisto('como_funciona'), [marcarVisto]);
   const marcarLembreteWhatsapp = useCallback(() => { void marcarVisto('whatsapp_lembrete'); }, [marcarVisto]);
 
-  /** Para onde o botão "Começar o meu script" leva: a rota normal, já com a tela inicial dada por vista. */
-  const rotaDepoisDaEntrada = useCallback((): RotaScript => {
-    const atual = dataRef.current;
-    if (!atual) return 'script_escolha';
-    return rotaInicialDoClube({ ...atual, visto_como_funciona: atual.visto_como_funciona || new Date().toISOString() });
-  }, []);
+  /**
+   * Para onde o botão "Começar o meu script" leva (decisão do Danilo, 10/09): a tela de Início.
+   * A explicação continua abrindo uma vez só; daí em diante quem recebe a pessoa é o Início, que mostra
+   * o estado das três etapas e leva adiante pelo "Continuar de onde parei" (`rotaInicialDoClube`).
+   */
+  const rotaDepoisDaEntrada = useCallback((): RotaScript => 'script_inicio', []);
 
   const setFiles = useCallback((files: ClubFile[]) => {
     setData((prev) => (prev ? { ...prev, files } : prev));

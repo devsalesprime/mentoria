@@ -31,6 +31,8 @@ export interface CohortRow {
   club_slug: string;
   club_nome: string;
   ativo: boolean;
+  /** 'exclusive' = clube do roster, criado pela equipe; 'club' = clube próprio, criado sozinho no login. */
+  produto?: ProdutoClube;
   membros: { email: string; nome: string | null; user_id: string | null; ultimo_login: string | null }[];
   /** Arquivos de todos os membros do clube. */
   materiais_count: number;
@@ -62,6 +64,28 @@ export function formatDateTime(iso: string | null | undefined) {
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
+
+/**
+ * Produto do clube (migração 028). 'exclusive' é o roster: a equipe criou o clube e pôs as pessoas nele.
+ * 'club' é o clube próprio, que o login cria para quem tem negócio ganho no HubSpot e não está no roster.
+ * O crachá existe para a equipe não cobrar um clube próprio como se fosse turma do Exclusive.
+ */
+export type ProdutoClube = 'exclusive' | 'club';
+
+const PRODUTO_LABEL: Record<ProdutoClube, string> = { exclusive: 'Exclusive', club: 'Club' };
+const PRODUTO_CLASS: Record<ProdutoClube, string> = {
+  exclusive: 'bg-prosperus-gold-dark/20 text-prosperus-gold-dark',
+  club: 'bg-blue-600/20 text-blue-300',
+};
+
+export const ProdutoBadge: React.FC<{ produto: ProdutoClube | undefined }> = ({ produto }) => {
+  const p: ProdutoClube = produto === 'club' ? 'club' : 'exclusive';
+  return (
+    <span data-testid="produto-badge" data-produto={p} className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${PRODUTO_CLASS[p]}`}>
+      {PRODUTO_LABEL[p]}
+    </span>
+  );
+};
 
 const FICHA_BADGE: Record<FichaStatus, string> = {
   vazia: 'bg-gray-600/20 text-gray-400',
@@ -623,7 +647,11 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                     className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition ${r.ativo ? '' : 'opacity-50'}`}
                   >
                     <td className="px-4 py-3">
-                      <p className="text-sm font-semibold text-white">{r.club_nome}{!r.ativo && <span className="ml-2 text-[10px] text-white/40">inativo</span>}</p>
+                      <p className="text-sm font-semibold text-white flex items-center gap-2">
+                        <span>{r.club_nome}</span>
+                        <ProdutoBadge produto={r.produto} />
+                        {!r.ativo && <span className="text-[10px] text-white/40">inativo</span>}
+                      </p>
                       <p className="text-xs text-white/40">{r.club_slug}</p>
                     </td>
                     <td className="px-4 py-3">
@@ -661,7 +689,10 @@ export const CohortOverview: React.FC<CohortOverviewProps> = ({ token, showToast
                 onClick={() => setSelected(r.club_slug)}
                 className={`bg-white/5 border border-white/10 rounded-xl p-4 cursor-pointer hover:bg-white/10 transition ${r.ativo ? '' : 'opacity-50'}`}
               >
-                <p className="font-semibold text-white text-sm mb-1">{r.club_nome}</p>
+                <p className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
+                  <span>{r.club_nome}</span>
+                  <ProdutoBadge produto={r.produto} />
+                </p>
                 <p className="text-xs text-white/50 mb-2">{r.membros.map((m) => m.email).join(', ') || 'sem e-mail'}</p>
                 <div className="flex flex-wrap gap-2 items-center">
                   <MaterialsBadge status={r.materials_status} count={r.materiais_count} />

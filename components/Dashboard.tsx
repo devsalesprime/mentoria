@@ -30,6 +30,7 @@ import { MateriaisFichaScreen, ROTULO_BASE_DO_SCRIPT } from './script/MateriaisF
 import { ScriptScreen } from './script/ScriptScreen';
 import { EscolhaCaminho } from './script/EscolhaCaminho';
 import { ComoFuncionaScreen } from './script/ComoFuncionaScreen';
+import { InicioScreen } from './script/InicioScreen';
 import { useScriptFicha, rotaInicialDoClube, type EtapaMateriaisFicha } from '../hooks/useScriptFicha';
 import type { PipelineStatus } from '../types/pipeline';
 import type { FichaStatus, MaterialsStatus, ScriptModo } from '../data/script-ficha-fields';
@@ -47,7 +48,9 @@ const SLUG_TO_ID: Record<string, string> = {
   'assets': 'deliverables',
   'suggestions': 'suggestions',
   'insights': 'insights',
-  // Script 7 Passos (cohort Exclusive)
+  // Script 7 Passos (cohort: roster do Exclusive e clubes proprios)
+  // Onda "Início" (10/09): a tela que recebe o membro depois da explicação, com o estado das etapas.
+  'inicio': 'script_inicio',
   'como-funciona': 'script_como_funciona',
   'escolha': 'script_escolha',
   // Onda J (item 4): Materiais e Ficha viraram uma tela só, com duas etapas internas.
@@ -113,6 +116,8 @@ type ScriptMenuState = {
   materialsStatus: MaterialsStatus | null;
   /** "Seu script": 'aprovado' | 'rascunho' (versao existe) | 'escrevendo' (job na fila) | null */
   scriptState?: 'aprovado' | 'rascunho' | 'escrevendo' | null;
+  /** A pessoa ja abriu a tela "Como funciona" (cohort_members.como_funciona_visto_em). */
+  comoFuncionaVisto?: boolean;
 };
 
 // ─── Dynamic sidebar menu ──────────────────────────────────────────────────────
@@ -147,7 +152,7 @@ const getSidebarMenu = (
     },
   ];
 
-  // SCRIPT 7 PASSOS — so para o cohort do Exclusive (users.cohort)
+  // SCRIPT 7 PASSOS: para quem tem users.cohort 'exclusive' (roster) ou 'club' (clube proprio)
   // Onda J (item 3): tres itens, sempre nesta ordem. "Base do script" e uma tela so (item 4).
   // Pedido do dono em 09/09 (item 1): os tres itens sao IGUAIS entre si (mesmo tamanho, mesmo recuo,
   // mesma tipografia e todos com ponto). "Como funciona" deixou de ser item secundario, que o desenhava
@@ -161,13 +166,21 @@ const getSidebarMenu = (
     const baseDoScriptDot: 'green' | 'yellow' | 'gold' =
       script.fichaStatus === 'confirmada' ? 'green' :
       script.fichaStatus === 'em_revisao' ? 'gold' : 'yellow';
+    // Início (10/09): primeiro item do menu, acima do grupo. Sem ponto: ele nao e etapa, e a tela que
+    // mostra o estado das outras tres.
+    menu.push({
+      id: 'inicio',
+      title: '',
+      items: [{ id: 'script_inicio', label: 'Início' }],
+    });
     menu.push({
       id: 'script',
       title: 'SCRIPT 7 PASSOS',
       items: [
         // Onda I (item I1): "Como funciona" fica sempre disponível, para quem fechou a aba reencontrar a explicação.
-        // O ponto cinza e o estado "so leitura": o item nao tem etapa para completar, mas ocupa a mesma caixa.
-        { id: 'script_como_funciona', label: 'Como funciona', statusDot: 'gray' },
+        // Pedido do dono em 10/09: sem ponto ate a pessoa abrir a tela; depois de aberta ela ganha o mesmo
+        // ponto verde dos itens concluidos. O ponto cinza (estado "so leitura") saiu: ninguem lia aquilo.
+        { id: 'script_como_funciona', label: 'Como funciona', statusDot: script.comoFuncionaVisto ? 'green' : undefined },
         { id: 'script_materiais_ficha', label: ROTULO_BASE_DO_SCRIPT, statusDot: baseDoScriptDot },
         { id: 'script_script', label: 'Seu script', statusDot: scriptDot },
       ],
@@ -360,6 +373,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
         : (s?.versoes || 0) > 0 ? 'rascunho'
         : s?.job && (s.job.status === 'queued' || s.job.status === 'running') ? 'escrevendo'
         : null,
+      comoFuncionaVisto: !!scriptFicha.data?.visto_como_funciona,
     };
   }, [cohortEfetivo, scriptFicha.enabled, scriptFicha.data]);
 
@@ -449,7 +463,18 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const alternarAnterior = () => {
     const proximo = !mostrarAnterior;
     definirMostrarAnterior(proximo);
-    if (!proximo && TELAS_ANTERIORES.has(activeItem)) navigateTo(rotaInicialDoClube(scriptFicha.data));
+    if (!proximo && TELAS_ANTERIORES.has(activeItem)) navigateTo('script_inicio');
+  };
+
+  /**
+   * Cartão "Versão anterior" do Início: revela o item no menu e abre a tela antiga de sempre.
+   * `setHasRedirected` marca que a pessoa ESCOLHEU o destino: sem isso o redirecionamento de entrada
+   * (que roda enquanto o endereço é /dashboard) a levaria de volta para o script no mesmo instante.
+   */
+  const abrirVersaoAnterior = () => {
+    setHasRedirected(true);
+    definirMostrarAnterior(true);
+    navigateTo('overview');
   };
 
   const preModuleComplete = isLegacy || isPreModuleComplete(preModule);
@@ -480,15 +505,18 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     hasEducationalSuggestions,
     scriptMenu,
   );
+  const secaoInicio = menuCompleto.filter((s) => s.id === 'inicio');
   const secaoScript = menuCompleto.filter((s) => s.id === 'script');
-  const secoesAnteriores = menuCompleto.filter((s) => s.id !== 'script');
+  const secoesAnteriores = menuCompleto.filter((s) => s.id !== 'script' && s.id !== 'inicio');
   // Onda J (item 3): sem a versão anterior no menu, os 3 itens ficam soltos, sem cabeçalho para abrir e fechar.
   const secaoScriptPlana = secaoScript.map((s) => ({ ...s, title: '' }));
+  // "Início" é sempre o primeiro item do menu do clube, nas duas montagens (com e sem versão anterior).
   const menuStructure: MenuSection[] = !cohortEfetivo
     ? menuCompleto
     : (soFluxoNovo || !diagnosticLoaded)
-      ? secaoScriptPlana
+      ? [...secaoInicio, ...secaoScriptPlana]
       : [
+        ...secaoInicio,
         ...secaoScript,
         {
           id: 'anterior',
@@ -749,6 +777,20 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
 
     // ─── Script 7 Passos (cohort Exclusive) ─────────────────────────────────
 
+    if (activeItem === 'script_inicio') {
+      return (
+        <ModuleErrorBoundary moduleName="Início">
+          <InicioScreen
+            ficha={scriptFicha}
+            nome={resolvedName}
+            onNavigate={(id) => navigateTo(id)}
+            temVersaoAnterior={anteriorConcluido}
+            onVersaoAnterior={abrirVersaoAnterior}
+          />
+        </ModuleErrorBoundary>
+      );
+    }
+
     if (activeItem === 'script_como_funciona') {
       return (
         <ModuleErrorBoundary moduleName="Como funciona">
@@ -851,7 +893,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <button
               type="button"
               aria-label="Início"
-              onClick={() => { navigateTo(rotaInicialDoClube(scriptFicha.data)); setIsMobileMenuOpen(false); }}
+              onClick={() => { navigateTo('script_inicio'); setIsMobileMenuOpen(false); }}
               className="w-full block"
             >
               <Logo className="w-full h-auto" />

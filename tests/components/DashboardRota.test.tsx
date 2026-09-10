@@ -138,7 +138,7 @@ describe('Dashboard: rota inicial pelo resultado da suficiência', () => {
     expect(screen.queryByText('FichaScreen')).toBeNull();
     const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
     const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(itens).toEqual(['Como funciona', 'Base do script', 'Seu script']);
+    expect(itens).toEqual(['Início', 'Como funciona', 'Base do script', 'Seu script']);
   });
 
   it('parcial: cai em "Base do script", na etapa da Ficha', async () => {
@@ -149,7 +149,7 @@ describe('Dashboard: rota inicial pelo resultado da suficiência', () => {
     expect(screen.getByTestId('materiais-ficha-screen')).toHaveAttribute('data-etapa', 'ficha');
     const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
     const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(itens).toEqual(['Como funciona', 'Base do script', 'Seu script']);
+    expect(itens).toEqual(['Início', 'Como funciona', 'Base do script', 'Seu script']);
     expect(screen.queryByText('ScriptScreen')).toBeNull();
   });
 
@@ -182,7 +182,7 @@ describe('Dashboard: rota inicial pelo resultado da suficiência', () => {
     expect(await screen.findByText('FichaScreen')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Navegação do diagnóstico' });
     const itens = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(itens).toEqual(['Como funciona', 'Base do script', 'Seu script']);
+    expect(itens).toEqual(['Início', 'Como funciona', 'Base do script', 'Seu script']);
   });
 
   it('insuficiente: abre na etapa da Ficha; ficha vazia: abre na etapa dos Materiais', async () => {

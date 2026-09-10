@@ -399,6 +399,13 @@ function initializeDatabase() {
       )
     `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_cohort_members_club ON cohort_members(club_slug)`);
+    // Produto do clube (registro: migrations/028_cohort_clubs_produto.sql):
+    // 'exclusive' = clube do roster, criado pela equipe na aba Cohort; 'club' = clube de uma pessoa so,
+    // criado sozinho no login de quem tem negocio ganho no HubSpot e nao esta no roster (routes/auth.cjs).
+    // Os clubes que ja existiam ficam com 'exclusive' pelo DEFAULT: eles SAO o roster do Exclusive.
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN produto TEXT NOT NULL DEFAULT 'exclusive' CHECK(produto IN ('exclusive', 'club'))`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.produto migration error:', err.message);
+    });
     // Marcos por pessoa da onda I (registro: migrations/027_cohort_members_marcos.sql):
     // como_funciona_visto_em = clicou em "Começar o meu script" na tela inicial (a tela so abre na 1a entrada);
     // whatsapp_lembrete_em   = dispensou o lembrete unico do WhatsApp numa tela de espera.

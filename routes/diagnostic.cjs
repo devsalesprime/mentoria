@@ -15,9 +15,12 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         [userId]
       );
 
-      // Cohort (Script 7 Passos): vem de users + cohort_clubs, nunca do token
+      // Cohort (Script 7 Passos): vem de users + cohort_clubs, nunca do token.
+      // `cohort` sai daqui como esta no banco: 'exclusive' (roster) ou 'club' (clube proprio criado no
+      // login). Os dois abrem o modulo do script no front; `produto` diz de qual dos dois se trata.
       const cohortRow = await dbGet(
-        `SELECT u.cohort, u.club_slug, cc.nome AS club_nome, cc.ativo AS club_ativo
+        `SELECT u.cohort, u.club_slug, cc.nome AS club_nome, cc.ativo AS club_ativo,
+                COALESCE(cc.produto, 'exclusive') AS club_produto
            FROM users u LEFT JOIN cohort_clubs cc ON cc.slug = u.club_slug
           WHERE u.id = ?`,
         [userId]
@@ -28,6 +31,7 @@ module.exports = function createDiagnosticRoutes({ db, dbGet, dbRun, dbAll, auth
         cohort: cohortActive ? cohortRow.cohort : null,
         club_slug: cohortActive ? cohortRow.club_slug : null,
         club_nome: cohortActive ? cohortRow.club_nome : null,
+        club_produto: cohortActive ? cohortRow.club_produto : null,
       };
 
       if (!row) {

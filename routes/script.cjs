@@ -122,12 +122,16 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }));
   }
 
-  /** Middleware: carrega o usuario do cohort e a ficha do clube em req.cohort / req.ficha. */
+  /**
+   * Middleware: carrega o usuario do cohort e a ficha do clube em req.cohort / req.ficha.
+   * Qualquer valor em users.cohort abre a area: 'exclusive' (roster) e 'club' (clube proprio criado
+   * no login) entram pela mesma porta e pela mesma ficha por club_slug.
+   */
   async function cohortGuard(req, res, next) {
     try {
       const user = await getCohortUser(req.user.userId);
       if (!user || !user.cohort || !user.club_slug) {
-        return res.status(403).json({ success: false, enabled: false, message: 'Área disponível apenas para o Exclusive.' });
+        return res.status(403).json({ success: false, enabled: false, message: 'Área disponível para membros do Prosperus.' });
       }
       if (!user.club_nome) {
         return res.status(403).json({ success: false, enabled: false, message: 'Clube não encontrado. Fale com o Caio.' });

@@ -118,7 +118,7 @@ describe('scripts/limpar-a-definir.cjs', () => {
     file = path.join(dir, 'x.db');
     const db = new sqlite3.Database(file);
     const h = createDbHelpers(db);
-    await h.dbRun(`CREATE TABLE cohort_clubs (slug TEXT PRIMARY KEY, nome TEXT NOT NULL, ativo INTEGER DEFAULT 1)`);
+    await h.dbRun(`CREATE TABLE cohort_clubs (slug TEXT PRIMARY KEY, nome TEXT NOT NULL, ativo INTEGER DEFAULT 1, produto TEXT NOT NULL DEFAULT 'exclusive')`);
     await h.dbRun(`CREATE TABLE script_fichas (id TEXT PRIMARY KEY, club_slug TEXT UNIQUE NOT NULL, fields JSON NOT NULL DEFAULT '{}', updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
     await h.dbRun(`INSERT INTO cohort_clubs (slug, nome) VALUES ('c1', 'Clube 1'), ('c2', 'Clube 2')`);
     const f1 = { '1.1': { sugerido: 'a definir', classe: 'Fato', fonte: 'x', status: 'sugerido' }, '3.3': { sugerido: '???', classe: 'DER', fonte: 'y', status: 'sugerido' } };

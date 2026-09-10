@@ -48,6 +48,8 @@ const FICHA = {
   modo: 'completo',
   confirmada_por: null,
   suficiencia: null,
+  // Já abriu a explicação uma vez: é o que acende o ponto verde do item "Como funciona"
+  visto_como_funciona: '2026-09-01T10:00:00.000Z',
   materials_status: 'submitted',
   materials_submitted_at: '2026-09-01 10:00:00',
   materials: { links: [], observacoes: '', acessos: [], submitted_at: '2026-09-01 10:00:00' },
@@ -160,7 +162,7 @@ describe('Dashboard: versão anterior x Script 7 Passos', () => {
     expect(screen.getByText('FichaScreen')).toBeInTheDocument();
     // Onda J (item 3): sem versão anterior o grupo fica plano, com os 3 itens e sem o cabeçalho
     expect(screen.queryByText('SCRIPT 7 PASSOS')).toBeNull();
-    expect(itensDoMenu()).toEqual(['Como funciona', 'Base do script', 'Seu script']);
+    expect(itensDoMenu()).toEqual(['Início', 'Como funciona', 'Base do script', 'Seu script']);
     expect(screen.queryByText('Visão Geral')).toBeNull();
     expect(screen.queryByText('DIAGNÓSTICO')).toBeNull();
     expect(screen.queryByText('O Mentor')).toBeNull();

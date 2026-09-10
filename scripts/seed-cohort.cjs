@@ -116,6 +116,7 @@ if (require.main === module) {
     await helpers.dbRun(`CREATE TABLE IF NOT EXISTS cohort_clubs (
       slug TEXT PRIMARY KEY, nome TEXT NOT NULL,
       ativo INTEGER NOT NULL DEFAULT 1 CHECK(ativo IN (0, 1)),
+      produto TEXT NOT NULL DEFAULT 'exclusive' CHECK(produto IN ('exclusive', 'club')),
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
     await helpers.dbRun(`CREATE TABLE IF NOT EXISTS cohort_members (
       email TEXT PRIMARY KEY,
