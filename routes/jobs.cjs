@@ -22,6 +22,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
   const dataDir = DATA_DIR || pathLib.join(__dirname, '..', 'data');
 
   VM.ensureCohortJobsTable(dbRun).catch((e) => console.error('cohort_jobs DDL error:', e.message));
+  VM.ensureConectorColumns(dbRun).catch((e) => console.error('cohort_clubs conector DDL error:', e.message));
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
@@ -150,6 +151,27 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
     };
   }
 
+  /**
+   * Job `conector` que terminou bem: guarda no clube onde o conector ficou (cohort_clubs.conector_porta e
+   * conector_url), a partir de result.porta e result.tenant_url. Campo ausente ou fora de forma nao apaga o
+   * que ja estava gravado. Falhar aqui nunca derruba o PATCH: o status do job e o que importa.
+   */
+  async function gravarEnderecoConector(job, result) {
+    try {
+      if (!result || typeof result !== 'object' || Array.isArray(result)) return;
+      const sets = [];
+      const params = [];
+      const porta = Number(result.porta);
+      if (Number.isInteger(porta) && porta > 0) { sets.push('conector_porta = ?'); params.push(porta); }
+      const url = String(result.tenant_url || result.url || '').trim();
+      if (url) { sets.push('conector_url = ?'); params.push(url.slice(0, 500)); }
+      if (!sets.length) return;
+      await dbRun(`UPDATE cohort_clubs SET ${sets.join(', ')} WHERE slug = ?`, [...params, job.club_slug]);
+    } catch (e) {
+      console.error('conector: não deu para gravar o endereço no clube:', e.message);
+    }
+  }
+
   function appUrl(req) {
     const fixed = String(APP_URL || process.env.APP_URL || '').trim();
     if (fixed) return fixed.replace(/\/+$/, '');
@@ -257,6 +279,7 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
   router.patch('/api/jobs/:id', loadJob, validateBody(jobPatchSchema), async (req, res) => {
     try {
       let job = await JOBS.updateJobStatus({ dbGet, dbRun }, req.job.id, req.body);
+      if (job && job.tipo === 'conector' && req.body.status === 'done') await gravarEnderecoConector(job, req.body.result);
       let suficiencia = null;
       if (job && job.tipo === 'prefill' && (req.body.status === 'done' || req.body.status === 'needs_human')) {
         try {
@@ -506,12 +529,78 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
     }
   });
 
-  // PUT /api/jobs/:id/entregavel  (multipart/form-data)
-  // Campos de texto: tipo ('slides'), versao (inteiro >= 1), meta (string JSON, opcional).
-  // Arquivos: pptx, pdf, notas (.md), contact (.png) - ao menos um; cada um vira <campo><ext> em
+  /**
+   * PUT /api/jobs/:id/entregavel com corpo JSON (o que o `conector` manda):
+   * { tipo, versao, meta: { url, pagina, tools, atualizado_em, refresh }, arquivos: [{ nome, conteudo }] }.
+   * O nome do arquivo vira o campo do entregavel ("instalacao.md" -> campo `instalacao`) e o conteudo e
+   * gravado como texto UTF-8 na mesma pasta do multipart. Mesmo (clube, versao, tipo) sobrescreve.
+   * Devolve true quando tratou o pedido; false quando o corpo nao e JSON e o multipart deve seguir.
+   */
+  async function publicarEntregavelJson(req, res) {
+    const parsed = VM.entregavelJsonSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: 'Dados inválidos', errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+      return true;
+    }
+    const { tipo, versao, arquivos: vindos } = parsed.data;
+    const meta = parsed.data.meta == null ? null : parsed.data.meta;
+
+    const job = await JOBS.getJob({ dbGet }, req.params.id);
+    if (!job) { res.status(404).json({ success: false, message: 'Job não encontrado.' }); return true; }
+
+    const slug = job.club_slug;
+    const existeVersao = await SV.getVersion({ dbGet }, slug, versao, { withContent: false });
+    if (!existeVersao) { res.status(404).json({ success: false, message: 'Versão não encontrada.' }); return true; }
+
+    const defs = VM.ENTREGAVEL_CAMPOS[tipo] || {};
+    const arquivos = [];
+    for (const a of vindos) {
+      const campo = VM.campoDoArquivo(tipo, a.nome);
+      if (!campo || !defs[campo]) {
+        res.status(400).json({ success: false, message: `O entregável "${tipo}" não aceita o arquivo "${a.nome}".` });
+        return true;
+      }
+      arquivos.push({ campo, nome: VM.safeFileName(a.nome, `${campo}${defs[campo].ext}`), conteudo: a.conteudo, mime: defs[campo].mime });
+    }
+    if (!arquivos.length) {
+      res.status(400).json({ success: false, message: `Mande ao menos um arquivo (${Object.keys(defs).join(', ')}).` });
+      return true;
+    }
+
+    const row = await SV.saveEntregavel({ dbGet, dbRun, uuidv4 }, {
+      dataDir, club_slug: slug, versao, tipo, job_id: job.id, meta, arquivos,
+    });
+    const entregavel = SV.rowToEntregavel(row);
+    res.json({
+      success: true,
+      entregavel: {
+        id: entregavel.id,
+        versao: entregavel.versao,
+        tipo: entregavel.tipo,
+        meta: entregavel.meta,
+        arquivos: entregavel.arquivos.map((a) => ({ campo: a.campo, nome: a.nome, bytes: a.bytes })),
+        created_at: entregavel.created_at,
+      },
+    });
+    return true;
+  }
+
+  // PUT /api/jobs/:id/entregavel  (multipart/form-data ou application/json)
+  // Multipart (`slides`): tipo, versao (inteiro >= 1), meta (string JSON, opcional) e os arquivos pptx, pdf,
+  // notas (.md), contact (.png) - ao menos um; cada um vira <campo><ext> em
   // DATA_DIR/entregaveis/<club_slug>/v<versao>/<tipo>/. Mesmo (clube, versao, tipo) sobrescreve (idempotente).
+  // JSON (`conector`, e tambem aceito para os outros tipos): ver publicarEntregavelJson acima.
   router.put(
     '/api/jobs/:id/entregavel',
+    async (req, res, next) => {
+      if (!req.is('application/json')) return next();
+      try {
+        await publicarEntregavelJson(req, res);
+      } catch (error) {
+        console.error('Error in PUT /api/jobs/:id/entregavel (json):', error.message);
+        res.status(500).json({ success: false, message: 'Erro interno.' });
+      }
+    },
     (req, res, next) => uploadEntregavel(req, res, (err) => {
       if (!err) return next();
       limparTemporarios(req);

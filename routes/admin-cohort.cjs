@@ -34,6 +34,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
   CTX.ensureScriptContextTable(dbRun).catch((e) => console.error('script_field_context DDL error:', e.message));
   SV.ensureScriptVersionsTables(dbRun).catch((e) => console.error('script_versions DDL error:', e.message));
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
+  VM.ensureConectorColumns(dbRun).catch((e) => console.error('cohort_clubs conector DDL error:', e.message));
 
   const normEmail = VM.normEmail;
 
@@ -84,6 +85,21 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
 
   /** 'exclusive' (roster) ou 'club' (clube proprio). Clube sem a coluna `produto` ainda: roster. */
   const produtoDoClube = (club) => (club && club.produto === 'club' ? 'club' : 'exclusive');
+
+  /**
+   * Clube para o admin, com o estado do conector de IA.
+   * `conector` so faz sentido no roster do Exclusive; clube proprio volta sempre desligado.
+   * `conector_porta` e `conector_url` sao de leitura: quem grava e o worker, no fim da publicacao.
+   */
+  const clubeParaAdmin = (club) => ({
+    slug: club.slug,
+    nome: club.nome,
+    ativo: club.ativo === 1,
+    produto: produtoDoClube(club),
+    conector: produtoDoClube(club) === 'exclusive' && Number(club.conector) === 1,
+    conector_porta: club.conector_porta == null ? null : Number(club.conector_porta),
+    conector_url: club.conector_url || null,
+  });
 
   /**
    * Reaplica users.cohort para os membros do clube conforme cohort_clubs.ativo.
@@ -219,7 +235,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       res.json({
         success: true,
         data: {
-          club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1, produto: produtoDoClube(club) },
+          club: clubeParaAdmin(club),
           membros,
           files,
           // Por pessoa (arquivos, links, observacoes, acessos, resposta_ia, notify_phone, submitted_at). `legado` = forma antiga por clube.
@@ -616,6 +632,26 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     return { gravados, erros };
   }
 
+  // PATCH /api/admin/cohort/clubs/:slug/conector  { conector: 0 | 1 }
+  // Liga ou desliga o conector de IA do clube. So o roster do Exclusive tem conector: clube proprio da 400.
+  // Aprovar uma versao do script com a chave ligada e o que dispara a publicacao (routes/script.cjs).
+  // A porta e o endereco continuam de leitura: quem grava e o worker, no PATCH /api/jobs/:id que fecha o job.
+  const conectorSchema = z.object({ conector: z.coerce.number().int().min(0).max(1) });
+  router.patch('/api/admin/cohort/clubs/:slug/conector', authMiddleware, adminMiddleware, validateBody(conectorSchema), async (req, res) => {
+    try {
+      const club = await getClub(req.params.slug);
+      if (!club) return res.status(404).json({ success: false, message: 'Clube não encontrado.' });
+      if (produtoDoClube(club) !== 'exclusive') {
+        return res.status(400).json({ success: false, message: 'O conector é só para os clubes do Exclusive.' });
+      }
+      await dbRun(`UPDATE cohort_clubs SET conector = ? WHERE slug = ?`, [req.body.conector, club.slug]);
+      res.json({ success: true, club: clubeParaAdmin(await getClub(club.slug)) });
+    } catch (error) {
+      console.error('Error in PATCH /api/admin/cohort/clubs/:slug/conector:', error);
+      res.status(500).json({ success: false, message: 'Erro interno.' });
+    }
+  });
+
   // PUT /api/admin/clubs/:slug/members  { nome?, ativo?, add: [{email, nome, telefone_sugerido?}], remove: [email] }
   router.put('/api/admin/clubs/:slug/members', authMiddleware, adminMiddleware, validateBody(cohortMembersSchema), async (req, res) => {
     try {
@@ -669,7 +705,7 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
       club = await getClub(slug);
       res.json({
         success: true,
-        club: { slug: club.slug, nome: club.nome, ativo: club.ativo === 1, produto: produtoDoClube(club) },
+        club: clubeParaAdmin(club),
         added,
         removed,
         telefones_sugeridos: telefones.gravados,

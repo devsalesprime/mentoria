@@ -7,7 +7,7 @@ import { AvisoModoAutomatico } from './AvisoModoAutomatico';
 import { EtaEspera } from './EtaEspera';
 import { cleanScriptMarkdown, grifoEncontrado, parseScript, slugify, splitScript } from './script/parseScript';
 import { ScriptPaper } from './script/ScriptPaper';
-import { ScriptReader, COPY_AJUSTES_USADOS, type AjustesInfo, type ApresentacaoCartao, type FichaResumo } from './script/ScriptReader';
+import { ScriptReader, COPY_AJUSTES_USADOS, type AjustesInfo, type ApresentacaoCartao, type ConectorCartao, type FichaResumo } from './script/ScriptReader';
 import { PreparacaoCartao, ID_PREPARACAO_EXPORT } from './script/secoes';
 import { ConfirmarApresentacaoModal, type EtapaApresentacao } from './script/ConfirmarApresentacaoModal';
 import {
@@ -63,6 +63,8 @@ export { splitScript };
  * Apresentacao comercial: a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job` (pedido na
  * fila). Com arquivo -> baixar o PPTX (e ver o PDF / as notas no bloco "Ações"); na fila -> "Apresentação sendo
  * montada"; sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
+ * Conector de IA: quando a versao traz o entregavel `conector`, o bloco "Ações" ganha o cartao "Seu conector"
+ * com a pagina de instalacao (meta.pagina) e o arquivo instalacao.md. Clube sem esse entregavel nao ve nada.
  * "Baixar a preparação" (onda J, item 23): a Preparacao vira PNG (html-to-image, 2x, fundo creme e texto navy) a
  * partir do proprio cartao (#script-preparacao-export). Fora da tela de Preparacao o cartao fica montado
  * escondido, entao o download funciona de qualquer tela; nunca ha dois nos com o mesmo id.
@@ -121,7 +123,9 @@ const GRIFO_RE = /^\[GRIFO (ajustar|manter|tirar)\]\s/;
  * `entregaveis` e `slides_job` de GET /api/script/versoes (e de /:versao), sem chamada a mais.
  */
 interface EntregavelArquivo { campo: string; nome: string; bytes: number; url: string }
-interface Entregavel { tipo: string; versao: number; created_at: string; arquivos: EntregavelArquivo[] }
+/** `meta` e livre por tipo; o `conector` grava { url, pagina, tools, atualizado_em, refresh }. */
+interface EntregavelMeta { url?: string; pagina?: string; tools?: number; atualizado_em?: string; refresh?: unknown; [k: string]: unknown }
+interface Entregavel { tipo: string; versao: number; created_at: string; meta?: EntregavelMeta | null; arquivos: EntregavelArquivo[] }
 type VersaoComEntregaveis = ScriptVersion & { entregaveis?: Entregavel[]; slides_job?: ScriptJobInfo | null };
 
 /** Os outros arquivos da apresentacao, no bloco "Ações" (o PPTX tem botao proprio). */
@@ -319,6 +323,11 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     [slides]
   );
   const pptx = useMemo(() => arquivoDoSlides('pptx'), [arquivoDoSlides]);
+  // Conector de IA do clube: so existe quando o worker publicou o entregavel `conector` desta versao
+  const conectorEntregavel = useMemo<Entregavel | null>(
+    () => ((versao?.entregaveis ?? versaoDaLista?.entregaveis ?? []).find((e) => e.tipo === 'conector') || null),
+    [versao?.entregaveis, versaoDaLista]
+  );
 
   // Enquanto o job esta na fila/rodando (sem versao, escrevendo a proxima ou montando a apresentacao), consulta de novo a cada 20 s
   const scriptJobAtivo = !!job && (job.status === 'queued' || job.status === 'running');
@@ -568,6 +577,16 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     window.location.assign(url);
   };
 
+  /** Abre um endereco de fora do app numa aba nova (a pagina de instalacao do conector). Nunca leva o token. */
+  const abrirPagina = (url: string) => {
+    if (typeof window === 'undefined' || !url) return;
+    if (typeof window.open === 'function') {
+      const aberta = window.open(url, '_blank', 'noopener');
+      if (aberta) return;
+    }
+    window.location.assign(url);
+  };
+
   /** Abre um arquivo da apresentacao comercial (o token vai na URL: o link nasce fora do axios). */
   const abrirEntregavel = (arq: EntregavelArquivo, inline: boolean) => {
     if (typeof window === 'undefined') return;
@@ -645,6 +664,21 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     : slidesJobAtivo
     ? { estado: 'montando' }
     : { estado: 'ausente', onGerar: () => setEtapaSlides('aviso'), gerando: gerandoSlides };
+
+  /**
+   * Cartao "Seu conector" no bloco "Ações": a pagina de instalacao (meta.pagina, e o endereco do conector
+   * quando ela nao vier) e o arquivo com o passo a passo. Sem o entregavel publicado, nada aparece.
+   */
+  const conector = useMemo<ConectorCartao | undefined>(() => {
+    if (!conectorEntregavel) return undefined;
+    const meta = conectorEntregavel.meta || {};
+    const pagina = String(meta.pagina || meta.url || '').trim();
+    const instalacao = conectorEntregavel.arquivos.find((a) => a.campo === 'instalacao') || null;
+    return {
+      onAbrirPagina: pagina ? () => abrirPagina(pagina) : undefined,
+      onBaixar: instalacao ? () => abrirEntregavel(instalacao, false) : undefined,
+    };
+  }, [conectorEntregavel, token]);
 
   const enviarComentario = async (passo: number) => {
     const texto = (draft[passo] || '').trim();
@@ -1062,6 +1096,7 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
               ficha={fichaResumo}
               onBaixarPreparacao={baixarPreparacao}
               apresentacao={apresentacao}
+              conector={conector}
               acoes={acoesFinais}
               totalGrifos={grifos.length}
               onAbrirGrifos={() => setPainelAberto(true)}

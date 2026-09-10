@@ -68,6 +68,21 @@ export interface ApresentacaoCartao {
   outros?: Array<{ campo: string; rotulo: string; onAbrir: () => void }>;
 }
 
+/**
+ * Conector de IA do clube. So aparece quando o worker ja publicou o entregavel `conector` desta versao:
+ * clube sem ele nao ve nada. `onAbrirPagina` leva para a pagina de instalacao (meta.pagina ou meta.url) e
+ * `onBaixar` traz o instalacao.md pela mesma rota de download dos outros entregaveis.
+ */
+export interface ConectorCartao {
+  onAbrirPagina?: () => void;
+  onBaixar?: () => void;
+}
+
+export const COPY_CONECTOR_TITULO = 'Seu conector';
+export const COPY_CONECTOR_TEXTO = 'Conecte o seu assistente de IA à sua mentoria.';
+export const COPY_CONECTOR_ABRIR = 'Abrir a página de instalação';
+export const COPY_CONECTOR_BAIXAR = 'Baixar as instruções';
+
 export const COPY_PPTX_BAIXAR = 'Baixar apresentação (PPTX)';
 export const COPY_PPTX_MONTANDO = 'Apresentação sendo montada';
 export const COPY_PPTX_GERAR = 'Gerar apresentação';
@@ -100,6 +115,8 @@ interface ScriptReaderProps {
   onBaixarPreparacao?: () => void;
   /** Apresentação comercial (PPTX), no bloco "Ações" do fim. */
   apresentacao?: ApresentacaoCartao;
+  /** Conector de IA do clube, no bloco "Ações" do fim. Sem o entregavel publicado nada aparece. */
+  conector?: ConectorCartao;
   /** Botoes de decisao (aprovar, pedir nova versao, escrever do zero), no bloco "Ações" do fim. */
   acoes?: React.ReactNode;
   totalGrifos: number;
@@ -183,18 +200,37 @@ const BlocoApresentacao: React.FC<{ apresentacao: ApresentacaoCartao }> = ({ apr
   </section>
 );
 
+/** Bloco do conector de IA dentro de "Ações": a página de instalação e o arquivo com o passo a passo. */
+const BlocoConector: React.FC<{ conector: ConectorCartao }> = ({ conector }) => (
+  <section className="script-no-print script-acoes-apresentacao" aria-label={COPY_CONECTOR_TITULO} data-testid="cartao-conector">
+    <p className="script-nota-rotulo">{COPY_CONECTOR_TITULO}</p>
+    <p className="script-acoes-nota" data-testid="conector-texto">{COPY_CONECTOR_TEXTO}</p>
+    {conector.onAbrirPagina && (
+      <button type="button" onClick={conector.onAbrirPagina} className="script-acao script-acao-forte" data-testid="conector-abrir">
+        {COPY_CONECTOR_ABRIR}
+      </button>
+    )}
+    {conector.onBaixar && (
+      <button type="button" onClick={conector.onBaixar} className="script-acao" data-testid="conector-baixar">
+        {COPY_CONECTOR_BAIXAR}
+      </button>
+    )}
+  </section>
+);
+
 /**
  * "Ações": o fim de tudo, depois do Passo 7 e da Preparação.
  * O `tabIndex={-1}` existe para o "Ir para as ações" do rodapé PODER pousar o foco aqui (pedido do dono em
  * 09/09, item 6): rolar sozinho não dizia nada para quem já estava com o bloco na tela.
  */
-const BlocoAcoes: React.FC<{ acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao }> = ({ acoes, apresentacao }) => {
-  if (!acoes && !apresentacao) return null;
+const BlocoAcoes: React.FC<{ acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao; conector?: ConectorCartao }> = ({ acoes, apresentacao, conector }) => {
+  if (!acoes && !apresentacao && !conector) return null;
   return (
     <section className="script-acoes-fim script-no-print" aria-label={ROTULO_ACOES} data-testid="acoes-fim" tabIndex={-1}>
       <p className="script-nota-rotulo">{ROTULO_ACOES}</p>
       {acoes && <div className="script-acoes-linha">{acoes}</div>}
       {apresentacao && <BlocoApresentacao apresentacao={apresentacao} />}
+      {conector && <BlocoConector conector={conector} />}
     </section>
   );
 };
@@ -498,7 +534,7 @@ const TelaPasso: React.FC<TelaPassoProps> = ({ doc, tela, documento, comentarios
  * A Preparação (onda J, item 23): o cartão que a pessoa baixa e leva para a reunião, desenhado pelo
  * `PreparacaoCartao` (mapa, métricas e o checklist de performance da venda) num nó só, o do download.
  */
-const TelaPreparacao: React.FC<{ doc: ScriptDoc; campo?: boolean; acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao; onBaixar?: () => void }> = ({ doc, campo, acoes, apresentacao, onBaixar }) => (
+const TelaPreparacao: React.FC<{ doc: ScriptDoc; campo?: boolean; acoes?: React.ReactNode; apresentacao?: ApresentacaoCartao; conector?: ConectorCartao; onBaixar?: () => void }> = ({ doc, campo, acoes, apresentacao, conector, onBaixar }) => (
   <div data-tela={TELA_PREPARACAO} data-documento="treinamento" className="space-y-6">
     <PreparacaoCartao doc={doc} campo={campo} />
     {onBaixar && (
@@ -512,12 +548,12 @@ const TelaPreparacao: React.FC<{ doc: ScriptDoc; campo?: boolean; acoes?: React.
         {COPY_BAIXAR_PREPARACAO}
       </button>
     )}
-    <BlocoAcoes acoes={acoes} apresentacao={apresentacao} />
+    <BlocoAcoes acoes={acoes} apresentacao={apresentacao} conector={conector} />
   </div>
 );
 
 export const ScriptReader: React.FC<ScriptReaderProps> = ({
-  doc, clubNome, tela, onTela, versao, ajustes, documento, marcadas, comentariosDo, ficha, onBaixarPreparacao, apresentacao, acoes, totalGrifos, onAbrirGrifos, rootRef,
+  doc, clubNome, tela, onTela, versao, ajustes, documento, marcadas, comentariosDo, ficha, onBaixarPreparacao, apresentacao, conector, acoes, totalGrifos, onAbrirGrifos, rootRef,
   tarefasConcluidas = SEM_TAREFAS, onTarefa, amostra = false,
 }) => {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -560,7 +596,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
   } else if (ehTelaDePasso(c)) {
     conteudo = <TelaPasso doc={doc} tela={c} documento={documento} comentarios={comentariosDo(passoNaTela(c))} tarefasConcluidas={tarefasConcluidas} onTarefa={onTarefa} amostra={amostra} />;
   } else {
-    conteudo = <TelaPreparacao doc={doc} campo={documento === 'campo' && doc.documentos.length > 1} acoes={acoes} apresentacao={apresentacao} onBaixar={amostra ? undefined : onBaixarPreparacao} />;
+    conteudo = <TelaPreparacao doc={doc} campo={documento === 'campo' && doc.documentos.length > 1} acoes={acoes} apresentacao={apresentacao} conector={conector} onBaixar={amostra ? undefined : onBaixarPreparacao} />;
   }
 
   // No celular (< 640px) a barra vira duas linhas: o mapa em cima, inteiro; os botoes embaixo, com menos respiro.
@@ -569,7 +605,7 @@ export const ScriptReader: React.FC<ScriptReaderProps> = ({
 
   // "Ir para as ações" so existe quando ha bloco de acoes na Preparação (item 6): sem acao nenhuma
   // (script ja aprovado, amostra) o rodape da ultima tela fica so com "Anterior".
-  const temAcoes = !amostra && !!(acoes || apresentacao);
+  const temAcoes = !amostra && !!(acoes || apresentacao || conector);
 
   // Onda J (item 7): a pastilha flutuante e o unico caminho para a lista de grifos, no celular e no desktop.
   // Toda tela tem o que grifar (a tela 0 carrega o sumario), entao ela aparece em todas.

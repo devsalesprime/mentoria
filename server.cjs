@@ -406,6 +406,19 @@ function initializeDatabase() {
     db.run(`ALTER TABLE cohort_clubs ADD COLUMN produto TEXT NOT NULL DEFAULT 'exclusive' CHECK(produto IN ('exclusive', 'club'))`, (err) => {
       if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.produto migration error:', err.message);
     });
+    // Conector de IA do Exclusive (registro: migrations/029_cohort_clubs_conector.sql):
+    // conector = 1 manda publicar o conector do clube quando uma versao do script e aprovada;
+    // conector_porta e conector_url sao gravados pelo worker quando a publicacao termina.
+    // Aqui so entram as colunas; quem liga o conector dos clubes que ja existiam e o passo de dado da 029.
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN conector INTEGER NOT NULL DEFAULT 0`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.conector migration error:', err.message);
+    });
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN conector_porta INTEGER`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.conector_porta migration error:', err.message);
+    });
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN conector_url TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.conector_url migration error:', err.message);
+    });
     // Marcos por pessoa da onda I (registro: migrations/027_cohort_members_marcos.sql):
     // como_funciona_visto_em = clicou em "Começar o meu script" na tela inicial (a tela so abre na 1a entrada);
     // whatsapp_lembrete_em   = dispensou o lembrete unico do WhatsApp numa tela de espera.

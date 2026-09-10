@@ -55,8 +55,8 @@ interface ScriptVersao {
 /** Arquivo de um entregavel da versao (a URL ja vem pronta; o token vai por query). */
 interface EntregavelArquivo { campo: string; nome: string; bytes: number; url: string }
 interface Entregavel { tipo: string; versao: number; created_at: string; meta?: any; arquivos: EntregavelArquivo[] }
-const ENTREGAVEL_TIPO_ROTULO: Record<string, string> = { slides: 'Apresentação comercial' };
-const ENTREGAVEL_CAMPO_ROTULO: Record<string, string> = { pptx: 'PPTX', pdf: 'PDF', notas: 'Notas do apresentador', contact: 'Contato' };
+const ENTREGAVEL_TIPO_ROTULO: Record<string, string> = { slides: 'Apresentação comercial', conector: 'Conector de IA' };
+const ENTREGAVEL_CAMPO_ROTULO: Record<string, string> = { pptx: 'PPTX', pdf: 'PDF', notas: 'Notas do apresentador', contact: 'Contato', instalacao: 'Instruções de instalação' };
 interface ScriptComentario { id: string; versao: number; passo: number; texto: string; autor_email: string | null; autor_nome: string | null; created_at: string }
 /** Grifo do leitor (GET /api/admin/clubs/:slug/script-grifos): passo = a tela (0 cartao, 1 sumario, 2..8 Passo 1..7, 9 preparacao). */
 interface ScriptGrifo { id: string; versao: number; passo: number; documento: 'treinamento' | 'campo'; texto: string; cor: 'dourado' | 'verde' | 'vermelho'; nota: string; autor_email: string | null; autor_nome: string | null; created_at: string; resolvido_em: string | null }
@@ -71,8 +71,20 @@ function telaDoGrifo(passo: number): string {
 interface ContextoItem { id: string; field_key: string; tipo: string; file_name: string | null; url: string; texto: string; legenda: string; transcricao: string | null; erro_transcricao: string | null; autor_email: string | null; autor_nome: string | null; created_at: string; download_url: string | null }
 
 interface ClubDetail {
-  /** `produto`: 'exclusive' = clube do roster; 'club' = clube próprio, criado sozinho no login. */
-  club: { slug: string; nome: string; ativo: boolean; produto?: ProdutoClube };
+  /**
+   * `produto`: 'exclusive' = clube do roster; 'club' = clube próprio, criado sozinho no login.
+   * `conector`: o conector de IA do Exclusive está ligado para este clube (só existe no roster).
+   * `conector_porta` e `conector_url`: onde ele foi publicado; só leitura, quem grava é o worker.
+   */
+  club: {
+    slug: string;
+    nome: string;
+    ativo: boolean;
+    produto?: ProdutoClube;
+    conector?: boolean;
+    conector_porta?: number | null;
+    conector_url?: string | null;
+  };
   membros: Member[];
   files: ClubFile[];
   pessoas: Pessoa[];
@@ -155,6 +167,7 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
   const [savingMembers, setSavingMembers] = useState(false);
+  const [salvandoConector, setSalvandoConector] = useState(false);
 
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
@@ -213,6 +226,22 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
       showToast(errs ? errs.join('; ') : (e.response?.data?.message || 'Erro ao salvar membros'), 'error');
     } finally {
       setSavingMembers(false);
+    }
+  };
+
+  /** Liga ou desliga o conector de IA do clube (só aparece para o roster do Exclusive). */
+  const salvarConector = async (ligado: boolean) => {
+    setSalvandoConector(true);
+    try {
+      const res = await axios.patch(`/api/admin/cohort/clubs/${slug}/conector`, { conector: ligado ? 1 : 0 }, { headers });
+      if (res.data.success) {
+        showToast(ligado ? 'Conector ligado' : 'Conector desligado', 'success');
+        await fetchDetail();
+      }
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erro ao salvar o conector', 'error');
+    } finally {
+      setSalvandoConector(false);
     }
   };
 
@@ -898,6 +927,38 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
               {detail.club.ativo ? 'Desativar clube' : 'Ativar clube'}
             </Button>
           </div>
+
+          {(detail.club.produto ?? 'exclusive') === 'exclusive' && (
+            <div className="border-t border-white/10 pt-3 space-y-2" data-testid="conector-bloco">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-white/80">Conector do Exclusive</p>
+                  <p className="text-[11px] text-white/40">
+                    Ligado, aprovar uma versão do script publica o conector de IA deste clube.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!detail.club.conector}
+                  aria-label="Conector do Exclusive"
+                  data-testid="conector-toggle"
+                  disabled={salvandoConector}
+                  onClick={() => salvarConector(!detail.club.conector)}
+                  className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${detail.club.conector ? 'bg-green-600' : 'bg-white/20'}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${detail.club.conector ? 'left-[22px]' : 'left-0.5'}`} />
+                </button>
+              </div>
+              {(detail.club.conector_porta != null || detail.club.conector_url) && (
+                <p className="text-[11px] text-white/40" data-testid="conector-endereco">
+                  {detail.club.conector_url ? `Endereço: ${detail.club.conector_url}` : ''}
+                  {detail.club.conector_url && detail.club.conector_porta != null ? ' · ' : ''}
+                  {detail.club.conector_porta != null ? `Porta: ${detail.club.conector_porta}` : ''}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

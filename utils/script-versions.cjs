@@ -328,7 +328,8 @@ function arquivoDoEntregavel(row, campo) {
 }
 
 /**
- * Grava (ou substitui) o entregavel de UMA versao. `arquivos` = [{ campo, nome, tmpPath, bytes, mime }] ja validados.
+ * Grava (ou substitui) o entregavel de UMA versao. `arquivos` = [{ campo, nome, tmpPath, bytes, mime }] ja validados,
+ * ou [{ campo, nome, conteudo, mime }] quando o texto chega no proprio corpo JSON (o `conector` manda assim).
  * Cada campo vira <campo><ext> na pasta do entregavel; publicar de novo sobrescreve os arquivos e a linha
  * (os campos que sairam sao apagados do disco). Idempotente por (club_slug, versao, tipo).
  */
@@ -342,7 +343,11 @@ async function saveEntregavel({ dbGet, dbRun, uuidv4 }, { dataDir, club_slug, ve
   for (const a of arquivos) {
     const def = (VM.ENTREGAVEL_CAMPOS[tipo] || {})[a.campo];
     const destino = path.join(dir, `${a.campo}${(def && def.ext) || path.extname(a.nome || '') || ''}`);
-    if (a.tmpPath && a.tmpPath !== destino) {
+    let bytes = a.bytes || 0;
+    if (typeof a.conteudo === 'string') {
+      fs.writeFileSync(destino, a.conteudo, 'utf8');
+      bytes = Buffer.byteLength(a.conteudo, 'utf8');
+    } else if (a.tmpPath && a.tmpPath !== destino) {
       try {
         fs.renameSync(a.tmpPath, destino);
       } catch {
@@ -350,7 +355,7 @@ async function saveEntregavel({ dbGet, dbRun, uuidv4 }, { dataDir, club_slug, ve
         try { fs.unlinkSync(a.tmpPath); } catch { /* o temporario some no proximo boot */ }
       }
     }
-    gravados.push({ nome: a.nome, campo: a.campo, path: destino, bytes: a.bytes || 0, mime: a.mime || (def && def.mime) || 'application/octet-stream' });
+    gravados.push({ nome: a.nome, campo: a.campo, path: destino, bytes, mime: a.mime || (def && def.mime) || 'application/octet-stream' });
   }
   // Campo que existia e nao veio de novo: some do disco (o entregavel novo substitui o anterior por inteiro)
   for (const velho of antigos) {
@@ -428,6 +433,44 @@ async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
     forcar: !!forcar,
   };
   return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo: 'slides', club_slug, email: key, notify_phone, payload });
+}
+
+// ─── Job `conector` (publicacao do conector de IA do clube) ──────────────────
+
+/**
+ * Enfileira o job `conector` de UMA versao aprovada. Quem decide se cabe e o chamador
+ * (routes/script.cjs so chama com produto 'exclusive' e cohort_clubs.conector = 1).
+ *
+ * Deduplicacao mais estreita que a do `slides`: nao repete nem quando o job anterior ja terminou bem
+ * (queued, running OU done contam), porque publicar de novo a mesma versao nao muda nada.
+ * O payload e exatamente { club_slug, nome_clube, versao, refresh_pedido_em }; a chave `tool` nunca entra,
+ * porque o runner recusa o job quando ela aparece.
+ *
+ * @returns {{ job: object, existing: boolean }|null} null quando a versao nao existe.
+ */
+async function enqueueConectorJob({ dbGet, dbRun, uuidv4, JOBS }, { club_slug, nome_clube = null, versao, email }) {
+  const n = Number(versao);
+  if (!Number.isInteger(n) || n < 1) return null;
+  const v = await getVersion({ dbGet }, club_slug, n, { withContent: false });
+  if (!v) return null;
+  const key = VM.normEmail(email);
+  const jaFeito = await dbGet(
+    `SELECT id FROM cohort_jobs
+      WHERE tipo = 'conector' AND club_slug = ?
+        AND CAST(json_extract(payload, '$.versao') AS INTEGER) = ?
+        AND status IN ('queued', 'running', 'done')
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    [club_slug, n]
+  );
+  if (jaFeito) return { job: await JOBS.getJob({ dbGet }, jaFeito.id), existing: true };
+  const notify_phone = await ultimoNotifyPhone({ dbGet }, club_slug, key);
+  const payload = {
+    club_slug,
+    nome_clube: nome_clube || null,
+    versao: n,
+    refresh_pedido_em: new Date().toISOString(),
+  };
+  return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo: 'conector', club_slug, email: key, notify_phone, payload });
 }
 
 // ─── Pedido de nova versao (job `revisar`) ───────────────────────────────────
@@ -546,4 +589,5 @@ module.exports = {
   fichaMd,
   ultimoNotifyPhone,
   enqueueSlidesJob,
+  enqueueConectorJob,
 };

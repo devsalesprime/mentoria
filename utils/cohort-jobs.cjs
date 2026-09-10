@@ -9,6 +9,9 @@
  *   refinar : nova sugestao para 1 campo (payload.field_key). 1 ativo por (club_slug, field_key).
  *   slides  : apresentacao comercial de UMA versao do script (payload.versao). 1 ativo por (club_slug, versao);
  *             o worker publica os arquivos em PUT /api/jobs/:id/entregavel.
+ *   conector: publicacao do conector de IA do clube para UMA versao aprovada (payload.versao).
+ *             Mesmo escopo do `slides`; quem enfileira (utils/script-versions.cjs enqueueConectorJob) ainda
+ *             recusa repetir quando ja existe um `conector` concluido para a mesma versao.
  *
  * Regras:
  *   - job ativo = queued|running; enfileirar de novo dentro do escopo devolve o existente.
@@ -28,7 +31,7 @@ const SCRIPT_FAMILY = ['script', 'revisar'];
 function dedupeScope(tipo) {
   if (SCRIPT_FAMILY.includes(tipo) || tipo === 'pendencia') return 'club';
   if (tipo === 'refinar') return 'club_field';
-  if (tipo === 'slides') return 'club_versao';
+  if (tipo === 'slides' || tipo === 'conector') return 'club_versao';
   return 'pessoa';
 }
 
@@ -73,7 +76,7 @@ async function getJob({ dbGet }, id) {
 /**
  * WHERE do escopo de deduplicacao:
  * prefill = (club, email) · script|revisar = (club, qualquer um dos dois) · refinar = (club, payload.field_key)
- * · pendencia = (club) · slides = (club, payload.versao).
+ * · pendencia = (club) · slides e conector = (club, payload.versao).
  */
 function escopoWhere({ tipo, club_slug, email, field_key = null, versao = null }) {
   const scope = dedupeScope(tipo);
@@ -140,7 +143,9 @@ async function enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo = 'prefill', club_slu
   const field_key = payload && payload.field_key ? String(payload.field_key) : null;
   if (tipo === 'refinar' && !field_key) throw new Error('job refinar exige payload.field_key');
   const versao = payload && payload.versao != null ? Number(payload.versao) : null;
-  if (tipo === 'slides' && !(Number.isInteger(versao) && versao >= 1)) throw new Error('job slides exige payload.versao');
+  if ((tipo === 'slides' || tipo === 'conector') && !(Number.isInteger(versao) && versao >= 1)) {
+    throw new Error(`job ${tipo} exige payload.versao`);
+  }
   const active = await findActiveJob({ dbGet }, { tipo, club_slug, email: key, field_key, versao });
   if (active) {
     // Atualiza o telefone se a pessoa informou um novo (o job ainda nao rodou)

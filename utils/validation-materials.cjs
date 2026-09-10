@@ -149,7 +149,11 @@ const JOB_STATUSES = ['queued', 'running', 'done', 'error', 'needs_human'];
 // pendencia = o worker abriu uma pendencia com o mentor (WhatsApp) para os campos que faltaram (payload.campos); 1 ativa por clube
 // slides = apresentacao comercial (PPTX + PDF + notas + contato) de UMA versao do script (payload.versao); 1 ativo por (clube, versao).
 //         O worker publica o resultado em PUT /api/jobs/:id/entregavel (multipart).
-const JOB_TIPOS = ['prefill', 'script', 'refinar', 'revisar', 'pendencia', 'slides'];
+// conector = publicacao do conector de IA do clube para UMA versao aprovada (payload.versao); 1 por (clube, versao),
+//         contando tambem os ja concluidos. Payload exatamente { club_slug, nome_clube, versao, refresh_pedido_em };
+//         o runner recusa payload com a chave `tool`, que fica reservada para outro tipo. O worker le a ficha, os
+//         materiais e o script pelas mesmas rotas do `slides` e publica em PUT /api/jobs/:id/entregavel (JSON).
+const JOB_TIPOS = ['prefill', 'script', 'refinar', 'revisar', 'pendencia', 'slides', 'conector'];
 
 const COHORT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS cohort_jobs (
   id TEXT PRIMARY KEY,
@@ -185,10 +189,34 @@ async function ensureCohortJobsTable(dbRun) {
     }
 }
 
+// ─── cohort_clubs: colunas do conector (migrations/029_cohort_clubs_conector.sql) ───
+
+/** ALTERs idempotentes de cohort_clubs; "duplicate column" e ignorado (mesmo molde de ensureCohortJobsTable). */
+const COHORT_CLUBS_CONECTOR_DDL = [
+    `ALTER TABLE cohort_clubs ADD COLUMN conector INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE cohort_clubs ADD COLUMN conector_porta INTEGER`,
+    `ALTER TABLE cohort_clubs ADD COLUMN conector_url TEXT`,
+];
+
+/** Idempotente; chamado pelos routers (script, admin-cohort, jobs) alem do server.cjs. Registro: migrations/029. */
+async function ensureConectorColumns(dbRun) {
+    for (const sql of COHORT_CLUBS_CONECTOR_DDL) {
+        try {
+            await dbRun(sql);
+        } catch (e) {
+            if (!/duplicate column/i.test(String(e && e.message))) throw e;
+        }
+    }
+}
+
 // ─── script_entregaveis (arquivos que o worker publica para uma versao do script) ───
 
-/** Tipos de entregavel aceitos em PUT /api/jobs/:id/entregavel (hoje so a apresentacao comercial). */
-const ENTREGAVEL_TIPOS = ['slides'];
+/**
+ * Tipos de entregavel aceitos em PUT /api/jobs/:id/entregavel.
+ *   slides   -> apresentacao comercial (multipart, um arquivo por campo)
+ *   conector -> conector de IA do clube (JSON: meta com o endereco + o texto de instalacao.md)
+ */
+const ENTREGAVEL_TIPOS = ['slides', 'conector'];
 
 /**
  * Campos de arquivo do multipart por tipo: extensao obrigatoria, mime gravado e como o navegador recebe
@@ -201,7 +229,43 @@ const ENTREGAVEL_CAMPOS = {
         notas: { ext: '.md', mime: 'text/markdown; charset=utf-8', disposition: 'attachment', rotulo: 'Notas do apresentador' },
         contact: { ext: '.png', mime: 'image/png', disposition: 'inline', rotulo: 'Contato' },
     },
+    conector: {
+        instalacao: { ext: '.md', mime: 'text/markdown; charset=utf-8', disposition: 'attachment', rotulo: 'Instruções de instalação' },
+    },
 };
+
+/**
+ * Nome de arquivo do corpo JSON -> campo do entregavel ("instalacao.md" -> "instalacao").
+ * Casa pelo nome sem extensao; quando o tipo tem UM campo so e o nome nao bate, usa esse campo.
+ * Devolve null quando nao da para decidir (o chamador responde 400).
+ */
+function campoDoArquivo(tipo, nome) {
+    const defs = ENTREGAVEL_CAMPOS[tipo] || {};
+    const chaves = Object.keys(defs);
+    const base = String(nome || '').split(/[\\/]/).pop() || '';
+    const semExt = base.replace(/\.[^.]+$/, '').toLowerCase();
+    if (chaves.includes(semExt)) return semExt;
+    if (chaves.length === 1) return chaves[0];
+    return null;
+}
+
+/** Teto do conteudo de texto que chega no corpo JSON de PUT /api/jobs/:id/entregavel (por arquivo). */
+const ENTREGAVEL_TEXTO_MAX = 400000;
+
+/**
+ * Corpo JSON de PUT /api/jobs/:id/entregavel (usado pelo `conector`):
+ * { tipo, versao, meta: { url, pagina, tools, atualizado_em, refresh }, arquivos: [{ nome, conteudo }] }.
+ * `meta` chega como objeto (no multipart ele vem como string JSON); os arquivos vem como texto UTF-8.
+ */
+const entregavelJsonSchema = z.object({
+    tipo: z.enum(ENTREGAVEL_TIPOS),
+    versao: z.coerce.number().int().min(1),
+    meta: z.record(z.string(), z.unknown()).nullable().optional(),
+    arquivos: z.array(z.object({
+        nome: z.string().trim().min(1).max(200),
+        conteudo: z.string().max(ENTREGAVEL_TEXTO_MAX),
+    })).max(8).optional().default([]),
+});
 
 /** Limite por arquivo do multipart de entregaveis (a apresentacao com imagens fica na casa das dezenas de MB). */
 const ENTREGAVEL_MAX_BYTES = 80 * 1024 * 1024;
@@ -349,7 +413,12 @@ module.exports = {
     ENTREGAVEL_TIPOS,
     ENTREGAVEL_CAMPOS,
     ENTREGAVEL_MAX_BYTES,
+    ENTREGAVEL_TEXTO_MAX,
     entregavelBodySchema,
+    entregavelJsonSchema,
+    campoDoArquivo,
+    COHORT_CLUBS_CONECTOR_DDL,
+    ensureConectorColumns,
     safeFileName,
     COHORT_JOBS_DDL,
     COHORT_JOBS_INDEX_DDL,

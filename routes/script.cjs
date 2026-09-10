@@ -36,6 +36,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   SUF.ensureSuficienciaColumns(dbRun).catch((e) => console.error('script_fichas suficiencia DDL error:', e.message));
   SF.ensureModoColumn(dbRun).catch((e) => console.error('script_fichas modo DDL error:', e.message));
   MARCOS.ensureMarcosColumns(dbRun).catch((e) => console.error('cohort_members marcos DDL error:', e.message));
+  VM.ensureConectorColumns(dbRun).catch((e) => console.error('cohort_clubs conector DDL error:', e.message));
 
   // Mesmo diskStorage de routes/files.cjs (data/uploads/<userId>/<timestamp>-<nome>); limite por tipo em CTX.fileError
   const contextStorage = multerLib.diskStorage({
@@ -84,7 +85,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
 
   async function getCohortUser(userId) {
     return dbGet(
-      `SELECT u.id, u.email, u.name, u.cohort, u.club_slug, cc.nome AS club_nome, cc.ativo AS club_ativo
+      `SELECT u.id, u.email, u.name, u.cohort, u.club_slug, cc.nome AS club_nome, cc.ativo AS club_ativo,
+              COALESCE(cc.produto, 'exclusive') AS club_produto, COALESCE(cc.conector, 0) AS club_conector
          FROM users u
          LEFT JOIN cohort_clubs cc ON cc.slug = u.club_slug
         WHERE u.id = ?`,
@@ -1015,8 +1017,15 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }
   });
 
+  /**
+   * O clube tem conector de IA contratado? So o roster do Exclusive com a chave ligada no admin
+   * (cohort_clubs.produto = 'exclusive' e cohort_clubs.conector = 1). Clube proprio nunca tem.
+   */
+  const temConector = (cohort) => cohort && cohort.club_produto === 'exclusive' && Number(cohort.club_conector) === 1;
+
   // POST /api/script/versoes/:versao/aprovar
-  // Aprovar tambem manda montar a apresentacao comercial desta versao (job `slides`, 1 ativo por clube + versao).
+  // Aprovar tambem manda montar a apresentacao comercial desta versao (job `slides`, 1 ativo por clube + versao)
+  // e, para quem tem o conector contratado, publicar o conector de IA do clube (job `conector`).
   router.post('/api/script/versoes/:versao/aprovar', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const n = parseVersao(req, res); if (n == null) return;
@@ -1033,7 +1042,21 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
       } catch (e) {
         console.error('slides na aprovação:', e.message);
       }
-      res.json({ success: true, versao, slides_job: slidesJob });
+      // Conector de IA do clube: so para quem contratou. Falhar aqui nunca derruba a aprovação.
+      let conectorJob = null;
+      if (temConector(req.cohort)) {
+        try {
+          const c = await SV.enqueueConectorJob({ dbGet, dbRun, uuidv4, JOBS }, {
+            club_slug: slug, nome_clube: req.cohort.club_nome || null, versao: n, email: req.cohort.email,
+          });
+          if (c) conectorJob = { ...jobView(c.job), existing: c.existing };
+        } catch (e) {
+          console.error('conector na aprovação:', e.message);
+        }
+      } else {
+        console.debug(`conector: clube ${slug} sem conector contratado, nada a publicar.`);
+      }
+      res.json({ success: true, versao, slides_job: slidesJob, conector_job: conectorJob });
     } catch (error) {
       console.error('Error in POST /api/script/versoes/:versao/aprovar:', error);
       res.status(500).json({ success: false, message: 'Erro interno.' });
