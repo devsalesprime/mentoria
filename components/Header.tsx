@@ -19,8 +19,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenLogin }) => {
             className="!py-1.5 !px-3 sm:!py-2 sm:!px-6 !text-[10px] sm:!text-xs"
             onClick={onOpenLogin}
           >
-            <span className="hidden sm:inline">Área do Membro</span>
-            <span className="sm:hidden">Membro</span>
+            <span className="hidden sm:inline">Entrar com o e-mail</span>
+            <span className="sm:hidden">Entrar</span>
           </Button>
         </div>
       </div>

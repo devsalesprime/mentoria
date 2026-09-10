@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 vi.mock('framer-motion', () => ({
   motion: new Proxy({}, {
@@ -16,22 +16,21 @@ import { Header } from '../../components/Header';
 
 describe('Header', () => {
   it('renders without crashing', () => {
-    const { container } = render(
-      <Header
-        onOpenLogin={vi.fn()}
-      />
-    );
+    const { container } = render(<Header onOpenLogin={vi.fn()} />);
     expect(container).toBeTruthy();
   });
 
-  it('accepts callback props', () => {
+  it('o botao diz o que faz: entrar com o e-mail', () => {
+    const { container } = render(<Header onOpenLogin={vi.fn()} />);
+    const texto = container.textContent || '';
+    expect(texto).toContain('Entrar com o e-mail');
+    expect(texto).not.toContain('Área do Membro');
+  });
+
+  it('dispara onOpenLogin no clique', () => {
     const onOpenLogin = vi.fn();
-    const { container } = render(
-      <Header
-        onOpenLogin={onOpenLogin}
-      />
-    );
-    expect(container).toBeTruthy();
-    expect(onOpenLogin).not.toHaveBeenCalled();
+    render(<Header onOpenLogin={onOpenLogin} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(onOpenLogin).toHaveBeenCalledTimes(1);
   });
 });

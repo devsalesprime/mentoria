@@ -10,19 +10,19 @@ import { Footer } from '../Footer';
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const handleStartModule = (moduleId: string) => {
-    navigate('/login', { state: { targetModule: moduleId } });
+  const irParaLogin = () => {
+    navigate('/login', { state: { targetModule: 'overview' } });
   };
 
   return (
     <div className="min-h-screen bg-prosperus-navy text-white selection:bg-prosperus-gold selection:text-prosperus-navy-dark" id="hero">
       <Header
-        onOpenLogin={() => handleStartModule('overview')}
+        onOpenLogin={irParaLogin}
       />
       <main>
-        <Hero onStartDiagnosis={() => handleStartModule('overview')} />
+        <Hero onEntrar={irParaLogin} />
         <ImportantInfo />
-        <ModulesOverview onStartModule={handleStartModule} />
+        <ModulesOverview />
         <GoalSection />
       </main>
       <Footer />

@@ -3,10 +3,10 @@ import { motion } from 'framer-motion';
 import { Button } from './ui/Button';
 
 interface HeroProps {
-  onStartDiagnosis: () => void;
+  onEntrar: () => void;
 }
 
-export const Hero: React.FC<HeroProps> = ({ onStartDiagnosis }) => {
+export const Hero: React.FC<HeroProps> = ({ onEntrar }) => {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20 px-4">
       {/* Background Elements */}
@@ -21,19 +21,19 @@ export const Hero: React.FC<HeroProps> = ({ onStartDiagnosis }) => {
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
           <h1 className="font-serif text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl leading-tight mb-4 sm:mb-6 px-2">
-            Você Sabe Ensinar. <br />
-            <span className="text-gold-gradient italic">Mas Sabe Vender Sua Mentoria?</span>
+            O script de venda da sua mentoria <br />
+            <span className="text-gold-gradient italic">nos 7 passos da Dani Martins</span>
           </h1>
           <p className="font-sans text-prosperus-neutral-grey text-base sm:text-lg md:text-xl max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed font-light px-4">
-            Responda ao diagnóstico e receba a <strong className="text-white">leitura da sua mentoria</strong>: o que já está de pé, o que precisa ficar mais forte e <strong className="text-white">o que fazer primeiro</strong>.
+            Você manda <strong className="text-white">o que já tem</strong>, confere a ficha e recebe o script. Quanto mais contexto chegar, mais o script sai <strong className="text-white">com a sua voz</strong>.
           </p>
 
           <div className="flex flex-col items-center justify-center px-4">
-            <Button onClick={onStartDiagnosis}>
-              Começar Diagnóstico
+            <Button onClick={onEntrar}>
+              Entrar com o meu e-mail
             </Button>
-            <p className="text-sm text-prosperus-neutral-grey/50 mt-4 max-w-xs text-center px-2">
-              ~40 min de respostas. Seu feedback personalizado em até 48h úteis.
+            <p className="text-sm text-prosperus-neutral-grey/50 mt-4 max-w-sm text-center px-2">
+              Sem senha: é o e-mail que você já usa com o Prosperus. Os avisos de cada etapa chegam no seu WhatsApp.
             </p>
           </div>
         </motion.div>

@@ -1,6 +1,27 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
+const materiais = [
+  {
+    step: '01',
+    title: 'Reuniões de venda',
+    desc: 'Transcrições ou gravações de reuniões com clientes.',
+    icon: 'bi-mic',
+  },
+  {
+    step: '02',
+    title: 'Material da mentoria',
+    desc: 'Apostila, slides, ementa, desenho do método, vídeo de aula.',
+    icon: 'bi-journal-text',
+  },
+  {
+    step: '03',
+    title: 'Material de venda',
+    desc: 'Proposta, roteiro atual, apresentação, tabela de preço.',
+    icon: 'bi-file-earmark-text',
+  },
+];
+
 export const ImportantInfo: React.FC = () => {
   return (
     <section className="py-12 sm:py-16 md:py-20 bg-prosperus-navy-dark border-y border-prosperus-navy-light/30">
@@ -13,35 +34,16 @@ export const ImportantInfo: React.FC = () => {
             transition={{ duration: 0.6 }}
           >
             <h2 className="font-serif text-3xl sm:text-4xl text-white mb-3 sm:mb-4 px-2">
-              Você Responde. <span className="text-prosperus-gold italic">Nós Analisamos.</span>
+              Você manda. <span className="text-prosperus-gold italic">A IA lê tudo.</span>
             </h2>
             <p className="font-sans text-prosperus-neutral-grey/70 text-sm sm:text-base max-w-xl mx-auto px-4">
-              Sem achismo. Sem conteúdo genérico. Cada linha do seu feedback nasce de algo que você respondeu.
+              Materiais e ficha na mesma tela. Só você e o Danilo veem o que chega.
             </p>
           </motion.div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-          {[
-            {
-              step: '01',
-              title: 'Diagnóstico Guiado',
-              desc: 'Responda 4 módulos sobre sua expertise, público, método e oferta, e escolha até 3 prioridades. Se quiser, compartilhe também seus perfis e materiais de venda atuais.',
-              icon: 'bi-clipboard2-data',
-            },
-            {
-              step: '02',
-              title: 'Análise Personalizada',
-              desc: 'A equipe Prosperus lê tudo o que você respondeu, olha os perfis e materiais que você compartilhou e cruza com as prioridades que você escolheu.',
-              icon: 'bi-search',
-            },
-            {
-              step: '03',
-              title: 'Feedback Personalizado',
-              desc: 'Em até 48h úteis, você recebe um documento com a análise de cada prioridade e 3 próximos passos concretos para colocar em prática já nesta semana.',
-              icon: 'bi-file-earmark-text',
-            },
-          ].map((item, index) => (
+          {materiais.map((item, index) => (
             <motion.div
               key={item.step}
               initial={{ opacity: 0, y: 20 }}
@@ -71,7 +73,7 @@ export const ImportantInfo: React.FC = () => {
           className="mt-8 sm:mt-10 text-center"
         >
           <p className="font-sans text-sm text-prosperus-gold/80 italic px-4">
-            Quanto melhores suas respostas, mais precisa a análise. Responda com profundidade — é disso que tudo é construído.
+            Sem material, siga direto para a ficha.
           </p>
         </motion.div>
       </div>
