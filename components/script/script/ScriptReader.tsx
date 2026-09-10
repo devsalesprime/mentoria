@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { ScriptDoc } from './parseScript';
 import { documentoDe } from './parseScript';
 import { comTags } from './ScriptPaper';
-import { PassoSecoes, PreparacaoCartao } from './secoes';
+import { ModalSecao, PassoSecoes, PreparacaoCartao } from './secoes';
 import { AulaDani } from './AulaDani';
 import { AULA_7_PASSOS } from '../../../data/aula-7-passos';
+import { renderMarkdown } from '../../../utils/markdown';
 import { TreinamentosPasso } from './TreinamentosPasso';
 import { TarefasPasso } from './TarefasPasso';
 import { contagemDoPasso } from './tarefas';
@@ -70,18 +71,32 @@ export interface ApresentacaoCartao {
 
 /**
  * Conector de IA do clube. So aparece quando o worker ja publicou o entregavel `conector` desta versao:
- * clube sem ele nao ve nada. `onAbrirPagina` leva para a pagina de instalacao (meta.pagina ou meta.url) e
- * `onBaixar` traz o instalacao.md pela mesma rota de download dos outros entregaveis.
+ * clube sem ele nao ve nada. Aqui so entram strings e uma promessa de texto: o token e o axios ficam em
+ * ScriptScreen, e cada arquivo sai por ancora (`<a>`), nunca por window.open.
  */
 export interface ConectorCartao {
-  onAbrirPagina?: () => void;
-  onBaixar?: () => void;
+  /** Endereco do conector (meta.url): aparece na folha e e o que o botao de copiar leva. */
+  endereco?: string;
+  /** Download do instalacao.md, com o token ja na URL. Sem ele o link nao aparece. */
+  urlBaixar?: string;
+  /** Pagina de instalacao publicada (meta.pagina). Vazia: o link nao aparece. */
+  urlPagina?: string;
+  /** Traz o texto do instalacao.md. A folha chama uma vez so, quando abre. */
+  carregarInstrucoes?: () => Promise<string>;
 }
 
-export const COPY_CONECTOR_TITULO = 'Seu conector';
-export const COPY_CONECTOR_TEXTO = 'Conecte o seu assistente de IA à sua mentoria.';
-export const COPY_CONECTOR_ABRIR = 'Abrir a página de instalação';
+export const COPY_CONECTOR_TITULO = 'Seu conector de IA';
+export const COPY_CONECTOR_TEXTO = 'O seu ChatGPT ou Claude passa a conhecer a sua ficha, o seu script e o método dos 7 passos. Prepare reuniões, avalie uma venda pela transcrição e treine objeções por voz.';
+export const COPY_CONECTOR_ABRIR = 'Ver como conectar';
+export const COPY_CONECTOR_COPIAR = 'Copiar o endereço do conector';
+export const COPY_CONECTOR_FOLHA_TITULO = 'Como conectar';
+export const COPY_CONECTOR_COPIAR_CURTO = 'Copiar o endereço';
+export const COPY_CONECTOR_SENHA = 'Este endereço é a sua senha. Não compartilhe.';
+export const COPY_CONECTOR_COPIADO = 'Endereço copiado';
+export const COPY_CONECTOR_CARREGANDO = 'Buscando o passo a passo.';
+export const COPY_CONECTOR_ERRO = 'Não deu para carregar o passo a passo agora. Baixe as instruções aqui embaixo.';
 export const COPY_CONECTOR_BAIXAR = 'Baixar as instruções';
+export const COPY_CONECTOR_PAGINA = 'Abrir o passo a passo em uma página';
 
 export const COPY_PPTX_BAIXAR = 'Baixar apresentação (PPTX)';
 export const COPY_PPTX_MONTANDO = 'Apresentação sendo montada';
@@ -200,23 +215,151 @@ const BlocoApresentacao: React.FC<{ apresentacao: ApresentacaoCartao }> = ({ apr
   </section>
 );
 
-/** Bloco do conector de IA dentro de "Ações": a página de instalação e o arquivo com o passo a passo. */
-const BlocoConector: React.FC<{ conector: ConectorCartao }> = ({ conector }) => (
-  <section className="script-no-print script-acoes-apresentacao" aria-label={COPY_CONECTOR_TITULO} data-testid="cartao-conector">
-    <p className="script-nota-rotulo">{COPY_CONECTOR_TITULO}</p>
-    <p className="script-acoes-nota" data-testid="conector-texto">{COPY_CONECTOR_TEXTO}</p>
-    {conector.onAbrirPagina && (
-      <button type="button" onClick={conector.onAbrirPagina} className="script-acao script-acao-forte" data-testid="conector-abrir">
+/**
+ * Copia um texto: a área de transferência quando o navegador tem uma, seleção escondida quando não tem
+ * (celular antigo, página fora de HTTPS). Devolve se deu certo, para o aviso só aparecer quando copiou.
+ */
+async function copiarTexto(texto: string): Promise<boolean> {
+  try {
+    const area = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (area && typeof area.writeText === 'function') {
+      await area.writeText(texto);
+      return true;
+    }
+  } catch {
+    /* sem área de transferência: segue para a seleção escondida */
+  }
+  if (typeof document === 'undefined') return false;
+  const campo = document.createElement('textarea');
+  campo.value = texto;
+  campo.setAttribute('readonly', '');
+  campo.style.position = 'fixed';
+  campo.style.opacity = '0';
+  document.body.appendChild(campo);
+  try {
+    campo.select();
+    return typeof document.execCommand === 'function' ? document.execCommand('copy') : false;
+  } catch {
+    return false;
+  } finally {
+    campo.remove();
+  }
+}
+
+/**
+ * Bloco do conector de IA dentro de "Ações": o que o mentor ganha em duas linhas, "Ver como conectar"
+ * (a folha com o endereço, o passo a passo e os arquivos) e o atalho para copiar o endereço.
+ *
+ * Por que tudo aqui é âncora e não botão: o caminho antigo era window.open com queda para
+ * location.assign, e no celular ele disparava DUAS vezes (aba nova E a mesma aba), baixando o arquivo em
+ * dobro. Âncora com `target="_blank"` faz o navegador decidir sozinho, uma vez só.
+ */
+const BlocoConector: React.FC<{ conector: ConectorCartao }> = ({ conector }) => {
+  const [aberto, setAberto] = useState(false);
+  const [copiado, setCopiado] = useState<'cartao' | 'folha' | null>(null);
+  const [instrucoes, setInstrucoes] = useState<string | null>(null);
+  const [estado, setEstado] = useState<'parado' | 'carregando' | 'erro'>('parado');
+  const pedido = useRef(false);
+  const corpoRef = useRef<HTMLDivElement>(null);
+  const relogio = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endereco = (conector.endereco || '').trim();
+
+  useEffect(() => () => { if (relogio.current) clearTimeout(relogio.current); }, []);
+
+  const copiar = async (onde: 'cartao' | 'folha') => {
+    if (!endereco) return;
+    if (!(await copiarTexto(endereco))) return;
+    if (relogio.current) clearTimeout(relogio.current);
+    setCopiado(onde);
+    relogio.current = setTimeout(() => setCopiado(null), 2000);
+  };
+
+  // O passo a passo vem do servidor uma vez só, quando a folha abre: fechar e reabrir não pede de novo.
+  useEffect(() => {
+    const carregar = conector.carregarInstrucoes;
+    if (!aberto || !carregar || pedido.current) return undefined;
+    pedido.current = true;
+    let vivo = true;
+    setEstado('carregando');
+    carregar()
+      .then((texto) => { if (vivo) { setInstrucoes(texto || ''); setEstado('parado'); } })
+      .catch(() => { if (vivo) setEstado('erro'); });
+    return () => { vivo = false; };
+  }, [aberto, conector.carregarInstrucoes]);
+
+  // Link dentro do passo a passo abre numa aba nova, para a folha não sumir com quem estava lendo.
+  useEffect(() => {
+    const no = corpoRef.current;
+    if (!no) return;
+    no.querySelectorAll('a[href]').forEach((link) => {
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener');
+    });
+  }, [instrucoes]);
+
+  const arquivos = (
+    <div className="script-conector-links">
+      {conector.urlBaixar && (
+        <a className="script-acao" href={conector.urlBaixar} download target="_blank" rel="noopener" data-testid="conector-baixar">
+          {COPY_CONECTOR_BAIXAR}
+        </a>
+      )}
+      {conector.urlPagina && (
+        <a className="script-acao" href={conector.urlPagina} target="_blank" rel="noopener" data-testid="conector-pagina">
+          {COPY_CONECTOR_PAGINA}
+        </a>
+      )}
+    </div>
+  );
+
+  return (
+    <section className="script-no-print script-acoes-apresentacao" aria-label={COPY_CONECTOR_TITULO} data-testid="cartao-conector">
+      <p className="script-nota-rotulo">{COPY_CONECTOR_TITULO}</p>
+      <p className="script-acoes-nota" data-testid="conector-texto">{COPY_CONECTOR_TEXTO}</p>
+      <button type="button" onClick={() => setAberto(true)} className="script-acao script-acao-forte" data-testid="conector-abrir">
         {COPY_CONECTOR_ABRIR}
       </button>
-    )}
-    {conector.onBaixar && (
-      <button type="button" onClick={conector.onBaixar} className="script-acao" data-testid="conector-baixar">
-        {COPY_CONECTOR_BAIXAR}
-      </button>
-    )}
-  </section>
-);
+      {endereco && (
+        <button type="button" onClick={() => copiar('cartao')} className="script-acao" data-testid="conector-copiar">
+          {COPY_CONECTOR_COPIAR}
+        </button>
+      )}
+      {copiado === 'cartao' && (
+        <p className="script-acoes-nota" role="status" data-testid="conector-copiado">{COPY_CONECTOR_COPIADO}</p>
+      )}
+      <ModalSecao
+        titulo={COPY_CONECTOR_FOLHA_TITULO}
+        aberto={aberto}
+        onFechar={() => setAberto(false)}
+        testId="conector-folha"
+        acoes={arquivos}
+      >
+        {endereco && (
+          <div className="script-conector-endereco">
+            <code className="script-conector-url" data-testid="conector-url">{endereco}</code>
+            <button type="button" onClick={() => copiar('folha')} className="script-acao script-folha-copiar" data-testid="conector-copiar-folha">
+              {COPY_CONECTOR_COPIAR_CURTO}
+            </button>
+          </div>
+        )}
+        {copiado === 'folha' && (
+          <p className="script-acoes-nota" role="status" data-testid="conector-copiado-folha">{COPY_CONECTOR_COPIADO}</p>
+        )}
+        <p className="script-acoes-nota">{COPY_CONECTOR_SENHA}</p>
+        {estado === 'carregando' && <p className="script-acoes-nota" data-testid="conector-carregando">{COPY_CONECTOR_CARREGANDO}</p>}
+        {estado === 'erro' && <p className="script-acoes-nota" data-testid="conector-erro">{COPY_CONECTOR_ERRO}</p>}
+        {instrucoes && (
+          <div
+            ref={corpoRef}
+            className="script-md script-conector-passo"
+            data-testid="conector-instrucoes"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(instrucoes) }}
+          />
+        )}
+      </ModalSecao>
+    </section>
+  );
+};
 
 /**
  * "Ações": o fim de tudo, depois do Passo 7 e da Preparação.

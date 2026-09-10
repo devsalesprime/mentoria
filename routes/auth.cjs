@@ -195,7 +195,15 @@ module.exports = function createAuthRoutes({ db, dbGet, dbRun, dbAll, jwt, axios
         });
       }
 
-      if (!fullName) fullName = (cohortMember && cohortMember.nome) || 'Membro';
+      /**
+       * Como a pessoa passa a ser chamada (decisao do Danilo, 10/09). Quem tem linha em cohort_members e
+       * chamada pelo nome da linha: o contato do HubSpot pode ser um contato de teste, e nao pode apelidar
+       * quem esta na lista. Sem linha, vale o nome do HubSpot; sem os dois, 'Membro'. O nome escolhido aqui
+       * e o que vai para o token, para users.name e para diagnostic_data.name, entao entrar de novo conserta
+       * um nome errado gravado antes.
+       */
+      const nomeDaLista = String((cohortRow && cohortRow.nome) || '').trim();
+      fullName = nomeDaLista || fullName || 'Membro';
 
       // Verificar se usuário já existe (e-mail chega normalizado; contas antigas podem ter caixa diferente)
       const existingRow = await dbGet(

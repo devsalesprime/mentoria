@@ -63,8 +63,11 @@ export { splitScript };
  * Apresentacao comercial: a versao traz `entregaveis` (arquivos ja publicados pelo worker) e `slides_job` (pedido na
  * fila). Com arquivo -> baixar o PPTX (e ver o PDF / as notas no bloco "Ações"); na fila -> "Apresentação sendo
  * montada"; sem nada -> "Gerar apresentação" (POST /api/script/versoes/:versao/slides). Aprovar ja pede a apresentacao.
- * Conector de IA: quando a versao traz o entregavel `conector`, o bloco "Ações" ganha o cartao "Seu conector"
- * com a pagina de instalacao (meta.pagina) e o arquivo instalacao.md. Clube sem esse entregavel nao ve nada.
+ * Conector de IA: quando a versao traz o entregavel `conector`, o bloco "Ações" ganha o cartao "Seu conector
+ * de IA". "Ver como conectar" abre a folha (ModalSecao) com o endereco do conector, o passo a passo lido do
+ * instalacao.md (GET .../entregaveis/conector/instalacao?inline=1, pelo axios com o token) e os links de
+ * baixar e da pagina publicada; "Copiar o endereço do conector" copia meta.url. Clube sem esse entregavel
+ * nao ve nada.
  * "Baixar a preparação" (onda J, item 23): a Preparacao vira PNG (html-to-image, 2x, fundo creme e texto navy) a
  * partir do proprio cartao (#script-preparacao-export). Fora da tela de Preparacao o cartao fica montado
  * escondido, entao o download funciona de qualquer tela; nunca ha dois nos com o mesmo id.
@@ -577,16 +580,6 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     window.location.assign(url);
   };
 
-  /** Abre um endereco de fora do app numa aba nova (a pagina de instalacao do conector). Nunca leva o token. */
-  const abrirPagina = (url: string) => {
-    if (typeof window === 'undefined' || !url) return;
-    if (typeof window.open === 'function') {
-      const aberta = window.open(url, '_blank', 'noopener');
-      if (aberta) return;
-    }
-    window.location.assign(url);
-  };
-
   /** Abre um arquivo da apresentacao comercial (o token vai na URL: o link nasce fora do axios). */
   const abrirEntregavel = (arq: EntregavelArquivo, inline: boolean) => {
     if (typeof window === 'undefined') return;
@@ -666,19 +659,28 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
     : { estado: 'ausente', onGerar: () => setEtapaSlides('aviso'), gerando: gerandoSlides };
 
   /**
-   * Cartao "Seu conector" no bloco "Ações": a pagina de instalacao (meta.pagina, e o endereco do conector
-   * quando ela nao vier) e o arquivo com o passo a passo. Sem o entregavel publicado, nada aparece.
+   * Cartao "Seu conector de IA" no bloco "Ações". Sem o entregavel publicado, nada aparece.
+   * O cartao so recebe strings e uma funcao que traz o texto do instalacao.md: quem sabe do token e do
+   * axios e esta tela. `meta.pagina` costuma vir vazia, e por isso ela NAO cai mais para `meta.url`: o
+   * endereco do conector aberto no navegador devolve 406, e o mentor achava que estava quebrado.
    */
   const conector = useMemo<ConectorCartao | undefined>(() => {
     if (!conectorEntregavel) return undefined;
     const meta = conectorEntregavel.meta || {};
-    const pagina = String(meta.pagina || meta.url || '').trim();
     const instalacao = conectorEntregavel.arquivos.find((a) => a.campo === 'instalacao') || null;
+    const comQuery = (url: string, query: string) => `${url}${url.includes('?') ? '&' : '?'}${query}`;
     return {
-      onAbrirPagina: pagina ? () => abrirPagina(pagina) : undefined,
-      onBaixar: instalacao ? () => abrirEntregavel(instalacao, false) : undefined,
+      endereco: String(meta.url || '').trim(),
+      urlPagina: String(meta.pagina || '').trim(),
+      urlBaixar: instalacao ? comQuery(instalacao.url, `token=${encodeURIComponent(token)}`) : undefined,
+      carregarInstrucoes: instalacao
+        ? async () => {
+          const res = await axios.get(comQuery(instalacao.url, 'inline=1'), { ...headers, responseType: 'text' });
+          return typeof res.data === 'string' ? res.data : String(res.data ?? '');
+        }
+        : undefined,
     };
-  }, [conectorEntregavel, token]);
+  }, [conectorEntregavel, token, headers]);
 
   const enviarComentario = async (passo: number) => {
     const texto = (draft[passo] || '').trim();

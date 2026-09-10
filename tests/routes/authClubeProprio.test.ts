@@ -11,6 +11,10 @@
  *
  * Cobre: roster intacto · clube próprio criado uma vez e reaproveitado no segundo login · claim `cohort`
  * no token · recusa sem negócio ganho · cohortGuard aceitando 'club' · GET /api/diagnostic com o produto.
+ *
+ * Cobre também o nome de quem entra (decisão do Danilo, 10/09): quem tem linha em cohort_members é
+ * chamado pelo nome da linha, porque o contato do HubSpot pode ser um contato de teste. Sem linha, o
+ * nome vem do HubSpot; sem os dois, 'Membro'.
  */
 import express from 'express';
 import sqlite3 from 'sqlite3';
@@ -55,6 +59,9 @@ const HUBSPOT = {
   'ana@roster.com': { contato: true, ganho: false },
   'nova@fora.com': { contato: true, ganho: true },
   'semdeal@fora.com': { contato: true, ganho: false },
+  // Só para o nome: quem entra pelo HubSpot sem linha na lista e quem tem linha com o nome em branco
+  'sozinho@fora.com': { contato: true, ganho: true },
+  'embranco@roster.com': { contato: true, ganho: false },
 };
 
 const axiosFake = {
@@ -298,5 +305,48 @@ describe('o admin lê os dois produtos sem confundir um com o outro', () => {
     await api('PUT', '/api/admin/clubs/clube-x/members', { 'x-user': 'admin' }, { ativo: 0 });
     await api('PUT', '/api/admin/clubs/clube-x/members', { 'x-user': 'admin' }, { ativo: 1 });
     expect((await usuario('ana@roster.com')).cohort).toBe('exclusive');
+  });
+});
+
+/**
+ * Como a pessoa passa a ser chamada. O contato do HubSpot pode ser um contato de teste (foi assim que a
+ * conta do Danilo virou "QA TESTES Teste Redirect IGNORAR" na saudação), então quem está na lista é
+ * chamado pelo nome da lista. O HubSpot de mentira deste arquivo devolve 'Nome De Teste' para todo mundo.
+ */
+describe('o nome de quem entra: a lista vale mais que o HubSpot', () => {
+  it('quem está na lista é chamado pelo nome da lista, não pelo contato do HubSpot', async () => {
+    const r = await entrar('ana@roster.com');
+    expect(r.status).toBe(200);
+    expect(r.data.user.name).toBe('Ana');
+    expect(JSON.parse(r.data.token).name).toBe('Ana');
+    expect((await usuario('ana@roster.com')).name).toBe('Ana');
+  });
+
+  it('nome errado já gravado na conta volta ao da lista no login seguinte', async () => {
+    await dbRun(`UPDATE users SET name = 'QA TESTES Teste Redirect IGNORAR' WHERE lower(email) = 'ana@roster.com'`);
+    await entrar('ana@roster.com');
+    expect((await usuario('ana@roster.com')).name).toBe('Ana');
+    expect((await dbGet(`SELECT name FROM diagnostic_data WHERE email = ?`, ['ana@roster.com'])).name).toBe('Ana');
+  });
+
+  it('sem linha na lista, o nome continua vindo do HubSpot', async () => {
+    const r = await entrar('sozinho@fora.com');
+    expect(r.status).toBe(200);
+    expect(r.data.user.name).toBe('Nome De Teste');
+    expect((await usuario('sozinho@fora.com')).name).toBe('Nome De Teste');
+  });
+
+  it('linha na lista com o nome em branco: vale o nome do HubSpot', async () => {
+    await dbRun(`INSERT INTO cohort_members (email, club_slug, nome) VALUES ('embranco@roster.com', 'clube-x', '  ')`);
+    const r = await entrar('embranco@roster.com');
+    expect(r.status).toBe(200);
+    expect(r.data.user.name).toBe('Nome De Teste');
+  });
+
+  it('sem nome na lista e sem contato no HubSpot: "Membro"', async () => {
+    await dbRun(`INSERT INTO cohort_members (email, club_slug, nome) VALUES ('anonimo@roster.com', 'clube-x', NULL)`);
+    const r = await entrar('anonimo@roster.com');
+    expect(r.status).toBe(200);
+    expect(r.data.user.name).toBe('Membro');
   });
 });

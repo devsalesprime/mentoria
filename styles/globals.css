@@ -1619,6 +1619,40 @@ input[type='range'].regua-nativa::-moz-range-thumb {
 }
 .script-folha-copiar { min-height: 44px; padding: 0 1rem; }
 
+/* Conector de IA: o endereço num cartão de código e o passo a passo lido do instalacao.md, dentro da folha. */
+.script-conector-endereco {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(202, 154, 67, 0.45);
+  border-radius: 0.6rem;
+  background: rgba(202, 154, 67, 0.1);
+}
+@media (min-width: 640px) {
+  .script-conector-endereco { flex-direction: row; align-items: center; justify-content: space-between; }
+}
+/* O endereço é longo: quebra dentro do cartão em vez de empurrar a página para o lado no celular. */
+.script-conector-url {
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #0A2540;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.script-conector-endereco .script-folha-copiar { flex: none; }
+.script-conector-links { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+a.script-acao { text-decoration: none; }
+.script-conector-passo { overflow-wrap: anywhere; }
+.script-conector-passo pre, .script-conector-passo table { max-width: 100%; overflow-x: auto; }
+.script-conector-passo code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em; }
+@media (max-width: 639.98px) {
+  .script-conector-links > .script-acao { width: 100%; }
+}
+
 /* O que observar: um sinal por linha. */
 .script-sinais { display: flex; flex-direction: column; gap: 0.45rem; }
 .script-sinal { display: flex; align-items: flex-start; line-height: 1.5; }
