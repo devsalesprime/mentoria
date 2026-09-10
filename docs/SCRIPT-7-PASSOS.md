@@ -32,7 +32,7 @@ A tela **não** mostra mais estimativa de minutos ("10 a 30 minutos", "minutos p
 |--|--|
 | `cohort_clubs (slug PK, nome, ativo, created_at)` | 1 clube = 1 negócio do HubSpot. `ativo = 0` mantém o cadastro mas não libera login pelo cohort. |
 | `cohort_members (email PK minúsculo, club_slug FK, nome, created_at)` | E-mails que entram sem depender da etapa do HubSpot. |
-| `users.cohort` (`'exclusive'` ou NULL) e `users.club_slug` | Marcados no login (ou pelo seed/admin). As rotas leem daqui, nunca do token. |
+| `users.cohort` (`'exclusive'` para o roster, `'club'` para o clube próprio criado no login, ou NULL) e `users.club_slug` | Marcados no login (ou pelo seed/admin). As rotas leem daqui, nunca do token. |
 | `script_fichas (id, club_slug UNIQUE, fields JSON, materials JSON, materials_status, materials_submitted_at, ficha_status, prefill_meta, prefilled_at, reviewed_at, last_user_activity_at, ...)` | 1 linha por clube, criada sob demanda. `materials_status`/`materials_submitted_at` do clube viram `submitted` com o **primeiro** membro que clicou (servem à visão geral do admin). |
 | `cohort_config (key PK, value, updated_at)` (migration 016) | Chave/valor editável na aba Cohort. Hoje: `prazo_materiais`. A tabela é criada de forma idempotente pelos próprios routers (`utils/validation-materials.cjs`), sem mudar o `server.cjs`. |
 | `cohort_jobs (id PK, tipo, club_slug, email, notify_phone, status, attempts, payload JSON, result JSON, error, created_at, started_at, finished_at, updated_at)` (migration 017) | Fila para o worker externo (a Naia, no VPS). `tipo` em `prefill` / `script` / `refinar` (ship 2; coluna TEXT sem CHECK, nada a migrar). `status` em `queued` / `running` / `done` / `error` / `needs_human`. Job ativo = `queued`/`running`; **escopo da deduplicação por tipo** (`utils/cohort-jobs.cjs dedupeScope`): `prefill` = 1 por (`club_slug`, `email`); `script` = 1 por `club_slug`; `refinar` = 1 por (`club_slug`, `payload.field_key`). Sem FK de propósito (o DDL roda pelos routers antes do schema principal). Índice `(status, created_at)`. DDL idempotente em `utils/validation-materials.cjs` (`ensureCohortJobsTable`); registro em `migrations/017_cohort_jobs.sql`. |
@@ -91,7 +91,7 @@ Regras: cria clube que falta e atualiza `nome`/`ativo`; membro só é **inserido
 1. Procura o e-mail (minúsculo) em `cohort_members` de clube ativo.
 2. Se tem `HUBSPOT_PRIVATE_TOKEN`, consulta o HubSpot como antes (nome + etapa do negócio).
 3. **Fora do cohort:** comportamento idêntico ao anterior (404 sem contato, 403 sem negócio ganho, 500 em erro).
-4. **No cohort:** entra mesmo sem contato ou sem etapa ganha; erro do HubSpot é tolerado (log). Nome = HubSpot > `cohort_members.nome` > "Membro". Grava `users.cohort = 'exclusive'` e `users.club_slug`. Token ganha `cohort` e `clubSlug` (informativo).
+4. **No cohort:** entra mesmo sem contato ou sem etapa ganha; erro do HubSpot é tolerado (log). Nome = HubSpot > `cohort_members.nome` > "Membro". Grava `users.cohort` com o produto do clube (`'exclusive'` no roster; `'club'` quando o login cria o clube próprio `u-<local>-<6 do sha1>`, desde a 028) e `users.club_slug`. Token ganha `cohort` e `clubSlug` (informativo).
 5. E-mail é normalizado (trim + minúsculo) no schema; a conta é procurada por `lower(email)`, então `JULIO.Filho@…` e `julio.filho@…` são a mesma linha em `users` (contas antigas com caixa diferente continuam sendo encontradas).
 6. `ativo = 0` no clube: sem bypass no login, `GET /api/diagnostic` devolve `cohort = null` (menu some) e `/api/script/*` responde 403 `{ enabled: false }`. Ativar/desativar pela aba Cohort re-sincroniza `users.cohort` dos membros; o seed faz o mesmo no boot.
 
@@ -626,6 +626,8 @@ cp data/prosperus.db data/prosperus-backup-$(date +%s).db      # 1. backup do ba
 git pull                                                        # 2. código (depois do merge em main)
 npm install                                                     # 3. dependências (não há nova)
 # 3b. .env: COHORT_JOBS_TOKEN=<token> (e APP_URL=https://<dominio>, opcional)
+sqlite3 data/prosperus.db < migrations/028_cohort_clubs_produto.sql    # 3c. ANTES do restart: colunas e passo de dado
+sqlite3 data/prosperus.db < migrations/029_cohort_clubs_conector.sql   #     (o boot só cria colunas; o UPDATE que liga o conector vive no .sql)
 npm run build                                                   # 4. front
 pm2 restart prosperus                                           # 5. o boot aplica a migration 015 e o seed do cohort; os routers criam cohort_config (016) e cohort_jobs (017)
 pm2 logs prosperus --lines 30 | grep -E "Schema v2.2|Cohort seed|Fila /api/jobs"

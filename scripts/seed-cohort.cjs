@@ -69,7 +69,10 @@ async function seedCohort(h, seedPath = DEFAULT_SEED) {
   // Marca usuarios ja existentes que ainda nao tem cohort (so clube ativo)
   const marked = await h.dbRun(
     `UPDATE users
-       SET cohort = 'exclusive',
+       SET cohort = COALESCE((SELECT CASE WHEN cc.produto = 'club' THEN 'club' ELSE 'exclusive' END
+                                FROM cohort_members cm
+                                JOIN cohort_clubs cc ON cc.slug = cm.club_slug
+                               WHERE cm.email = lower(users.email) AND cc.ativo = 1), 'exclusive'),
            club_slug = (SELECT cm.club_slug FROM cohort_members cm
                           JOIN cohort_clubs cc ON cc.slug = cm.club_slug
                          WHERE cm.email = lower(users.email) AND cc.ativo = 1),
