@@ -83,6 +83,18 @@ export interface ConectorCartao {
   urlPagina?: string;
   /** Traz o texto do instalacao.md. A folha chama uma vez so, quando abre. */
   carregarInstrucoes?: () => Promise<string>;
+  /** Acesso ao portal "Minha base" do clube (`club_portal` da ficha). Sem ele o bloco nao aparece. */
+  portal?: PortalAcesso;
+}
+
+/**
+ * Portal "Minha base": onde o mentor ve o atlas da base de conhecimento do clube e cuida dos documentos.
+ * Vem do servidor ja pronto; a senha fica escondida na tela ate a pessoa pedir para ver.
+ */
+export interface PortalAcesso {
+  url?: string | null;
+  usuario: string;
+  senha?: string | null;
 }
 
 export const COPY_CONECTOR_TITULO = 'Seu conector de IA';
@@ -97,6 +109,23 @@ export const COPY_CONECTOR_CARREGANDO = 'Buscando o passo a passo.';
 export const COPY_CONECTOR_ERRO = 'Não deu para carregar o passo a passo agora. Baixe as instruções aqui embaixo.';
 export const COPY_CONECTOR_BAIXAR = 'Baixar as instruções';
 export const COPY_CONECTOR_PAGINA = 'Abrir o passo a passo em uma página';
+
+/** Portal "Minha base", logo abaixo dos botões do conector. Só aparece com o acesso já publicado. */
+export const COPY_PORTAL_TITULO = 'Sua base de conhecimento';
+export const COPY_PORTAL_TEXTO = 'Veja tudo o que a sua IA recebeu, o mapa dos assuntos e edite ou acrescente documentos.';
+export const COPY_PORTAL_ENDERECO = 'Endereço';
+export const COPY_PORTAL_USUARIO = 'Usuário';
+export const COPY_PORTAL_SENHA = 'Senha';
+export const COPY_PORTAL_COPIAR = 'Copiar';
+export const COPY_PORTAL_COPIADO = 'Copiado';
+export const COPY_PORTAL_MOSTRAR = 'Mostrar';
+export const COPY_PORTAL_OCULTAR = 'Ocultar';
+export const COPY_PORTAL_COPIAR_USUARIO = 'Copiar o usuário';
+export const COPY_PORTAL_COPIAR_SENHA = 'Copiar a senha';
+export const COPY_PORTAL_MOSTRAR_SENHA = 'Mostrar a senha';
+export const COPY_PORTAL_OCULTAR_SENHA = 'Ocultar a senha';
+/** A senha na tela enquanto está escondida: tamanho fixo, para não entregar quantos caracteres ela tem. */
+const PORTAL_SENHA_MASCARA = '••••••••';
 
 export const COPY_PPTX_BAIXAR = 'Baixar apresentação (PPTX)';
 export const COPY_PPTX_MONTANDO = 'Apresentação sendo montada';
@@ -246,9 +275,14 @@ async function copiarTexto(texto: string): Promise<boolean> {
   }
 }
 
+/** Onde a confirmação "copiado" aparece: um lugar por vez. */
+type OndeCopiado = 'cartao' | 'folha' | 'portal-usuario' | 'portal-senha';
+
 /**
  * Bloco do conector de IA dentro de "Ações": o que o mentor ganha em duas linhas, "Ver como conectar"
  * (a folha com o endereço, o passo a passo e os arquivos) e o atalho para copiar o endereço.
+ * Logo abaixo, quando o clube já tem acesso ao portal "Minha base", vem o bloco da base de conhecimento
+ * com endereço, usuário e senha.
  *
  * Por que tudo aqui é âncora e não botão: o caminho antigo era window.open com queda para
  * location.assign, e no celular ele disparava DUAS vezes (aba nova E a mesma aba), baixando o arquivo em
@@ -256,19 +290,24 @@ async function copiarTexto(texto: string): Promise<boolean> {
  */
 const BlocoConector: React.FC<{ conector: ConectorCartao }> = ({ conector }) => {
   const [aberto, setAberto] = useState(false);
-  const [copiado, setCopiado] = useState<'cartao' | 'folha' | null>(null);
+  const [copiado, setCopiado] = useState<OndeCopiado | null>(null);
+  const [senhaAVista, setSenhaAVista] = useState(false);
   const [instrucoes, setInstrucoes] = useState<string | null>(null);
   const [estado, setEstado] = useState<'parado' | 'carregando' | 'erro'>('parado');
   const pedido = useRef(false);
   const corpoRef = useRef<HTMLDivElement>(null);
   const relogio = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endereco = (conector.endereco || '').trim();
+  const portalUsuario = (conector.portal?.usuario || '').trim();
+  const portalUrl = (conector.portal?.url || '').trim();
+  const portalSenha = (conector.portal?.senha || '').trim();
 
   useEffect(() => () => { if (relogio.current) clearTimeout(relogio.current); }, []);
 
-  const copiar = async (onde: 'cartao' | 'folha') => {
-    if (!endereco) return;
-    if (!(await copiarTexto(endereco))) return;
+  const copiar = async (onde: OndeCopiado, texto: string) => {
+    const valor = (texto || '').trim();
+    if (!valor) return;
+    if (!(await copiarTexto(valor))) return;
     if (relogio.current) clearTimeout(relogio.current);
     setCopiado(onde);
     relogio.current = setTimeout(() => setCopiado(null), 2000);
@@ -320,12 +359,72 @@ const BlocoConector: React.FC<{ conector: ConectorCartao }> = ({ conector }) => 
         {COPY_CONECTOR_ABRIR}
       </button>
       {endereco && (
-        <button type="button" onClick={() => copiar('cartao')} className="script-acao" data-testid="conector-copiar">
+        <button type="button" onClick={() => copiar('cartao', endereco)} className="script-acao" data-testid="conector-copiar">
           {COPY_CONECTOR_COPIAR}
         </button>
       )}
       {copiado === 'cartao' && (
         <p className="script-acoes-nota" role="status" data-testid="conector-copiado">{COPY_CONECTOR_COPIADO}</p>
+      )}
+      {portalUsuario && (
+        <section className="script-portal" aria-label={COPY_PORTAL_TITULO} data-testid="cartao-portal">
+          <p className="script-nota-rotulo">{COPY_PORTAL_TITULO}</p>
+          <p className="script-acoes-nota" data-testid="portal-texto">{COPY_PORTAL_TEXTO}</p>
+          <dl className="script-portal-acesso">
+            {portalUrl && (
+              <div className="script-portal-linha">
+                <dt className="script-portal-rotulo">{COPY_PORTAL_ENDERECO}</dt>
+                <dd className="script-portal-valor">
+                  <a className="script-portal-dado" href={portalUrl} target="_blank" rel="noopener" data-testid="portal-url">{portalUrl}</a>
+                </dd>
+              </div>
+            )}
+            <div className="script-portal-linha">
+              <dt className="script-portal-rotulo">{COPY_PORTAL_USUARIO}</dt>
+              <dd className="script-portal-valor">
+                <code className="script-portal-dado" data-testid="portal-usuario">{portalUsuario}</code>
+                <button
+                  type="button"
+                  onClick={() => copiar('portal-usuario', portalUsuario)}
+                  className="script-acao script-portal-botao"
+                  aria-label={COPY_PORTAL_COPIAR_USUARIO}
+                  data-testid="portal-copiar-usuario"
+                >
+                  {COPY_PORTAL_COPIAR}
+                </button>
+              </dd>
+            </div>
+            {portalSenha && (
+              <div className="script-portal-linha">
+                <dt className="script-portal-rotulo">{COPY_PORTAL_SENHA}</dt>
+                <dd className="script-portal-valor">
+                  <code className="script-portal-dado" data-testid="portal-senha">{senhaAVista ? portalSenha : PORTAL_SENHA_MASCARA}</code>
+                  <button
+                    type="button"
+                    onClick={() => setSenhaAVista((v) => !v)}
+                    className="script-acao script-portal-botao"
+                    aria-label={senhaAVista ? COPY_PORTAL_OCULTAR_SENHA : COPY_PORTAL_MOSTRAR_SENHA}
+                    data-testid="portal-ver-senha"
+                  >
+                    {senhaAVista ? COPY_PORTAL_OCULTAR : COPY_PORTAL_MOSTRAR}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copiar('portal-senha', portalSenha)}
+                    className="script-acao script-portal-botao"
+                    aria-label={COPY_PORTAL_COPIAR_SENHA}
+                    data-testid="portal-copiar-senha"
+                  >
+                    {COPY_PORTAL_COPIAR}
+                  </button>
+                </dd>
+              </div>
+            )}
+          </dl>
+          {(copiado === 'portal-usuario' || copiado === 'portal-senha') && (
+            <p className="script-acoes-nota" role="status" data-testid="portal-copiado">{COPY_PORTAL_COPIADO}</p>
+          )}
+        </section>
       )}
       <ModalSecao
         titulo={COPY_CONECTOR_FOLHA_TITULO}
@@ -337,7 +436,7 @@ const BlocoConector: React.FC<{ conector: ConectorCartao }> = ({ conector }) => 
         {endereco && (
           <div className="script-conector-endereco">
             <code className="script-conector-url" data-testid="conector-url">{endereco}</code>
-            <button type="button" onClick={() => copiar('folha')} className="script-acao script-folha-copiar" data-testid="conector-copiar-folha">
+            <button type="button" onClick={() => copiar('folha', endereco)} className="script-acao script-folha-copiar" data-testid="conector-copiar-folha">
               {COPY_CONECTOR_COPIAR_CURTO}
             </button>
           </div>

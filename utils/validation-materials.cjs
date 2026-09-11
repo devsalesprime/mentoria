@@ -198,9 +198,19 @@ const COHORT_CLUBS_CONECTOR_DDL = [
     `ALTER TABLE cohort_clubs ADD COLUMN conector_url TEXT`,
 ];
 
-/** Idempotente; chamado pelos routers (script, admin-cohort, jobs) alem do server.cjs. Registro: migrations/029. */
+/**
+ * Portal "Minha base" do clube (migrations/030_cohort_clubs_portal.sql): endereco, login e senha que o
+ * worker grava no PATCH done do job `conector`. Mesmo molde idempotente das colunas do conector.
+ */
+const COHORT_CLUBS_PORTAL_DDL = [
+    `ALTER TABLE cohort_clubs ADD COLUMN portal_url TEXT`,
+    `ALTER TABLE cohort_clubs ADD COLUMN portal_usuario TEXT`,
+    `ALTER TABLE cohort_clubs ADD COLUMN portal_senha TEXT`,
+];
+
+/** Idempotente; chamado pelos routers (script, admin-cohort, jobs) alem do server.cjs. Registro: migrations/029 e 030. */
 async function ensureConectorColumns(dbRun) {
-    for (const sql of COHORT_CLUBS_CONECTOR_DDL) {
+    for (const sql of [...COHORT_CLUBS_CONECTOR_DDL, ...COHORT_CLUBS_PORTAL_DDL]) {
         try {
             await dbRun(sql);
         } catch (e) {
@@ -418,6 +428,7 @@ module.exports = {
     entregavelJsonSchema,
     campoDoArquivo,
     COHORT_CLUBS_CONECTOR_DDL,
+    COHORT_CLUBS_PORTAL_DDL,
     ensureConectorColumns,
     safeFileName,
     COHORT_JOBS_DDL,

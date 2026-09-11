@@ -75,6 +75,8 @@ interface ClubDetail {
    * `produto`: 'exclusive' = clube do roster; 'club' = clube próprio, criado sozinho no login.
    * `conector`: o conector de IA do Exclusive está ligado para este clube (só existe no roster).
    * `conector_porta` e `conector_url`: onde ele foi publicado; só leitura, quem grava é o worker.
+   * `portal_usuario`: login do clube no portal "Minha base". `portal_senha_definida`: só diz se existe
+   * senha guardada. A senha nunca chega ao admin; quem a vê é o próprio mentor, na tela dele.
    */
   club: {
     slug: string;
@@ -84,6 +86,8 @@ interface ClubDetail {
     conector?: boolean;
     conector_porta?: number | null;
     conector_url?: string | null;
+    portal_usuario?: string | null;
+    portal_senha_definida?: boolean;
   };
   membros: Member[];
   files: ClubFile[];
@@ -955,6 +959,12 @@ export const CohortClubDetail: React.FC<CohortClubDetailProps> = ({ slug, token,
                   {detail.club.conector_url ? `Endereço: ${detail.club.conector_url}` : ''}
                   {detail.club.conector_url && detail.club.conector_porta != null ? ' · ' : ''}
                   {detail.club.conector_porta != null ? `Porta: ${detail.club.conector_porta}` : ''}
+                </p>
+              )}
+              {detail.club.portal_usuario && (
+                <p className="text-[11px] text-white/40" data-testid="portal-acesso">
+                  {`Portal Minha base · Usuário: ${detail.club.portal_usuario} · `}
+                  {detail.club.portal_senha_definida ? 'Senha definida' : 'Sem senha'}
                 </p>
               )}
             </div>

@@ -67,7 +67,8 @@ export { splitScript };
  * de IA". "Ver como conectar" abre a folha (ModalSecao) com o endereco do conector, o passo a passo lido do
  * instalacao.md (GET .../entregaveis/conector/instalacao?inline=1, pelo axios com o token) e os links de
  * baixar e da pagina publicada; "Copiar o endereço do conector" copia meta.url. Clube sem esse entregavel
- * nao ve nada.
+ * nao ve nada. Logo abaixo dos botoes, quando a ficha traz `club_portal`, vem "Sua base de conhecimento":
+ * o endereco do portal "Minha base", o usuario e a senha (escondida ate a pessoa pedir para ver).
  * "Baixar a preparação" (onda J, item 23): a Preparacao vira PNG (html-to-image, 2x, fundo creme e texto navy) a
  * partir do proprio cartao (#script-preparacao-export). Fora da tela de Preparacao o cartao fica montado
  * escondido, entao o download funciona de qualquer tela; nunca ha dois nos com o mesmo id.
@@ -210,6 +211,8 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
   const meuEmail = useMemo(() => emailDoToken(token), [token]);
   const clubSlug = ficha.data?.club.slug || '';
   const clubNome = ficha.data?.club.nome || 'Prosperus Exclusive';
+  // Portal "Minha base" do clube: null enquanto o acesso nao foi publicado
+  const clubPortal = ficha.data?.club_portal ?? null;
   // A ficha traz `ajustes_usados` e `ajustes_limite` dentro de `script` (onda E4)
   const resumoScript = ficha.data?.script as (ScriptSummary & ScriptAjustes) | undefined;
   const grifosApi = useGrifos(token, versao?.versao ?? null);
@@ -679,8 +682,10 @@ export const ScriptScreen: React.FC<ScriptScreenProps> = ({ ficha, token, onNavi
           return typeof res.data === 'string' ? res.data : String(res.data ?? '');
         }
         : undefined,
+      // Portal "Minha base": vem da ficha (club_portal), nao do entregavel. Sem ele o bloco nao aparece.
+      portal: clubPortal && clubPortal.usuario ? clubPortal : undefined,
     };
-  }, [conectorEntregavel, token, headers]);
+  }, [conectorEntregavel, token, headers, clubPortal]);
 
   const enviarComentario = async (passo: number) => {
     const texto = (draft[passo] || '').trim();

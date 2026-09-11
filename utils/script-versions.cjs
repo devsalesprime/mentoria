@@ -438,13 +438,27 @@ async function enqueueSlidesJob({ dbGet, dbRun, uuidv4, safeJsonParse, JOBS }, {
 // ─── Job `conector` (publicacao do conector de IA do clube) ──────────────────
 
 /**
+ * O clube ja tem senha guardada do portal "Minha base"? Vai no payload do job `conector` como
+ * `portal_tem_senha`: com `false` o runner manda o portal criar uma senha nova, com `true` ele deixa
+ * a que existe em paz. Clube sem a coluna ainda (banco velho) conta como sem senha.
+ */
+async function portalTemSenha({ dbGet }, club_slug) {
+  try {
+    const row = await dbGet(`SELECT portal_senha FROM cohort_clubs WHERE slug = ?`, [club_slug]);
+    return !!(row && row.portal_senha != null && String(row.portal_senha).trim());
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Enfileira o job `conector` de UMA versao aprovada. Quem decide se cabe e o chamador
  * (routes/script.cjs so chama com produto 'exclusive' e cohort_clubs.conector = 1).
  *
  * Deduplicacao mais estreita que a do `slides`: nao repete nem quando o job anterior ja terminou bem
  * (queued, running OU done contam), porque publicar de novo a mesma versao nao muda nada.
- * O payload e exatamente { club_slug, nome_clube, versao, refresh_pedido_em }; a chave `tool` nunca entra,
- * porque o runner recusa o job quando ela aparece.
+ * O payload e exatamente { club_slug, nome_clube, versao, portal_tem_senha, refresh_pedido_em }; a chave
+ * `tool` nunca entra, porque o runner recusa o job quando ela aparece.
  *
  * @returns {{ job: object, existing: boolean }|null} null quando a versao nao existe.
  */
@@ -468,6 +482,7 @@ async function enqueueConectorJob({ dbGet, dbRun, uuidv4, JOBS }, { club_slug, n
     club_slug,
     nome_clube: nome_clube || null,
     versao: n,
+    portal_tem_senha: await portalTemSenha({ dbGet }, club_slug),
     refresh_pedido_em: new Date().toISOString(),
   };
   return JOBS.enqueueJob({ dbGet, dbRun, uuidv4 }, { tipo: 'conector', club_slug, email: key, notify_phone, payload });

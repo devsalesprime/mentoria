@@ -206,6 +206,31 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     return out;
   }
 
+  /**
+   * Acesso do clube ao portal "Minha base" (cohort_clubs.portal_*, migration 030), para a pessoa ver o atlas
+   * da base de conhecimento e cuidar dos documentos. Sai `null` enquanto o worker nao gravou o usuario: sem
+   * login nao ha o que mostrar. A senha vai junto porque e ela que o mentor digita no portal; quem limita o
+   * alcance e o cohortGuard, que so deixa cada um ler o proprio clube.
+   *
+   * Le em consulta propria, fora do getCohortUser: as colunas nascem no boot de forma assincrona, e um
+   * SELECT delas no guard derruba TODA rota do script enquanto o ALTER nao termina. Erro aqui vira `null`.
+   */
+  async function portalDoClube(clubSlug) {
+    try {
+      const row = await dbGet(`SELECT portal_url, portal_usuario, portal_senha FROM cohort_clubs WHERE slug = ?`, [clubSlug]);
+      const usuario = String((row && row.portal_usuario) || '').trim();
+      if (!usuario) return null;
+      return {
+        url: String((row && row.portal_url) || '').trim() || null,
+        usuario,
+        senha: String((row && row.portal_senha) || '').trim() || null,
+      };
+    } catch (e) {
+      console.error('portal "Minha base": não deu para ler o acesso do clube:', e.message);
+      return null;
+    }
+  }
+
   function fichaPayload(ficha, user, files, config, job, extra = {}) {
     const view = SF.buildFichaView(safeJsonParse(ficha.fields, {}), { includeInternal: false, nomes: extra.nomes || null });
     const prefillMeta = safeJsonParse(ficha.prefill_meta, null) || {};
@@ -220,6 +245,8 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
     }));
     return {
       club: { slug: user.club_slug, nome: user.club_nome },
+      // Portal "Minha base" do clube: { url, usuario, senha } ou null enquanto o acesso nao existe
+      club_portal: extra.portal || null,
       ficha_status: ficha.ficha_status,
       // Caminho escolhido na entrada: 'essencial' (16 perguntas) | 'completo' (34) | null (ainda nao escolheu)
       modo: ficha.modo === 'essencial' || ficha.modo === 'completo' ? ficha.modo : null,
@@ -284,7 +311,7 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
   router.get('/api/script/ficha', authMiddleware, cohortGuard, async (req, res) => {
     try {
       const slug = req.cohort.club_slug;
-      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos, fichaAtualizacoes] = await Promise.all([
+      const [files, config, job, contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos, fichaAtualizacoes, portal] = await Promise.all([
         listOwnFiles(req.user.userId),
         VM.readCohortConfig(dbAll),
         JOBS.findLatestJob({ dbGet }, { club_slug: slug, email: req.cohort.email }),
@@ -297,11 +324,12 @@ module.exports = function createScriptRoutes({ dbGet, dbRun, dbAll, authMiddlewa
         contarAjustes(slug),
         MARCOS.lerMarcos({ dbGet }, req.cohort.email),
         contarAtualizacoesFicha(slug),
+        portalDoClube(slug),
       ]);
       res.json({
         success: true,
         enabled: true,
-        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos, fichaAtualizacoes }),
+        data: fichaPayload(req.ficha, req.cohort, files, config, prefillJobParaMembro(job), { contextoCounts, refinandoKeys, scriptSummary, scriptJob, entregaveis, nomes, ajustes, marcos, fichaAtualizacoes, portal }),
       });
     } catch (error) {
       console.error('Error in GET /api/script/ficha:', error);

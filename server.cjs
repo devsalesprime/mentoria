@@ -419,6 +419,19 @@ function initializeDatabase() {
     db.run(`ALTER TABLE cohort_clubs ADD COLUMN conector_url TEXT`, (err) => {
       if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.conector_url migration error:', err.message);
     });
+    // Portal "Minha base" do clube (registro: migrations/030_cohort_clubs_portal.sql):
+    // onde o mentor ve o atlas da base de conhecimento e cuida dos documentos. As tres colunas sao gravadas
+    // pelo worker no PATCH done do job `conector` (result.portal) e sao a fonte da verdade do acesso.
+    // A senha so e regravada quando vem preenchida: result.portal.senha nulo mantem a que ja esta guardada.
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN portal_url TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.portal_url migration error:', err.message);
+    });
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN portal_usuario TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.portal_usuario migration error:', err.message);
+    });
+    db.run(`ALTER TABLE cohort_clubs ADD COLUMN portal_senha TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column')) console.error('⚠️ cohort_clubs.portal_senha migration error:', err.message);
+    });
     // Marcos por pessoa da onda I (registro: migrations/027_cohort_members_marcos.sql):
     // como_funciona_visto_em = clicou em "Começar o meu script" na tela inicial (a tela so abre na 1a entrada);
     // whatsapp_lembrete_em   = dispensou o lembrete unico do WhatsApp numa tela de espera.

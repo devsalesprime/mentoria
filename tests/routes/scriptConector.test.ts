@@ -10,6 +10,8 @@
  * - o worker publica em PUT /api/jobs/:id/entregavel com corpo JSON (meta + instalacao.md) e o membro ve na versao
  * - PATCH done com result.porta e result.tenant_url grava o endereco no clube
  * - admin liga e desliga pelo PATCH /api/admin/cohort/clubs/:slug/conector
+ * - portal "Minha base" (migration 030): result.portal vira portal_url, portal_usuario e portal_senha,
+ *   a ficha do membro entrega `club_portal` e o payload do job leva `portal_tem_senha`
  */
 import fs from 'fs';
 import os from 'os';
@@ -217,10 +219,12 @@ describe('aprovar uma versao pede a publicacao do conector', () => {
 
     const j = await worker('GET', `/api/jobs/${jobConectorV1}`);
     const p = j.data.job.payload;
-    expect(Object.keys(p).sort()).toEqual(['club_slug', 'nome_clube', 'refresh_pedido_em', 'versao']);
+    expect(Object.keys(p).sort()).toEqual(['club_slug', 'nome_clube', 'portal_tem_senha', 'refresh_pedido_em', 'versao']);
     expect(p.club_slug).toBe('clube-com');
     expect(p.nome_clube).toBe('Clube Com');
     expect(p.versao).toBe(1);
+    // Clube sem senha guardada: o runner tem de gerar uma no portal
+    expect(p.portal_tem_senha).toBe(false);
     expect(typeof p.refresh_pedido_em).toBe('string');
     expect(Number.isNaN(Date.parse(p.refresh_pedido_em))).toBe(false);
     // A chave `tool` nunca entra: o runner recusa o job com ela
@@ -413,5 +417,119 @@ describe('admin liga e desliga o conector', () => {
     const proprio = await api('GET', '/api/admin/clubs/clube-proprio/script-ficha', 'admin');
     expect(proprio.data.data.club.produto).toBe('club');
     expect(proprio.data.data.club.conector).toBe(false);
+  });
+});
+
+/**
+ * Portal "Minha base" (migration 030): o mentor ganha um endereco com login e senha para ver o atlas da
+ * base de conhecimento do clube e cuidar dos documentos. As credenciais vivem em cohort_clubs (portal_url,
+ * portal_usuario, portal_senha), o runner as devolve em result.portal no PATCH done do job `conector`, e a
+ * ficha do membro as entrega em `club_portal`. Senha nula no result nunca apaga a que ja esta guardada.
+ */
+describe('portal "Minha base" do clube', () => {
+  const URL_PORTAL = 'https://prosperusclub.com.br/minha-base/';
+
+  it('portal_url, portal_usuario e portal_senha existem depois do boot dos routers', async () => {
+    // O CREATE TABLE do teste nao tem as tres colunas: quem as cria e o ensureConectorColumns dos routers
+    const row = await dbGet(`SELECT portal_url, portal_usuario, portal_senha FROM cohort_clubs WHERE slug = 'clube-sem'`);
+    expect(row.portal_url).toBe(null);
+    expect(row.portal_usuario).toBe(null);
+    expect(row.portal_senha).toBe(null);
+  });
+
+  it('a migration 030 so acrescenta as colunas, sem passo de dado', () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), 'migrations', '030_cohort_clubs_portal.sql'), 'utf8');
+    expect(sql).toContain('ALTER TABLE cohort_clubs ADD COLUMN portal_url TEXT');
+    expect(sql).toContain('ALTER TABLE cohort_clubs ADD COLUMN portal_usuario TEXT');
+    expect(sql).toContain('ALTER TABLE cohort_clubs ADD COLUMN portal_senha TEXT');
+    expect(sql).toContain("VALUES ('030'");
+    expect(sql).not.toMatch(/UPDATE cohort_clubs/);
+    expect(VM.COHORT_CLUBS_PORTAL_DDL).toHaveLength(3);
+  });
+
+  it('antes da publicacao a ficha do membro traz club_portal nulo', async () => {
+    const r = await api('GET', '/api/script/ficha', 'userCom');
+    expect(r.status).toBe(200);
+    expect(r.data.data.club_portal).toBe(null);
+  });
+
+  it('PATCH done com result.portal grava endereco, usuario e senha no clube', async () => {
+    const r = await worker('PATCH', `/api/jobs/${jobConectorV1}`, {
+      status: 'done',
+      result: {
+        tenant_url: 'https://conector.prosperus.app/clube-com/mcp',
+        porta: 8803,
+        portal: { url: URL_PORTAL, usuario: 'clube-com', porta: 8820, senha: 'chave-inicial-123', criado: true, senha_redefinida: false },
+      },
+    });
+    expect(r.status).toBe(200);
+    const club = await dbGet(`SELECT portal_url, portal_usuario, portal_senha FROM cohort_clubs WHERE slug = 'clube-com'`);
+    expect(club.portal_url).toBe(URL_PORTAL);
+    expect(club.portal_usuario).toBe('clube-com');
+    expect(club.portal_senha).toBe('chave-inicial-123');
+  });
+
+  it('senha nula ou vazia no result nao apaga a que ja esta guardada', async () => {
+    await worker('PATCH', `/api/jobs/${jobConectorV1}`, {
+      status: 'done',
+      result: { portal: { url: URL_PORTAL, usuario: 'clube-com', porta: 8820, senha: null, criado: false, senha_redefinida: false } },
+    });
+    expect((await dbGet(`SELECT portal_senha FROM cohort_clubs WHERE slug = 'clube-com'`)).portal_senha).toBe('chave-inicial-123');
+
+    await worker('PATCH', `/api/jobs/${jobConectorV1}`, {
+      status: 'done',
+      result: { portal: { url: URL_PORTAL, usuario: 'clube-com', senha: '   ' } },
+    });
+    expect((await dbGet(`SELECT portal_senha FROM cohort_clubs WHERE slug = 'clube-com'`)).portal_senha).toBe('chave-inicial-123');
+
+    // done sem `portal` nenhum tambem deixa tudo como estava
+    await worker('PATCH', `/api/jobs/${jobConectorV1}`, { status: 'done', result: { versao: 1 } });
+    const club = await dbGet(`SELECT portal_url, portal_usuario, portal_senha FROM cohort_clubs WHERE slug = 'clube-com'`);
+    expect(club.portal_usuario).toBe('clube-com');
+    expect(club.portal_senha).toBe('chave-inicial-123');
+  });
+
+  it('senha nova preenchida substitui a anterior', async () => {
+    await worker('PATCH', `/api/jobs/${jobConectorV1}`, {
+      status: 'done',
+      result: { portal: { url: URL_PORTAL, usuario: 'clube-com', senha: 'chave-nova-456', senha_redefinida: true } },
+    });
+    expect((await dbGet(`SELECT portal_senha FROM cohort_clubs WHERE slug = 'clube-com'`)).portal_senha).toBe('chave-nova-456');
+  });
+
+  it('a ficha do membro passa a trazer club_portal com endereco, usuario e senha', async () => {
+    const r = await api('GET', '/api/script/ficha', 'userCom');
+    expect(r.status).toBe(200);
+    expect(r.data.data.club_portal).toEqual({ url: URL_PORTAL, usuario: 'clube-com', senha: 'chave-nova-456' });
+  });
+
+  it('membro de outro clube nao ve o portal do clube-com', async () => {
+    const r = await api('GET', '/api/script/ficha', 'userSem');
+    expect(r.status).toBe(200);
+    expect(r.data.data.club_portal).toBe(null);
+    expect(r.text).not.toContain('chave-nova-456');
+  });
+
+  it('com senha guardada, o job novo sai com portal_tem_senha true', async () => {
+    await dbRun(`INSERT INTO script_versions (id, club_slug, versao, content_md, resumo, status) VALUES ('sv-com-3', 'clube-com', 3, ?, '', 'rascunho')`, [MD]);
+    const r = await api('POST', '/api/script/versoes/3/aprovar', 'userCom');
+    expect(r.status).toBe(200);
+    expect(r.data.conector_job.existing).toBe(false);
+    const j = await worker('GET', `/api/jobs/${r.data.conector_job.id}`);
+    expect(j.data.job.payload.portal_tem_senha).toBe(true);
+    expect(j.data.job.payload.versao).toBe(3);
+  });
+
+  it('o detalhe do clube no admin mostra o usuario e se ha senha, nunca a senha', async () => {
+    const r = await api('GET', '/api/admin/clubs/clube-com/script-ficha', 'admin');
+    expect(r.status).toBe(200);
+    expect(r.data.data.club.portal_usuario).toBe('clube-com');
+    expect(r.data.data.club.portal_senha_definida).toBe(true);
+    // O clube do admin leva o sinal, nunca a senha (o result do job continua sendo coisa da fila)
+    expect(JSON.stringify(r.data.data.club)).not.toContain('chave-nova-456');
+
+    const sem = await api('GET', '/api/admin/clubs/clube-sem/script-ficha', 'admin');
+    expect(sem.data.data.club.portal_usuario).toBe(null);
+    expect(sem.data.data.club.portal_senha_definida).toBe(false);
   });
 });

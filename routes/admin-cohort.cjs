@@ -90,6 +90,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
    * Clube para o admin, com o estado do conector de IA.
    * `conector` so faz sentido no roster do Exclusive; clube proprio volta sempre desligado.
    * `conector_porta` e `conector_url` sao de leitura: quem grava e o worker, no fim da publicacao.
+   * `portal_usuario` e o login do clube no portal "Minha base"; `portal_senha_definida` diz apenas SE existe
+   * senha guardada. A senha em si nunca sai daqui: quem a mostra e a tela do proprio mentor.
    */
   const clubeParaAdmin = (club) => ({
     slug: club.slug,
@@ -99,6 +101,8 @@ module.exports = function createAdminCohortRoutes({ dbGet, dbRun, dbAll, authMid
     conector: produtoDoClube(club) === 'exclusive' && Number(club.conector) === 1,
     conector_porta: club.conector_porta == null ? null : Number(club.conector_porta),
     conector_url: club.conector_url || null,
+    portal_usuario: club.portal_usuario || null,
+    portal_senha_definida: !!(club.portal_senha && String(club.portal_senha).trim()),
   });
 
   /**

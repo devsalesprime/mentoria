@@ -273,8 +273,20 @@ export function fichaEhSecundaria(d: Pick<ScriptFichaData, 'ficha_status' | 'suf
   return !!d && d.suficiencia?.resultado === 'suficiente' && d.ficha_status !== 'em_revisao';
 }
 
+/**
+ * Acesso do clube ao portal "Minha base" (`club_portal` de GET /api/script/ficha): onde o mentor vê o atlas
+ * da base de conhecimento e cuida dos documentos. Só vem para quem é do clube, e só depois de publicado.
+ */
+export interface ClubPortal {
+  url: string | null;
+  usuario: string;
+  senha: string | null;
+}
+
 export interface ScriptFichaData {
   club: { slug: string; nome: string };
+  /** `null` enquanto o worker não gravou o acesso ao portal "Minha base" deste clube. */
+  club_portal?: ClubPortal | null;
   ficha_status: FichaStatus;
   /** Caminho escolhido na entrada: 'essencial' (16 perguntas) | 'completo' (34) | null antes da escolha. */
   modo?: ScriptModo | null;

@@ -155,6 +155,11 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
    * Job `conector` que terminou bem: guarda no clube onde o conector ficou (cohort_clubs.conector_porta e
    * conector_url), a partir de result.porta e result.tenant_url. Campo ausente ou fora de forma nao apaga o
    * que ja estava gravado. Falhar aqui nunca derruba o PATCH: o status do job e o que importa.
+   *
+   * O mesmo result traz `portal` ({ url, usuario, porta, senha, criado, senha_redefinida }), o acesso do
+   * mentor ao portal "Minha base". Endereco e usuario sao gravados quando vem preenchidos; a senha SO
+   * quando vem como texto nao vazio. Senha nula quer dizer "o portal ja tinha uma", e a que esta guardada
+   * continua valendo: ela nunca e sobrescrita por nulo.
    */
   async function gravarEnderecoConector(job, result) {
     try {
@@ -165,6 +170,15 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
       if (Number.isInteger(porta) && porta > 0) { sets.push('conector_porta = ?'); params.push(porta); }
       const url = String(result.tenant_url || result.url || '').trim();
       if (url) { sets.push('conector_url = ?'); params.push(url.slice(0, 500)); }
+      const portal = result.portal;
+      if (portal && typeof portal === 'object' && !Array.isArray(portal)) {
+        const portalUrl = String(portal.url || '').trim();
+        if (portalUrl) { sets.push('portal_url = ?'); params.push(portalUrl.slice(0, 500)); }
+        const usuario = String(portal.usuario || '').trim();
+        if (usuario) { sets.push('portal_usuario = ?'); params.push(usuario.slice(0, 200)); }
+        const senha = typeof portal.senha === 'string' ? portal.senha.trim() : '';
+        if (senha) { sets.push('portal_senha = ?'); params.push(senha.slice(0, 200)); }
+      }
       if (!sets.length) return;
       await dbRun(`UPDATE cohort_clubs SET ${sets.join(', ')} WHERE slug = ?`, [...params, job.club_slug]);
     } catch (e) {

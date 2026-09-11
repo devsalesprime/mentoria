@@ -1653,6 +1653,46 @@ a.script-acao { text-decoration: none; }
   .script-conector-links > .script-acao { width: 100%; }
 }
 
+/* Portal "Minha base": endereço, usuário e senha logo abaixo dos botões do conector. */
+.script-portal { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid rgba(202, 154, 67, 0.35); }
+.script-portal-acesso {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.6rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(202, 154, 67, 0.45);
+  border-radius: 0.6rem;
+  background: rgba(202, 154, 67, 0.1);
+}
+.script-portal-linha { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.script-portal-rotulo {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(10, 37, 64, 0.65);
+}
+.script-portal-valor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+/* O endereço e a senha podem ser longos: quebram dentro da caixa em vez de empurrar a página para o lado. */
+.script-portal-dado {
+  min-width: 0;
+  flex: 1 1 12rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #0A2540;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.script-portal-botao { flex: none; min-height: 36px; padding: 0 0.75rem; font-size: 0.8rem; }
+
 /* O que observar: um sinal por linha. */
 .script-sinais { display: flex; flex-direction: column; gap: 0.45rem; }
 .script-sinal { display: flex; align-items: flex-start; line-height: 1.5; }

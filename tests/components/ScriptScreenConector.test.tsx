@@ -6,6 +6,9 @@ import {
   COPY_CONECTOR_ABRIR, COPY_CONECTOR_BAIXAR, COPY_CONECTOR_COPIAR, COPY_CONECTOR_COPIADO,
   COPY_CONECTOR_COPIAR_CURTO, COPY_CONECTOR_FOLHA_TITULO, COPY_CONECTOR_PAGINA, COPY_CONECTOR_SENHA,
   COPY_CONECTOR_TEXTO, COPY_CONECTOR_TITULO,
+  COPY_PORTAL_COPIADO, COPY_PORTAL_COPIAR, COPY_PORTAL_COPIAR_SENHA, COPY_PORTAL_COPIAR_USUARIO,
+  COPY_PORTAL_ENDERECO, COPY_PORTAL_MOSTRAR, COPY_PORTAL_MOSTRAR_SENHA, COPY_PORTAL_OCULTAR,
+  COPY_PORTAL_OCULTAR_SENHA, COPY_PORTAL_SENHA, COPY_PORTAL_TEXTO, COPY_PORTAL_TITULO, COPY_PORTAL_USUARIO,
 } from '../../components/script/script/ScriptReader';
 
 /**
@@ -79,7 +82,7 @@ const ENTREGAVEL_CONECTOR = {
 
 function fichaMock(over: Record<string, unknown> = {}) {
   return {
-    data: { club: { slug: 'x', nome: 'Elos Club' }, ficha_status: 'confirmada', modo: 'completo', script: { versoes: 1, ultima: null, aprovada: null, job: null }, ...over },
+    data: { club: { slug: 'x', nome: 'Elos Club' }, club_portal: null, ficha_status: 'confirmada', modo: 'completo', script: { versoes: 1, ultima: null, aprovada: null, job: null }, ...over },
     gerarScript: vi.fn(async () => ({ ok: true })),
     pedirRevisao: vi.fn(async () => ({ ok: true })),
     definirModo: vi.fn(async () => ({ ok: true })),
@@ -293,7 +296,114 @@ describe('ScriptScreen: o cartão "Seu conector de IA"', () => {
       COPY_CONECTOR_TITULO, COPY_CONECTOR_TEXTO, COPY_CONECTOR_ABRIR, COPY_CONECTOR_COPIAR,
       COPY_CONECTOR_FOLHA_TITULO, COPY_CONECTOR_COPIAR_CURTO, COPY_CONECTOR_SENHA, COPY_CONECTOR_COPIADO,
       COPY_CONECTOR_BAIXAR, COPY_CONECTOR_PAGINA,
+      COPY_PORTAL_TITULO, COPY_PORTAL_TEXTO, COPY_PORTAL_ENDERECO, COPY_PORTAL_USUARIO, COPY_PORTAL_SENHA,
+      COPY_PORTAL_COPIAR, COPY_PORTAL_COPIADO, COPY_PORTAL_MOSTRAR, COPY_PORTAL_OCULTAR,
+      COPY_PORTAL_COPIAR_USUARIO, COPY_PORTAL_COPIAR_SENHA, COPY_PORTAL_MOSTRAR_SENHA, COPY_PORTAL_OCULTAR_SENHA,
     ];
     for (const texto of textos) expect(texto).not.toMatch(PROIBIDOS);
+  });
+});
+
+/**
+ * "Sua base de conhecimento": o bloco do portal "Minha base", logo abaixo dos botoes do conector.
+ * Ele vem de `club_portal` na ficha (nao do entregavel), entao clube sem acesso publicado nao ve nada.
+ * A senha nasce escondida atras de uma mascara de tamanho fixo; "Mostrar" a revela e "Ocultar" a esconde
+ * de novo. Copiar o usuario ou a senha usa a mesma area de transferencia do conector, com o aviso "Copiado".
+ */
+describe('ScriptScreen: o bloco "Sua base de conhecimento"', () => {
+  const PORTAL = { url: 'https://prosperusclub.com.br/minha-base/', usuario: 'elos-club', senha: 'chave-secreta-123' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it('com club_portal: título, o convite e as três linhas do acesso', async () => {
+    mockVersao([ENTREGAVEL_CONECTOR]);
+    render(<ScriptScreen ficha={fichaMock({ club_portal: PORTAL })} token="tok" />);
+    const acoes = await irParaAcoes();
+    const bloco = within(acoes).getByTestId('cartao-portal');
+    expect(within(bloco).getByText(COPY_PORTAL_TITULO)).toBeInTheDocument();
+    expect(within(bloco).getByText(COPY_PORTAL_TEXTO)).toBeInTheDocument();
+    expect(within(bloco).getByText(COPY_PORTAL_ENDERECO)).toBeInTheDocument();
+    expect(within(bloco).getByText(COPY_PORTAL_USUARIO)).toBeInTheDocument();
+    expect(within(bloco).getByText(COPY_PORTAL_SENHA)).toBeInTheDocument();
+    expect(within(bloco).getByTestId('portal-usuario')).toHaveTextContent(PORTAL.usuario);
+  });
+
+  it('a cópia do bloco é exatamente a que foi aprovada', () => {
+    expect(COPY_PORTAL_TITULO).toBe('Sua base de conhecimento');
+    expect(COPY_PORTAL_TEXTO).toBe('Veja tudo o que a sua IA recebeu, o mapa dos assuntos e edite ou acrescente documentos.');
+    expect(COPY_PORTAL_ENDERECO).toBe('Endereço');
+    expect(COPY_PORTAL_USUARIO).toBe('Usuário');
+    expect(COPY_PORTAL_SENHA).toBe('Senha');
+    expect(COPY_PORTAL_COPIAR).toBe('Copiar');
+    expect(COPY_PORTAL_COPIADO).toBe('Copiado');
+    expect(COPY_PORTAL_MOSTRAR).toBe('Mostrar');
+    expect(COPY_PORTAL_OCULTAR).toBe('Ocultar');
+  });
+
+  it('sem club_portal: nada do portal na tela, mesmo com o conector publicado', async () => {
+    mockVersao([ENTREGAVEL_CONECTOR]);
+    render(<ScriptScreen ficha={fichaMock()} token="tok" />);
+    const acoes = await irParaAcoes();
+    expect(within(acoes).getByTestId('cartao-conector')).toBeInTheDocument();
+    expect(within(acoes).queryByTestId('cartao-portal')).toBeNull();
+    expect(screen.queryByText(COPY_PORTAL_TITULO)).toBeNull();
+    expect(screen.queryByText(PORTAL.senha)).toBeNull();
+  });
+
+  it('o endereço é link e abre numa aba nova', async () => {
+    mockVersao([ENTREGAVEL_CONECTOR]);
+    render(<ScriptScreen ficha={fichaMock({ club_portal: PORTAL })} token="tok" />);
+    const acoes = await irParaAcoes();
+    const link = within(acoes).getByTestId('portal-url');
+    expect(link).toHaveAttribute('href', PORTAL.url);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener');
+  });
+
+  it('a senha nasce escondida e o botão a mostra e a esconde de novo', async () => {
+    mockVersao([ENTREGAVEL_CONECTOR]);
+    render(<ScriptScreen ficha={fichaMock({ club_portal: PORTAL })} token="tok" />);
+    const acoes = await irParaAcoes();
+    expect(within(acoes).getByTestId('portal-senha')).not.toHaveTextContent(PORTAL.senha);
+
+    const ver = within(acoes).getByRole('button', { name: COPY_PORTAL_MOSTRAR_SENHA });
+    expect(ver).toHaveTextContent(COPY_PORTAL_MOSTRAR);
+    fireEvent.click(ver);
+    expect(within(acoes).getByTestId('portal-senha')).toHaveTextContent(PORTAL.senha);
+
+    const esconder = within(acoes).getByRole('button', { name: COPY_PORTAL_OCULTAR_SENHA });
+    expect(esconder).toHaveTextContent(COPY_PORTAL_OCULTAR);
+    fireEvent.click(esconder);
+    expect(within(acoes).getByTestId('portal-senha')).not.toHaveTextContent(PORTAL.senha);
+  });
+
+  it('copiar o usuário e copiar a senha mandam o valor certo e confirmam', async () => {
+    mockVersao([ENTREGAVEL_CONECTOR]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<ScriptScreen ficha={fichaMock({ club_portal: PORTAL })} token="tok" />);
+    const acoes = await irParaAcoes();
+
+    fireEvent.click(within(acoes).getByRole('button', { name: COPY_PORTAL_COPIAR_USUARIO }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(PORTAL.usuario));
+    expect(await within(acoes).findByTestId('portal-copiado')).toHaveTextContent(COPY_PORTAL_COPIADO);
+
+    fireEvent.click(within(acoes).getByRole('button', { name: COPY_PORTAL_COPIAR_SENHA }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(PORTAL.senha));
+    expect(await within(acoes).findByTestId('portal-copiado')).toHaveTextContent(COPY_PORTAL_COPIADO);
+  });
+
+  it('sem senha guardada: o acesso aparece só com endereço e usuário', async () => {
+    mockVersao([ENTREGAVEL_CONECTOR]);
+    render(<ScriptScreen ficha={fichaMock({ club_portal: { ...PORTAL, senha: null } })} token="tok" />);
+    const acoes = await irParaAcoes();
+    const bloco = within(acoes).getByTestId('cartao-portal');
+    expect(within(bloco).getByTestId('portal-usuario')).toHaveTextContent(PORTAL.usuario);
+    expect(within(bloco).queryByTestId('portal-senha')).toBeNull();
+    expect(within(bloco).queryByRole('button', { name: COPY_PORTAL_MOSTRAR_SENHA })).toBeNull();
   });
 });
