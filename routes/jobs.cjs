@@ -292,8 +292,16 @@ module.exports = function createJobsRoutes({ dbGet, dbRun, dbAll, uuidv4, fs, pa
   // `queued` com `result` funde com o result anterior (reinicio de done/needs_human sem perder a pendencia).
   router.patch('/api/jobs/:id', loadJob, validateBody(jobPatchSchema), async (req, res) => {
     try {
+      if (req.job.tipo === 'conector' && req.body.status === 'done') {
+        // Credenciais do portal vao para o clube; a senha em claro nao fica no result do job
+        // (o admin le os jobs do clube com o result inteiro).
+        await gravarEnderecoConector(req.job, req.body.result);
+        const portal = req.body.result && req.body.result.portal;
+        if (portal && typeof portal === 'object' && !Array.isArray(portal) && 'senha' in portal) {
+          req.body.result = { ...req.body.result, portal: { ...portal, senha: portal.senha ? '[guardada no clube]' : null } };
+        }
+      }
       let job = await JOBS.updateJobStatus({ dbGet, dbRun }, req.job.id, req.body);
-      if (job && job.tipo === 'conector' && req.body.status === 'done') await gravarEnderecoConector(job, req.body.result);
       let suficiencia = null;
       if (job && job.tipo === 'prefill' && (req.body.status === 'done' || req.body.status === 'needs_human')) {
         try {
